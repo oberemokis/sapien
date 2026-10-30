@@ -27,10 +27,13 @@ export function useWindowWidth() {
   return useSyncExternalStore(subscribeWindowWidth, windowWidth);
 }
 
-export function useFittedLayout() {
+// На экране без чата его место достаётся середине, а выбор пользователя
+// остаётся как был: на экране с чатом он вернётся.
+export function useFittedLayout(withChat: boolean) {
   const layout = useSelector(layoutStore);
+  const chat = { ...layout.chat, open: layout.chat.open && withChat };
 
-  return fitLayout(layout, useWindowWidth());
+  return fitLayout({ ...layout, chat }, useWindowWidth());
 }
 
 // Переключает то, что видно, а не сохранённый выбор: панель, которую спрятало

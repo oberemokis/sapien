@@ -17,4 +17,24 @@ export const ru = {
   chat: {
     empty: "Здесь будет чат с агентом",
   },
+  settings: {
+    open: "Настройки",
+    title: "Настройки",
+    back: "Назад",
+    sections: "Разделы настроек",
+    groups: {
+      app: "Приложение",
+    },
+  },
+  appearance: {
+    title: "Внешний вид",
+    description: "Как приложение выглядит на этом устройстве.",
+    theme: {
+      title: "Тема",
+      description: "Тёмная, светлая или та же, что у системы.",
+      dark: "Тёмная",
+      light: "Светлая",
+      system: "Как в системе",
+    },
+  },
 } as const;

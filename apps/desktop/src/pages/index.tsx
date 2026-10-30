@@ -6,6 +6,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { Icon } from "@/core/ui/icon";
 import { Workspace } from "@/modules/layout";
+import { SettingsButton } from "@/modules/settings";
 
 export const Route = createFileRoute("/")({ component: Home });
 
@@ -28,8 +29,9 @@ function Home() {
   return (
     <Workspace
       files={<Empty icon={Folder01Icon} text={t("files.empty")} />}
-      editor={<Empty icon={Note01Icon} text={t("editor.empty")} />}
+      main={<Empty icon={Note01Icon} text={t("editor.empty")} />}
       chat={<Empty icon={BubbleChatIcon} text={t("chat.empty")} />}
+      actions={<SettingsButton />}
     />
   );
 }

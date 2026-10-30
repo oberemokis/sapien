@@ -86,8 +86,12 @@ export function FilesPeek({ width, children }: Props) {
       }
     }
 
+    // Escape закрывает сначала панель и гасит событие, чтобы тот же нажим
+    // не увёл, например, со страницы настроек. Поэтому слушает document:
+    // он получает событие раньше window, где слушают остальные.
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape" && !event.defaultPrevented && open) {
+        event.preventDefault();
         close();
       }
     }
@@ -97,14 +101,14 @@ export function FilesPeek({ width, children }: Props) {
     window.addEventListener("pointermove", onPointerMove);
     root.addEventListener("pointerleave", onPointerLeave);
     window.addEventListener("pointerdown", onPointerDown);
-    window.addEventListener("keydown", onKeyDown);
+    document.addEventListener("keydown", onKeyDown);
 
     return () => {
       cancelClose();
       window.removeEventListener("pointermove", onPointerMove);
       root.removeEventListener("pointerleave", onPointerLeave);
       window.removeEventListener("pointerdown", onPointerDown);
-      window.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("keydown", onKeyDown);
     };
   }, [open]);
 
