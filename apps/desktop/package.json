@@ -13,6 +13,8 @@
     "typecheck": "tsc --noEmit && cargo check --quiet --manifest-path src-tauri/Cargo.toml"
   },
   "dependencies": {
+    "@hugeicons/core-free-icons": "^4.4.0",
+    "@hugeicons/react": "^1.1.10",
     "@tanstack/react-query": "catalog:",
     "@tanstack/react-router": "^1.170.46",
     "@tanstack/react-store": "^0.11.2",
@@ -21,7 +23,8 @@
     "i18next": "^26.5.11",
     "react": "catalog:",
     "react-dom": "catalog:",
-    "react-i18next": "^17.1.9"
+    "react-i18next": "^17.1.9",
+    "react-material-icon-theme": "^1.2.0"
   },
   "devDependencies": {
     "@sapien/api": "workspace:*",

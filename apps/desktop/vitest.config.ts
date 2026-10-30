@@ -12,8 +12,6 @@ export default defineConfig({
   test: {
     environment: "happy-dom",
     include: ["src/**/*.spec.{ts,tsx}"],
-    // Кода ещё нет, а пустой прогон vitest считает падением. Убрать с первым
-    // тестом, чтобы сломанный include не проходил молча.
-    passWithNoTests: true,
+    setupFiles: ["./src/test-setup.ts"],
   },
 });
