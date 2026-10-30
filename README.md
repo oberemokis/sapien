@@ -14,7 +14,7 @@
 | Состояние | TanStack Query для данных сервера, TanStack Store для остального |
 | Локализация | i18next и react-i18next |
 | Сборка | Vite 8, Metro, tsup, tsx, turbo, pnpm 11 |
-| Проверки | tsc, oxlint, `scripts/check-boundaries.mjs`, cargo check и rustfmt |
+| Проверки | tsc, oxlint, `scripts/check-boundaries.mjs`, cargo check и rustfmt, secretlint, pnpm audit и cargo audit |
 | Тесты | vitest, `hono/testing`, Testing Library, happy-dom |
 
 ## Раскладка
@@ -64,10 +64,11 @@ Api слушает 3400, а не 3000: на трёх тысячах сидит �
 
 ```bash
 pnpm typecheck        # tsc и cargo check
-pnpm lint             # oxlint, границы слоёв, cargo fmt --check
+pnpm lint             # oxlint, границы слоёв, cargo fmt --check, секреты
+pnpm audit:deps       # известные уязвимости: pnpm audit и cargo audit
 pnpm test             # vitest и cargo test
 ```
 
-Хук перед коммитом гоняет `typecheck` и `lint`, CI гоняет все три.
+Хук перед коммитом гоняет `typecheck` и `lint`, CI гоняет `typecheck`, `lint` и `test`. Аудит идёт отдельным workflow на пул-реквесте и раз в неделю: база уязвимостей меняется и без коммитов. Найденное по расписанию открывает задачу.
 
 Переменную, которую задают снаружи, надо объявить в `globalPassThroughEnv` в `turbo.json`: turbo 2 по умолчанию работает в строгом режиме окружения и отдаёт задачам только объявленное. Незаявленная переменная не вызывает ошибки, она просто не действует.

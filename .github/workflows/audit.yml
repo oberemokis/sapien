@@ -1,0 +1,60 @@
+# Известные уязвимости в зависимостях npm и Rust. Отдельно от CI, потому что
+# база уязвимостей меняется без коммитов: зависимость, чистая на пул-реквесте,
+# через неделю может оказаться уязвимой. Поэтому прогон ещё и по расписанию,
+# и найденное по расписанию открывает задачу, а не только красит значок.
+#
+# Пул-реквест падает с уровня high у npm и на любой уязвимости у Rust: у
+# cargo audit нет порога по уровню. Исключение пишется с причиной: для npm
+# в auditConfig в pnpm-workspace.yaml, для Rust в .cargo/audit.toml.
+name: Аудит
+
+on:
+  pull_request:
+  schedule:
+    # Понедельник, 06:00 UTC.
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: audit-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: аудит
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - run: pnpm run audit:deps
+
+      # Одна открытая задача на все недели подряд: новая появляется, только
+      # когда прежнюю закрыли.
+      - if: failure() && github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title="Аудит зависимостей нашёл уязвимость"
+          open=$(gh issue list --state open --search "in:title \"$title\"" --json number --jq length)
+          if [ "$open" = "0" ]; then
+            gh issue create --title "$title" --label chore \
+              --body "Недельный прогон аудита упал: $RUN_URL. Обнови зависимость или запиши исключение с причиной, как сказано в .github/workflows/audit.yml."
+          fi

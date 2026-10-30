@@ -4,7 +4,7 @@
 
 Устройство, слои и правила против связанности описаны в `docs/architecture.md`, направление зависимостей api и интерфейса проверяет `scripts/check-boundaries.mjs`. Новый модуль сначала получает место в дереве документа, потом код.
 
-Команды: `pnpm typecheck` (tsc и `cargo check`), `pnpm lint` (oxlint, проверка границ, `cargo fmt --check`), `pnpm test` (vitest и `cargo test`). Все три гоняет CI, первые два ещё и хук перед коммитом. Api и окно приложения поднимает `pnpm dev`, api и интерфейс в браузере без Rust `pnpm dev:web`, api и Metro для телефона `pnpm dev:mobile`.
+Команды: `pnpm typecheck` (tsc и `cargo check`), `pnpm lint` (oxlint, проверка границ, `cargo fmt --check`, secretlint), `pnpm test` (vitest и `cargo test`). Все три гоняет CI, первые два ещё и хук перед коммитом. `pnpm audit:deps` (pnpm audit с уровня high и cargo audit) гоняет отдельный workflow `audit.yml` на пул-реквесте и раз в неделю, исключение записывается с причиной и условием снятия: для npm в `auditConfig` в `pnpm-workspace.yaml`, для Rust в `.cargo/audit.toml`. Api и окно приложения поднимает `pnpm dev`, api и интерфейс в браузере без Rust `pnpm dev:web`, api и Metro для телефона `pnpm dev:mobile`.
 
 Expo ломает API от SDK к SDK, поэтому код телефона сверяется с документацией установленной версии: мажор `expo` из `apps/mobile/package.json` в `https://docs.expo.dev/versions/v<мажор>.0.0/`, оглавление в `https://docs.expo.dev/llms.txt`. Пакет в телефон ставится командой `pnpm expo install <пакет>` из `apps/mobile`: она подбирает версию под SDK.
 
