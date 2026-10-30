@@ -1,9 +1,8 @@
 import PanelLeftIcon from "@hugeicons/core-free-icons/PanelLeftIcon";
 import PanelRightIcon from "@hugeicons/core-free-icons/PanelRightIcon";
-import type { IconSvgElement } from "@hugeicons/react";
 import { useEffect, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { Icon } from "@/core/ui/icon";
+import { IconButton } from "@/core/ui/icon-button";
 import { hasModKey, shortcutLabel } from "@/core/ui/keys";
 import {
   togglePanel,
@@ -21,11 +20,15 @@ import { ResizeHandle } from "./resize-handle";
 
 // ⌘B прячет дерево, ⇧⌘B чат, как в MonoCode. Редактор, которому ⌘B нужен
 // под жирный, гасит событие у себя, и раскладка его не трогает.
-function useLayoutShortcuts() {
+function useLayoutShortcuts(withChat: boolean) {
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       // Код клавиши, а не символ: в русской раскладке та же клавиша печатает «и».
       if (event.defaultPrevented || event.code !== "KeyB" || event.altKey || !hasModKey(event)) {
+        return;
+      }
+
+      if (event.shiftKey && !withChat) {
         return;
       }
 
@@ -36,43 +39,28 @@ function useLayoutShortcuts() {
     window.addEventListener("keydown", onKeyDown);
 
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
-}
-
-type ToggleProps = {
-  icon: IconSvgElement;
-  label: string;
-  shortcut: string;
-  onClick: () => void;
-};
-
-function ToggleButton({ icon, label, shortcut, onClick }: ToggleProps) {
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      title={`${label} (${shortcut})`}
-      className="grid size-7 place-items-center rounded-md text-content/60 transition-colors duration-120 hover:bg-selection-hover hover:text-content"
-      onClick={onClick}
-    >
-      <Icon icon={icon} size={15} />
-    </button>
-  );
+  }, [withChat]);
 }
 
 type Props = {
   files: ReactNode;
-  editor: ReactNode;
-  chat: ReactNode;
+  main: ReactNode;
+  // Экран без чата, например настройки, отдаёт его место середине.
+  chat?: ReactNode;
+  // Середина верхней полосы: вкладки или путь по экрану.
+  title?: ReactNode;
+  // Кнопки у правого края верхней полосы.
+  actions?: ReactNode;
 };
 
 // Слева дерево файлов, посередине редактор, справа чат. Что в каждой панели,
 // решает страница: модуль даёт только места под них.
-export function Workspace({ files, editor, chat }: Props) {
+export function Workspace({ files, main, chat, title, actions }: Props) {
   const { t } = useTranslation();
-  const layout = useFittedLayout();
+  const withChat = chat !== undefined;
+  const layout = useFittedLayout(withChat);
 
-  useLayoutShortcuts();
+  useLayoutShortcuts(withChat);
 
   return (
     <div className="flex h-full flex-col bg-shell">
@@ -87,7 +75,7 @@ export function Workspace({ files, editor, chat }: Props) {
           }}
         >
           <span data-files-peek-trigger className="flex">
-            <ToggleButton
+            <IconButton
               icon={PanelLeftIcon}
               label={t(layout.files.visible ? "layout.hideFiles" : "layout.showFiles")}
               shortcut={shortcutLabel("B")}
@@ -95,14 +83,17 @@ export function Workspace({ files, editor, chat }: Props) {
             />
           </span>
         </div>
-        <div className="min-w-0 flex-1" />
-        <div className="flex shrink-0 items-center pr-1.5">
-          <ToggleButton
-            icon={PanelRightIcon}
-            label={t(layout.chat.visible ? "layout.hideChat" : "layout.showChat")}
-            shortcut={shortcutLabel("B", true)}
-            onClick={() => togglePanel("chat")}
-          />
+        <div className="flex min-w-0 flex-1 items-center px-1.5">{title}</div>
+        <div className="flex shrink-0 items-center gap-0.5 pr-1.5">
+          {actions}
+          {withChat && (
+            <IconButton
+              icon={PanelRightIcon}
+              label={t(layout.chat.visible ? "layout.hideChat" : "layout.showChat")}
+              shortcut={shortcutLabel("B", true)}
+              onClick={() => togglePanel("chat")}
+            />
+          )}
         </div>
       </header>
       <div className="flex min-h-0 flex-1 px-1.5 pb-1.5">
@@ -120,7 +111,7 @@ export function Workspace({ files, editor, chat }: Props) {
           </aside>
         )}
         <div className="flex min-w-0 flex-1 overflow-hidden rounded-[10px] border border-stroke bg-card">
-          <main className="flex min-w-0 flex-1 flex-col">{editor}</main>
+          <main className="flex min-w-0 flex-1 flex-col">{main}</main>
           {layout.chat.visible && (
             <aside
               className="relative flex shrink-0 flex-col border-l border-stroke"

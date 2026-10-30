@@ -4,7 +4,7 @@ import { Workspace, restoreLayout } from "@/modules/layout";
 
 // Окно happy-dom шириной 1024: три панели в него помещаются.
 function renderWorkspace() {
-  return render(<Workspace files={<p>дерево</p>} editor={<p>редактор</p>} chat={<p>чат</p>} />);
+  return render(<Workspace files={<p>дерево</p>} main={<p>редактор</p>} chat={<p>чат</p>} />);
 }
 
 // Скрытое дерево лежит в плавающей панели, закрытая панель инертна.
@@ -117,7 +117,7 @@ describe("раскладка окна", () => {
 
     it("прячется по Escape", () => {
       fireEvent.pointerMove(document.body, { clientX: 2, clientY: 300 });
-      fireEvent.keyDown(window, { key: "Escape" });
+      fireEvent.keyDown(document.body, { key: "Escape" });
 
       expect(filesShown()).toBe(false);
     });

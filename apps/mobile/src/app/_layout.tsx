@@ -1,13 +1,14 @@
 import "../global.css";
+import "@/core/i18n/i18n";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Stack } from "expo-router";
-import { Uniwind } from "uniwind";
+import { restoreTheme } from "@/modules/appearance";
 
 const queryClient = new QueryClient();
 
-// Тёмная тема по умолчанию, как у окна. Uniwind иначе стартует в теме
-// системы. Выбор темы появится вместе с настройками (#4).
-Uniwind.setTheme("dark");
+// Тема до первой отрисовки, иначе экран мигнёт чужой темой. Без сохранённого
+// выбора тёмная, как у окна: Uniwind иначе стартует в теме системы.
+restoreTheme();
 
 export default function RootLayout() {
   return (
