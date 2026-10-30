@@ -58,6 +58,10 @@
   --color-shell: var(--shell-color);
   --color-card: var(--card-color);
 
+  /* Затемнение окна за плавающей панелью и её тень. */
+  --color-scrim: var(--scrim-color);
+  --shadow-float: 0 12px 32px rgb(0 0 0 / 0.28), 0 2px 6px rgb(0 0 0 / 0.16);
+
   /* Цвет только как сигнал: переключатели, точка непрочитанного. */
   --color-accent: hsl(211 92% 62%);
   --color-link: var(--link-color);
@@ -99,6 +103,7 @@
 
   --shell-color: #0d0d0d;
   --card-color: #141414;
+  --scrim-color: rgb(0 0 0 / 0.4);
   --link-color: #7dd3fc;
   --markdown-heading-color: #f9a8c9;
   --mention-color: #38bdf8;
@@ -132,6 +137,7 @@ html.theme-light {
 
   --shell-color: #f5f5f5;
   --card-color: #ffffff;
+  --scrim-color: rgb(0 0 0 / 0.18);
   --link-color: hsl(211 92% 40%);
   --markdown-heading-color: #be185d;
   --mention-color: #0284c7;
