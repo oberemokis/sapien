@@ -29,3 +29,12 @@ catalog:
 overrides:
   react: "catalog:"
   react-dom: "catalog:"
+
+# Исключения из pnpm audit, каждое с причиной и условием снятия.
+# GHSA-mrhx-c7xc-m3w5, zod: исправлен только в zod 4, а zod 3 здесь держит
+# одна @expo/cli. Это CLI на машине разработчика, она проверяет свою же
+# конфигурацию, а в приложение не попадает. Api на zod 4 с исправлением.
+# Снять, когда @expo/cli перейдёт на zod 4: pnpm why zod -r.
+auditConfig:
+  ignoreGhsas:
+    - GHSA-mrhx-c7xc-m3w5
