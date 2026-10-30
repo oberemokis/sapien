@@ -87,7 +87,9 @@ sapien/
 │       ├── app/app.tsx             клиент Query, роутер, регистрация дерева
 │       ├── core/                   общая инфраструктура, модулей не знает
 │       │   ├── api/client.ts       клиент hc<AppType> с адресом api
-│       │   └── i18n/               i18next, словари, типы ключей
+│       │   ├── i18n/               i18next, словари, типы ключей
+│       │   └── ui/                 вид без домена, общий для модулей: иконки
+│       ├── styles.css              токены темы, цвет в разметке только ими
 │       ├── modules/<модуль>/
 │       │   ├── index.ts            дверь модуля
 │       │   ├── infrastructure/     единственное место с клиентом api и Tauri
@@ -110,8 +112,9 @@ sapien/
         ├── app/                    файловые маршруты Expo Router; _layout.tsx
         │                           собирает приложение, остальное это страницы
         ├── core/api/client.ts      клиент hc<AppType>, адрес от хоста Metro
+        ├── core/ui/                вид без домена, общий для модулей: иконки
         ├── modules/<модуль>/       те же слои, что у окна
-        ├── global.css              Tailwind и Uniwind
+        ├── global.css              Tailwind, Uniwind и токены темы
         └── uniwind-types.d.ts      типы className, их пишет Metro
 ```
 

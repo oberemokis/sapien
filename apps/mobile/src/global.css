@@ -1,2 +1,64 @@
+/*
+ * Токены те же, что у окна (apps/desktop/src/styles.css), и взяты у MonoCode:
+ * https://github.com/hardbeat920/monocode, коммит fc01ae25afef,
+ * src/styles/index.css. MIT, Copyright (c) 2026 Nick, полный текст
+ * в THIRD_PARTY_NOTICES.md.
+ *
+ * Окно подмешивает текст к прозрачному через color-mix. Здесь та же доля
+ * записана в rgba: смешение с прозрачным это и есть цвет текста с этой
+ * прозрачностью, а React Native color-mix не понимает. Тема переключается
+ * через Uniwind.setTheme, поэтому каждая тема обязана задать все переменные.
+ */
 @import "tailwindcss";
 @import "uniwind";
+
+@theme {
+  --color-accent: #459bf7;
+  --color-diff-add: #10b981;
+  --color-diff-del: #f43f5e;
+}
+
+@layer theme {
+  :root {
+    @variant dark {
+      --color-background-base: #171717;
+      --color-content: #ebebeb;
+      /* Второстепенный текст: у окна это text-content/50. */
+      --color-content-muted: rgba(235, 235, 235, 0.5);
+      --color-stroke: rgba(235, 235, 235, 0.07);
+      --color-hairline: rgba(235, 235, 235, 0.04);
+      --color-selection-subtle: rgba(235, 235, 235, 0.08);
+      --color-selection: rgba(235, 235, 235, 0.1);
+      --color-selection-strong: rgba(235, 235, 235, 0.12);
+      --color-selection-hover: rgba(235, 235, 235, 0.15);
+      --color-selection-emphasis: rgba(235, 235, 235, 0.2);
+      --color-shell: #0d0d0d;
+      --color-card: #141414;
+      --color-link: #7dd3fc;
+      --color-markdown-heading: #f9a8c9;
+      --color-mention: #38bdf8;
+      --color-diff-add-fg: #6ee7b7;
+      --color-diff-del-fg: #fda4af;
+    }
+
+    @variant light {
+      --color-background-base: #f7f7f7;
+      --color-content: #2e2e2e;
+      --color-content-muted: rgba(46, 46, 46, 0.5);
+      --color-stroke: rgba(46, 46, 46, 0.07);
+      --color-hairline: rgba(46, 46, 46, 0.04);
+      --color-selection-subtle: rgba(46, 46, 46, 0.05);
+      --color-selection: rgba(46, 46, 46, 0.06);
+      --color-selection-strong: rgba(46, 46, 46, 0.07);
+      --color-selection-hover: rgba(46, 46, 46, 0.1);
+      --color-selection-emphasis: rgba(46, 46, 46, 0.14);
+      --color-shell: #f5f5f5;
+      --color-card: #ffffff;
+      --color-link: #0863c4;
+      --color-markdown-heading: #be185d;
+      --color-mention: #0284c7;
+      --color-diff-add-fg: #047857;
+      --color-diff-del-fg: #be123c;
+    }
+  }
+}

@@ -22,7 +22,18 @@
     "unicorn/require-module-specifiers": "off",
     "eslint/no-ternary": "error",
     "react/rules-of-hooks": "error",
-    "react/react-in-jsx-scope": "off"
+    "react/react-in-jsx-scope": "off",
+    "eslint/no-restricted-imports": [
+      "error",
+      {
+        "paths": [
+          {
+            "name": "@hugeicons/core-free-icons",
+            "message": "Иконку берут глубоким путём, @hugeicons/core-free-icons/<Имя>Icon: корень тащит в сборку весь каталог."
+          }
+        ]
+      }
+    ]
   },
   "ignorePatterns": [
     "**/src-tauri/target/**",

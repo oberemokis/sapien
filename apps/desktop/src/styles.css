@@ -1,1 +1,167 @@
+/*
+ * Цвета, доли, шрифты и анимации взяты у MonoCode:
+ * https://github.com/hardbeat920/monocode, коммит fc01ae25afef,
+ * src/styles/index.css. MIT, Copyright (c) 2026 Nick, полный текст
+ * в THIRD_PARTY_NOTICES.md.
+ *
+ * Палитра выводится из двух цветов, фона и текста. Линии и выделения это
+ * текст, подмешанный к прозрачному в нужной доле, поэтому тема меняет только
+ * светлоту двух цветов и доли, а остальное следует за ними само. Цвет
+ * в разметке пишется только токеном: `bg-selection`, `text-content/50`.
+ */
 @import "tailwindcss";
+
+/* Тёмная тема по умолчанию, светлую включает класс на html. */
+@custom-variant dark (&:where(html:not(.theme-light), html:not(.theme-light) *));
+
+@theme {
+  --color-background-base: hsl(
+    var(--theme-hue) var(--theme-saturation) var(--background-lightness)
+  );
+  --color-content: hsl(
+    var(--theme-hue) var(--theme-saturation) var(--content-lightness)
+  );
+
+  /* Разделители областей. */
+  --color-stroke: color-mix(in srgb, var(--color-content) 7%, transparent);
+  /* Линии внутри карточки и панели, тоньше разделителей. */
+  --color-hairline: color-mix(in srgb, var(--color-content) 4%, transparent);
+
+  /* Заливки выбранного и поднятого. */
+  --color-selection-subtle: color-mix(
+    in srgb,
+    var(--color-content) var(--selection-subtle-strength),
+    transparent
+  );
+  --color-selection: color-mix(
+    in srgb,
+    var(--color-content) var(--selection-strength),
+    transparent
+  );
+  --color-selection-strong: color-mix(
+    in srgb,
+    var(--color-content) var(--selection-strong-strength),
+    transparent
+  );
+  --color-selection-hover: color-mix(
+    in srgb,
+    var(--color-content) var(--selection-hover-strength),
+    transparent
+  );
+  --color-selection-emphasis: color-mix(
+    in srgb,
+    var(--color-content) var(--selection-emphasis-strength),
+    transparent
+  );
+
+  /* Подложка окна вокруг карточки рабочей области и сама карточка. */
+  --color-shell: var(--shell-color);
+  --color-card: var(--card-color);
+
+  /* Цвет только как сигнал: переключатели, точка непрочитанного. */
+  --color-accent: hsl(211 92% 62%);
+  --color-link: var(--link-color);
+  --color-markdown-heading: var(--markdown-heading-color);
+  --color-mention: var(--mention-color);
+
+  /* Дифф. Цвет не единственный признак: рядом всегда знак + или −. */
+  --color-diff-add: #10b981;
+  --color-diff-add-fg: var(--diff-add-fg);
+  --color-diff-add-bg: color-mix(in srgb, var(--color-diff-add) 15%, transparent);
+  --color-diff-del: #f43f5e;
+  --color-diff-del-fg: var(--diff-del-fg);
+  --color-diff-del-bg: color-mix(in srgb, var(--color-diff-del) 15%, transparent);
+
+  --font-sans:
+    system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen,
+    Ubuntu, Cantarell, "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif;
+  --font-mono:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    "Courier New", monospace;
+  --text-code: 12.5px;
+
+  /* Кривая всех анимаций. Длительности: отклик duration-120, перестановка
+     duration-160, закрытие вкладки duration-200. */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+:root {
+  --theme-hue: 240;
+  --theme-saturation: 0%;
+  --background-lightness: 9%;
+  --content-lightness: 92%;
+
+  --selection-subtle-strength: 8%;
+  --selection-strength: 10%;
+  --selection-strong-strength: 12%;
+  --selection-hover-strength: 15%;
+  --selection-emphasis-strength: 20%;
+
+  --shell-color: #0d0d0d;
+  --card-color: #141414;
+  --link-color: #7dd3fc;
+  --markdown-heading-color: #f9a8c9;
+  --mention-color: #38bdf8;
+  --diff-add-fg: #6ee7b7;
+  --diff-del-fg: #fda4af;
+
+  /* Подсветка кода: VS Code Dark+. */
+  --syntax-keyword: #569cd6;
+  --syntax-callable: #dcdcaa;
+  --syntax-string: #ce9178;
+  --syntax-type: #4ec9b0;
+  --syntax-tag: #569cd6;
+  --syntax-number: #b5cea8;
+  --syntax-comment: #6a9955;
+  --syntax-property: #9cdcfe;
+  --syntax-meta: #dcdcaa;
+  --syntax-invalid: #f44747;
+
+  color-scheme: dark;
+}
+
+html.theme-light {
+  --background-lightness: 97%;
+  --content-lightness: 18%;
+
+  --selection-subtle-strength: 5%;
+  --selection-strength: 6%;
+  --selection-strong-strength: 7%;
+  --selection-hover-strength: 10%;
+  --selection-emphasis-strength: 14%;
+
+  --shell-color: #f5f5f5;
+  --card-color: #ffffff;
+  --link-color: hsl(211 92% 40%);
+  --markdown-heading-color: #be185d;
+  --mention-color: #0284c7;
+  --diff-add-fg: #047857;
+  --diff-del-fg: #be123c;
+
+  /* Подсветка кода: VS Code Light+. */
+  --syntax-keyword: #0000ff;
+  --syntax-callable: #795e26;
+  --syntax-string: #a31515;
+  --syntax-type: #267f99;
+  --syntax-tag: #800000;
+  --syntax-number: #098658;
+  --syntax-comment: #008000;
+  --syntax-property: #001080;
+  --syntax-meta: #795e26;
+  --syntax-invalid: #cd3131;
+
+  color-scheme: light;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+  background: var(--color-background-base);
+  color: var(--color-content);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transition: background-color 120ms var(--ease-out);
+}
