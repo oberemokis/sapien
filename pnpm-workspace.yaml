@@ -1,0 +1,31 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+
+# esbuild ставят tsx и tsup. Его скрипт проверяет, что бинарь под платформу
+# на месте, и без разрешения pnpm 11 роняет установку.
+allowBuilds:
+  esbuild: true
+
+# Версии, общие для приложений. hono обязан совпадать: клиент Hono RPC
+# выводит типы из маршрутов сервера, и при двух версиях они расходятся до
+# ошибки «excessively deep». typescript тоже: desktop и mobile проверяют
+# исходники api своим компилятором. React задаёт Expo: React Native собран
+# под точную версию и падает на любой другой, desktop идёт за ним, чтобы
+# библиотеки на React не ставились дважды под разные копии.
+catalog:
+  "@tanstack/react-query": ^5.105.0
+  "@types/node": ^22.20.5
+  "@types/react": ~19.3.0
+  hono: ^4.13.0
+  react: 19.3.0
+  react-dom: 19.3.0
+  tailwindcss: ^4.3.3
+  typescript: ~6.0.3
+  vitest: ^4.1.12
+
+# Пакеты Expo тянут react-dom пиром, и pnpm доставляет туда свежий, который
+# требует свежий react. Версия из каталога держит одну копию на всю монорепу.
+overrides:
+  react: "catalog:"
+  react-dom: "catalog:"

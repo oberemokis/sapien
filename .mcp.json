@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "lean-ctx": {
+      "command": "${HOME}/.cargo/bin/lean-ctx",
+      "alwaysLoad": true
+    }
+  }
+}

@@ -1,0 +1,51 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": [
+    "typescript",
+    "react",
+    "jsx-a11y",
+    "import",
+    "unicorn"
+  ],
+  "categories": {
+    "correctness": "error",
+    "suspicious": "warn",
+    "perf": "warn"
+  },
+  "rules": {
+    "import/no-default-export": "error",
+    "import/no-unassigned-import": "off",
+    "unicorn/filename-case": "off",
+    "eslint/no-underscore-dangle": "off",
+    "eslint/no-shadow": "warn",
+    "eslint/no-await-in-loop": "warn",
+    "unicorn/require-module-specifiers": "off",
+    "eslint/no-ternary": "error",
+    "react/rules-of-hooks": "error",
+    "react/react-in-jsx-scope": "off"
+  },
+  "ignorePatterns": [
+    "**/src-tauri/target/**",
+    "**/src-tauri/gen/**",
+    "**/route-tree.gen.ts"
+  ],
+  "overrides": [
+    {
+      "files": ["**/*.tsx"],
+      "rules": {
+        "eslint/no-ternary": "off"
+      }
+    },
+    {
+      "files": [
+        "**/vite.config.ts",
+        "**/vitest.config.ts",
+        "**/tsup.config.ts",
+        "apps/mobile/src/app/**/*.tsx"
+      ],
+      "rules": {
+        "import/no-default-export": "off"
+      }
+    }
+  ]
+}

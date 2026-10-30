@@ -1,0 +1,56 @@
+# Проверки пул-реквеста и ветки main. Выкладки нет: бандл собирается под
+# каждую систему отдельно, и релизный конвейер заводится вместе с первым
+# релизом.
+#
+# Работа одна, а не по работе на проверку: дорогая часть у всех трёх общая,
+# это сборка зависимостей Rust, и в разных работах она шла бы трижды.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Толчок поверх незаконченного прогона его отменяет: в очереди имеет смысл
+# держать только последний коммит ветки.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: проверки
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # cargo check собирает tauri, а он на Linux связывается с WebKitGTK.
+      # Список из https://tauri.app/start/prerequisites/
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev \
+            libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm ci
+
+      - run: pnpm typecheck
+
+      - run: pnpm lint
+
+      - run: pnpm test

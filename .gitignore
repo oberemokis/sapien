@@ -1,0 +1,55 @@
+node_modules
+dist
+dist-ssr
+*.local
+
+# local env (keep the committed template)
+.env
+.env.*
+!.env.example
+
+# turborepo
+.turbo
+
+# test artifacts
+coverage
+test-results
+playwright-report
+.playwright
+
+# oh-my-openagent runtime state (session/machine-specific)
+.omo/
+
+# claude runtime state (конфиг проекта в .claude/ коммитится)
+.claude/settings.local.json
+
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# typescript build info
+*.tsbuildinfo
+
+# playwright mcp browser data
+.playwright-mcp/
+
+# opencode runtime cache
+.codegraph
+
+# замыслы будущих работ: им место в issues, а не в репозитории. В git они
+# устаревают молча, расходятся с доской задач, и неясно, что из описанного
+# уже сделано
+docs/plan/
