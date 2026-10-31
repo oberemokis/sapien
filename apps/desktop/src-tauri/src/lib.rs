@@ -102,6 +102,7 @@ pub fn run() {
             agent::transport::agent_clear,
             agent::transport::agent_undo,
             agent::transport::agent_meeting_tasks,
+            agent::transport::agent_claude_status,
             vault::transport::vault_opened,
             vault::transport::vault_status,
             vault::transport::vault_tree,

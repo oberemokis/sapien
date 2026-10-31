@@ -1,7 +1,9 @@
-use super::domain::{Context, Entry, Event, MeetingTask};
+use super::domain::{ClaudeState, ClaudeStatus, Context, Entry, Event, MeetingTask, Method};
 use super::infrastructure::anthropic::Anthropic;
 use super::infrastructure::chat_file::ChatFile;
+use super::infrastructure::claude_code::ClaudeCode;
 use super::infrastructure::neighbours::{VaultNotes, YoutrackIssues};
+use super::ports::Claude;
 use super::use_case::{self, Turn};
 use crate::error::AppError;
 use crate::modules::vault;
@@ -19,6 +21,24 @@ fn chat<R: Runtime>(app: &AppHandle<R>) -> Result<ChatFile, AppError> {
     let vault = vault::transport::vault_root(app).unwrap_or_default();
 
     Ok(ChatFile::new(&data, &vault))
+}
+
+/// Подписка Claude через Claude Code пока только на macOS.
+const CLAUDE_SUPPORTED: bool = cfg!(target_os = "macos");
+
+/// Claude Code устройства. Рабочая папка у него своя и пустая.
+fn claude<R: Runtime>(app: &AppHandle<R>) -> Result<ClaudeCode, AppError> {
+    let unavailable = |_| AppError::unavailable("data_dir_unavailable");
+    let home = app.path().home_dir().map_err(unavailable)?;
+    let work = app
+        .path()
+        .app_data_dir()
+        .map_err(unavailable)?
+        .join("claude");
+
+    std::fs::create_dir_all(&work).map_err(|_| AppError::unavailable("data_dir_unavailable"))?;
+
+    Ok(ClaudeCode::new(&home, &work))
 }
 
 /// Идущий ответ агента или откат. Он один на приложение: второй поверх
@@ -120,26 +140,47 @@ pub async fn agent_send(
     .await
 }
 
-/// «Задачи из встречи» по заметке `path`. Ключ берётся в Rust, как у чата,
-/// а чат при этом свободен: ответ не идёт в его историю.
+/// Есть ли Claude Code, какой версии и как выполнен вход.
+#[tauri::command]
+pub async fn agent_claude_status(app: AppHandle) -> Result<ClaudeStatus, AppError> {
+    if !CLAUDE_SUPPORTED {
+        return Ok(ClaudeStatus::of_state(ClaudeState::Unsupported));
+    }
+
+    Ok(claude(&app)?.status().await)
+}
+
+/// «Задачи из встречи» по заметке `path` способом `method`. Ключ берётся
+/// в Rust, как у чата, а чат при этом свободен: ответ не идёт в его историю.
 #[tauri::command]
 pub async fn agent_meeting_tasks(
     app: AppHandle,
     model_api: State<'_, Anthropic>,
     secrets: State<'_, Secrets>,
+    method: Method,
     model: String,
     path: String,
     today: String,
 ) -> Result<Vec<MeetingTask>, AppError> {
-    use_case::meeting(
-        &*model_api,
-        &VaultNotes(app),
-        &secrets,
-        &model,
-        &path,
-        &today,
-    )
-    .await
+    if method == Method::Key {
+        return use_case::meeting(
+            &*model_api,
+            &VaultNotes(app),
+            &secrets,
+            &model,
+            &path,
+            &today,
+        )
+        .await;
+    }
+
+    if !CLAUDE_SUPPORTED {
+        return Err(AppError::invalid("claude_unsupported"));
+    }
+
+    let claude = claude(&app)?;
+
+    use_case::meeting_via_claude(&claude, &VaultNotes(app), &model, &path, &today).await
 }
 
 #[tauri::command]

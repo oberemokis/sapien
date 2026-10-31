@@ -1,15 +1,25 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { afterEach, describe, expect, it } from "vitest";
-import { AgentSettings } from "@/modules/agent";
+import { AgentSettings, useMeetingTasks } from "@/modules/agent";
 
 const KEY = "sk-ant-api03-очень-секретно-WXYZ";
 
-// Системное хранилище паролей за командами Rust. kept: false это Linux
-// без Secret Service.
-function fakeRust(kept = true) {
-  const keychain: { value: string | null; calls: string[] } = { value: null, calls: [] };
+type Claude = { state: string; version: string | null };
+
+const READY: Claude = { state: "ready", version: "2.1.316" };
+
+// Системное хранилище паролей и Claude Code за командами Rust. kept: false
+// это Linux без Secret Service.
+function fakeRust(kept = true, claude: Claude = { state: "missing", version: null }) {
+  const keychain: { value: string | null; calls: string[]; claude: Claude; meeting: unknown } = {
+    value: null,
+    calls: [],
+    claude,
+    meeting: null,
+  };
 
   function status() {
     return { ending: keychain.value?.slice(-4) ?? null, kept };
@@ -28,6 +38,11 @@ function fakeRust(kept = true) {
       case "secret_delete":
         keychain.value = null;
         return null;
+      case "agent_claude_status":
+        return keychain.claude;
+      case "agent_meeting_tasks":
+        keychain.meeting = args;
+        return [];
       default:
         throw new Error(`нет команды ${command}`);
     }
@@ -36,16 +51,21 @@ function fakeRust(kept = true) {
   return keychain;
 }
 
-function open() {
-  render(
-    <QueryClientProvider client={new QueryClient()}>
-      <AgentSettings />
-    </QueryClientProvider>,
+// Свой кеш запросов на каждый тест.
+function providers() {
+  const client = new QueryClient();
+
+  return ({ children }: { children: ReactNode }) => (
+    <QueryClientProvider client={client}>{children}</QueryClientProvider>
   );
 }
 
+function open() {
+  render(<AgentSettings />, { wrapper: providers() });
+}
+
 function keyField() {
-  return screen.getByLabelText<HTMLInputElement>("Ключ API");
+  return screen.getByLabelText<HTMLInputElement>("Ключ API", { selector: "input[type=password]" });
 }
 
 afterEach(() => {
@@ -96,10 +116,65 @@ describe("ключ модели", () => {
     fakeRust(false);
     open();
 
-    fireEvent.change(await screen.findByLabelText("Ключ API"), { target: { value: KEY } });
+    await screen.findByText(/Ключ хранится/);
+    fireEvent.change(keyField(), { target: { value: KEY } });
     fireEvent.click(screen.getByRole("button", { name: "Сохранить" }));
 
     await waitFor(() => expect(screen.getByText(/продержится до закрытия приложения/)).toBeDefined());
     expect(screen.getByText(/заканчивается на WXYZ/)).toBeDefined();
+  });
+});
+
+function radio(name: string) {
+  return screen.getByRole<HTMLInputElement>("radio", { name });
+}
+
+describe("подписка Claude", () => {
+  it("Claude Code вошёл по подписке: она выбрана, видна версия", async () => {
+    fakeRust(true, READY);
+    open();
+
+    expect(await screen.findByText("Вход по подписке Claude. Версия 2.1.316.")).toBeDefined();
+    expect(radio("Подписка Claude").checked).toBe(true);
+  });
+
+  it("без Claude Code раздел говорит, как его поставить, а агент идёт ключом", async () => {
+    fakeRust();
+    open();
+
+    expect(await screen.findByText(/Не найден. Поставьте его командой/)).toBeDefined();
+    expect(radio("Ключ API").checked).toBe(true);
+  });
+
+  it("вход не выполнен, а после входа «Проверить снова» видит подписку", async () => {
+    const rust = fakeRust(true, { state: "logged_out", version: "2.1.316" });
+    open();
+
+    expect(await screen.findByText(/Вход не выполнен/)).toBeDefined();
+
+    rust.claude = READY;
+    fireEvent.click(screen.getByRole("button", { name: "Проверить снова" }));
+
+    expect(await screen.findByText(/Вход по подписке Claude/)).toBeDefined();
+    expect(radio("Подписка Claude").checked).toBe(true);
+  });
+});
+
+// Каким способом уходит разбор встречи, когда человек способ не выбирал.
+async function meetingMethod(claude: Claude) {
+  const rust = fakeRust(true, claude);
+  const { result } = renderHook(() => useMeetingTasks(), { wrapper: providers() });
+
+  result.current.run("Встречи/планёрка.md");
+  await waitFor(() => expect(rust.meeting).not.toBeNull());
+
+  return (rust.meeting as { method: string }).method;
+}
+
+describe("задачи из встречи", () => {
+  it("идут подпиской, когда Claude Code вошёл по подписке, иначе ключом", async () => {
+    expect(await meetingMethod(READY)).toBe("subscription");
+    expect(await meetingMethod({ state: "not_subscription", version: "2.1.316" })).toBe("key");
+    expect(await meetingMethod({ state: "unsupported", version: null })).toBe("key");
   });
 });

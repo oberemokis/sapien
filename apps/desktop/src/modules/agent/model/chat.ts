@@ -72,8 +72,8 @@ export function isToolName(name: string): name is ToolName {
   return TOOLS.some((tool) => tool === name);
 }
 
-// Коды отказов из domain.rs, use_case.rs и chat_file.rs, у каждого своя
-// подсказка. Чужой код окно показывает общей.
+// Коды отказов из domain.rs, use_case.rs, chat_file.rs и claude_code.rs,
+// у каждого своя подсказка. Чужой код окно показывает общей.
 const PROBLEMS = [
   "agent_key_missing",
   "agent_model_unknown",
@@ -93,6 +93,15 @@ const PROBLEMS = [
   "note_closed",
   "chat_unreadable",
   "chat_unwritable",
+  "claude_unsupported",
+  "claude_missing",
+  "claude_outdated",
+  "claude_incompatible",
+  "claude_logged_out",
+  "claude_not_subscription",
+  "claude_keychain_locked",
+  "claude_limit",
+  "claude_failed",
 ] as const;
 
 // needsYoutrack ставит окно само: действию нужен YouTrack, а он не подключён.
