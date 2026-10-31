@@ -297,6 +297,9 @@ type Props = {
   onCreateStart?: () => void;
   // Пункты соседних модулей в меню заметки, например действия агента.
   noteMenu?: (path: string) => MenuItem[];
+  // Пункты соседей рядом с «Новым файлом»: создают в папке parent,
+  // например черновик задачи.
+  createMenu?: (parent: string) => MenuItem[];
 };
 
 type Menu = {
@@ -310,7 +313,7 @@ type Menu = {
 
 // Дерево хранилища в левой панели. Пока хранилище не открыто, панель пуста:
 // что делать, объясняет середина окна.
-export function VaultTree({ onCreateStart, noteMenu }: Props) {
+export function VaultTree({ onCreateStart, noteMenu, createMenu }: Props) {
   const { t } = useTranslation();
   const status = useVaultStatus();
   const tree = useVaultTree();
@@ -446,6 +449,7 @@ export function VaultTree({ onCreateStart, noteMenu }: Props) {
               label: t("vault.templates.newFile"),
               onSelect: () => pickTemplate({ kind: "newFromTemplate", parent: menu.parent }),
             },
+            ...(createMenu?.(menu.parent) ?? []),
             { label: t("vault.create.folder"), onSelect: () => create("folder", menu.parent) },
             menuEntry === null
               ? { label: t("vault.history.deleted"), onSelect: showDeleted }

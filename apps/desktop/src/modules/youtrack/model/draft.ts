@@ -90,14 +90,71 @@ function linkList(yaml: string, key: string) {
   return items.map(unquote).filter((item) => item !== "");
 }
 
-// Черновик задачи, если в шапке заметки есть проект. Название задачи это
-// заголовок первой строки текста, а без него имя заметки. Описание это
-// текст под заголовком.
+// Текст без пустых разделов: заголовок, под которым до следующего заголовка
+// того же или старшего уровня нет ничего, кроме пустых строк и таких же
+// пустых подразделов. Так незаполненные разделы шаблона не уходят в задачу.
+// Строка с «#» внутри блока кода заголовком не считается.
+export function withoutEmptySections(markdown: string) {
+  const lines = markdown.split("\n");
+  const levels: number[] = [];
+  let code = false;
+
+  for (const line of lines) {
+    const heading = /^(#{1,6})\s/.exec(line);
+    let level = 0;
+
+    if (/^\s*(```|~~~)/.test(line)) {
+      code = !code;
+    }
+
+    if (heading !== null && !code) {
+      level = (heading[1] ?? "").length;
+    }
+
+    levels.push(level);
+  }
+
+  const dropped = new Set<number>();
+
+  for (const [index, level] of levels.entries()) {
+    if (level === 0) {
+      continue;
+    }
+
+    let end = index + 1;
+
+    while (end < lines.length && ((levels[end] ?? 0) === 0 || (levels[end] ?? 0) > level)) {
+      end += 1;
+    }
+
+    const empty = lines.slice(index + 1, end).every((line, offset) => (levels[index + 1 + offset] ?? 0) > 0 || line.trim() === "");
+
+    if (empty) {
+      dropped.add(index);
+
+      // Пустые строки под выброшенным заголовком уходят с ним, иначе
+      // на его месте осталась бы дыра.
+      for (let blank = index + 1; blank < end && (lines[blank] ?? "").trim() === ""; blank += 1) {
+        dropped.add(blank);
+      }
+    }
+  }
+
+  return lines
+    .filter((_, index) => !dropped.has(index))
+    .join("\n")
+    .trim();
+}
+
+// Черновик задачи, если в шапке заметки есть ключ project, даже пустой:
+// новая задача из шаблона без проекта по умолчанию тоже черновик, и форма
+// просит вписать проект. Название задачи это заголовок первой строки текста,
+// а без него имя заметки. Описание это текст под заголовком.
 export function parseDraft(text: string, title: string): TaskDraft | null {
   const { yaml, body } = splitFrontmatter(text);
-  const project = frontmatterValue(yaml, "project") ?? "";
+  const project = frontmatterValue(yaml, "project");
 
-  if (project === "") {
+  if (project === null) {
     return null;
   }
 
@@ -105,11 +162,11 @@ export function parseDraft(text: string, title: string): TaskDraft | null {
   const [first = "", ...rest] = trimmed.split("\n");
   const heading = /^#\s+(.+)$/.exec(first);
   let summary = title;
-  let description = trimmed;
+  let description = withoutEmptySections(trimmed);
 
   if (heading !== null) {
     summary = (heading[1] ?? "").trim();
-    description = rest.join("\n").trim();
+    description = withoutEmptySections(rest.join("\n"));
   }
 
   const value = (key: string) => frontmatterValue(yaml, key) ?? "";

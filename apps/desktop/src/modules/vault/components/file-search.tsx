@@ -71,7 +71,11 @@ function SearchDialog() {
   const create = useCreateEntry();
   const noteTags = useNoteTags();
   const mode = useSearchMode();
-  const { folder } = useTemplateSettings();
+  const settings = useTemplateSettings();
+  const folder =
+    mode.kind === "newFromTemplate" && mode.within !== undefined
+      ? `${settings.folder}/${mode.within}`
+      : settings.folder;
   const [query, setQuery] = useState(useSearchStartQuery());
   const [active, setActive] = useState(0);
   const dialogRef = useRef<HTMLDialogElement>(null);

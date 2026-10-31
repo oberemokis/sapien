@@ -7,5 +7,8 @@ export { VaultSettings } from "./components/vault-settings";
 export { VaultTree } from "./components/vault-tree";
 export { useActiveNote } from "./interactions/active-note";
 export { useFolderNotes, useNoteTexts } from "./interactions/tags";
+export { useNewFromTemplateSet } from "./interactions/template-set";
+export { setTemplateValues } from "./interactions/templates";
 export { openNote, restoreSession } from "./interactions/tree";
+export type { TemplateSet } from "./model/templates";
 export { useCreateNote, useVaultSync } from "./interactions/vault";

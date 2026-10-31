@@ -2,10 +2,11 @@ import { createStore } from "@tanstack/react-store";
 
 // Что выбирают в окне: файл, который откроется, шаблон для нового
 // файла в папке либо для вставки в открытую заметку или удалённую заметку,
-// чью историю версий открыть.
+// чью историю версий открыть. within сужает выбор шаблона до подпапки
+// папки шаблонов, например шаблонов задач.
 export type SearchMode =
   | { kind: "files" }
-  | { kind: "newFromTemplate"; parent: string }
+  | { kind: "newFromTemplate"; parent: string; within?: string }
   | { kind: "insertTemplate"; path: string }
   | { kind: "deleted" };
 

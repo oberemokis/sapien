@@ -12,9 +12,12 @@ import {
   VaultGate,
   VaultTree,
   restoreSession,
+  setTemplateValues,
   useCreateNote,
   useFolderNotes,
+  useNewFromTemplateSet,
   useVaultSync,
+  type TemplateSet,
 } from "@/modules/vault";
 import type { MenuItem } from "@/core/ui/context-menu";
 import { forgetNotes } from "./interactions/note";
@@ -91,14 +94,30 @@ function withoutEntry(tree: Entry[], entry: string): Entry[] {
     .map((item) => (item.children === undefined ? item : { ...item, children: withoutEntry(item.children, entry) }));
 }
 
-// Кладёт созданное в дерево так, как его потом отдаст vault_tree.
+function findEntry(tree: Entry[], path: string): Entry | undefined {
+  for (const item of tree) {
+    const found = item.path === path ? item : findEntry(item.children ?? [], path);
+
+    if (found !== undefined) {
+      return found;
+    }
+  }
+
+  return undefined;
+}
+
+// Кладёт созданное в дерево так, как его потом отдаст vault_tree. Занятое
+// имя Rust отклоняет, и подмена тоже.
 function place(tree: Entry[], files: Record<string, string>, { parent, name, kind }: CreateArgs) {
   const fileName = kind === "note" ? `${name}.md` : name;
   const path = parent === "" ? fileName : `${parent}/${fileName}`;
   const entry: Entry = kind === "note" ? { kind, name: fileName, path } : { kind, name, path, children: [] };
-  const folder = tree.find((item) => item.path === parent);
 
-  (folder?.children ?? tree).push(entry);
+  if (findEntry(tree, path) !== undefined) {
+    throw { kind: "conflict", code: "name_taken" };
+  }
+
+  (findEntry(tree, parent)?.children ?? tree).push(entry);
 
   if (kind === "note") {
     files[path] = "";
@@ -241,8 +260,18 @@ function TextEditor({ value, onChange, readOnly, focusRequest, insert, label, ta
   );
 }
 
+// Набор стандартных шаблонов соседа, как шаблоны задач у YouTrack.
+const TASKS: TemplateSet = {
+  folder: "Задачи",
+  templates: [
+    { name: "Баг", text: "---\nproject: {{project}}\n---\n# {{title}}\n" },
+    { name: "Фича", text: "---\nproject: {{project}}\n---\n# {{title}}\n\n## Проверка\n" },
+  ],
+};
+
 function Window({ noteMenu }: { noteMenu?: (path: string) => MenuItem[] }) {
   useVaultSync();
+  const newTask = useNewFromTemplateSet(TASKS);
 
   return (
     <>
@@ -250,7 +279,10 @@ function Window({ noteMenu }: { noteMenu?: (path: string) => MenuItem[] }) {
         <NoteTabs onCreateStart={() => undefined} />
       </header>
       <aside aria-label="дерево">
-        <VaultTree noteMenu={noteMenu} />
+        <VaultTree
+          noteMenu={noteMenu}
+          createMenu={(parent) => [{ label: "Новая задача", onSelect: () => void newTask(parent) }]}
+        />
         <TagList />
       </aside>
       <main>
@@ -320,6 +352,7 @@ afterEach(async () => {
   closeSearch();
   closeHistory();
   templatesStore.setState(() => DEFAULT_TEMPLATES);
+  setTemplateValues({});
   localStorage.clear();
   vi.useRealTimers();
 });
@@ -1337,6 +1370,44 @@ describe("шаблоны", () => {
 
     await waitFor(() => expect(editorText("план")).toBe("начало\n# план\n29.10.2026 14:05 {{foo}} #встречаконец"));
     await waitFor(() => expect(disk.files?.["план.md"]).toBe(editorText("план")), SAVED);
+  });
+
+  it("набор шаблонов ложится один раз: свой шаблон не перезаписан, удалённый не возвращается", async () => {
+    const disk = fakeRust({
+      status: { kind: "ready", path: "/notes" },
+      tree: [
+        folder("Встречи"),
+        folder("Шаблоны", [note("Шаблоны/Встреча.md"), folder("Шаблоны/Задачи", [note("Шаблоны/Задачи/Баг.md")])]),
+      ],
+      files: { "Шаблоны/Встреча.md": "# {{title}}\n", "Шаблоны/Задачи/Баг.md": "---\nproject: {{project}}\n---\nсвой баг\n" },
+    });
+    setTemplateValues({ project: "SAP" });
+    launch();
+
+    fireEvent.contextMenu(await inTree().findByRole("button", { name: "Встречи" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Новая задача" }));
+
+    await waitFor(() => expect(options()).toEqual(["БагШаблоны/Задачи", "ФичаШаблоны/Задачи"]));
+    expect(disk.files?.["Шаблоны/Задачи/Баг.md"]).toBe("---\nproject: {{project}}\n---\nсвой баг\n");
+    expect(disk.files?.["Шаблоны/Задачи/Фича.md"]).toBe(TASKS.templates[1]?.text);
+
+    fireEvent.keyDown(picker(), { key: "ArrowDown" });
+    fireEvent.keyDown(picker(), { key: "Enter" });
+    rename("Вход");
+    pressEnter();
+
+    expect(await screen.findByRole("textbox", { name: "Вход" })).toBeDefined();
+    expect(disk.files?.["Встречи/Вход.md"]).toBe("---\nproject: SAP\n---\n# Вход\n\n## Проверка\n");
+
+    // Человек удалил «Фичу»: следующая задача её не возвращает.
+    disk.tree = withoutEntry(disk.tree, "Шаблоны/Задачи/Фича.md");
+    delete disk.files?.["Шаблоны/Задачи/Фича.md"];
+    await act(() => emit("vault://changed", null));
+    fireEvent.contextMenu(inTree().getByRole("button", { name: "Встречи" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Новая задача" }));
+
+    await waitFor(() => expect(options()).toEqual(["БагШаблоны/Задачи"]));
+    expect(disk.files?.["Шаблоны/Задачи/Фича.md"]).toBeUndefined();
   });
 
   it("шаблонов нет: вместо списка подсказка, как завести первый", async () => {

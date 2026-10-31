@@ -231,7 +231,14 @@ function DraftForm({ draft, path, text, readOnly, onChange, notes, onOpen }: Pro
             <Button onClick={() => openLink(issue.data.url)}>{t("youtrack.draft.open")}</Button>
           )}
           <Button
-            disabled={readOnly || !online || !connected || publishing.isPending || unpublished.length > 0}
+            disabled={
+              readOnly ||
+              !online ||
+              !connected ||
+              publishing.isPending ||
+              unpublished.length > 0 ||
+              draft.project === ""
+            }
             onClick={() => publish(false)}
           >
             {action}
@@ -243,10 +250,13 @@ function DraftForm({ draft, path, text, readOnly, onChange, notes, onOpen }: Pro
         <HeaderField
           label={t("youtrack.draft.project")}
           value={draft.project}
+          // Пустой проект бывает у задачи из шаблона, когда проект
+          // по умолчанию не задан: без него публиковать некуда.
+          invalid={draft.project === ""}
           readOnly={readOnly}
           onCommit={(value) => {
-            // Без проекта заметка перестала бы быть черновиком, и форма
-            // пропала бы из-под рук: проект убирают в самой шапке.
+            // Ключ без значения форма не пишет: стёртый проект вернулся бы
+            // пустым, а убирают черновик, удаляя ключ в самой шапке.
             if (value.trim() !== "") {
               write(withFrontmatterValue(latest.current, "project", value));
             }

@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/core/ui/button";
 import { SettingsGroup, SettingsRow, SettingsSection } from "@/core/ui/settings";
 import { useYoutrack } from "../interactions/connection";
+import { changeDefaultProject, useDefaultProject } from "../interactions/project";
 import { youtrackProblemOf, type YoutrackProblem } from "../model/youtrack";
 
 const FIELD =
@@ -14,6 +15,7 @@ const FIELD =
 export function YoutrackSettings() {
   const { t } = useTranslation();
   const youtrack = useYoutrack();
+  const project = useDefaultProject();
   const status = youtrack.status;
   const [host, setHost] = useState("");
   const [token, setToken] = useState("");
@@ -116,6 +118,17 @@ export function YoutrackSettings() {
       <SettingsGroup title="YouTrack" description={t("youtrack.settings.youtrack")}>
         <SettingsRow title={t("youtrack.settings.connection")} description={description}>
           <div className="flex items-center gap-2">{controls}</div>
+        </SettingsRow>
+        <SettingsRow title={t("youtrack.settings.project")} description={t("youtrack.settings.projectHint")}>
+          <input
+            aria-label={t("youtrack.settings.project")}
+            placeholder="SAP"
+            value={project}
+            autoComplete="off"
+            spellCheck={false}
+            className={FIELD}
+            onChange={(event) => changeDefaultProject(event.target.value)}
+          />
         </SettingsRow>
       </SettingsGroup>
     </SettingsSection>
