@@ -6,6 +6,18 @@ export type YoutrackStatus =
   // Подключение задано, но не работает. Код говорит почему.
   | { kind: "broken"; host: string; code: string };
 
+// Итог публикации черновика, как Published в domain.rs.
+export type Published =
+  // Задача есть. failed это команды полей и связей, которые YouTrack не принял.
+  | { kind: "done"; id: string; failed: string[] }
+  // Обязательные поля проекта без значения: задача не создана.
+  | { kind: "missing"; fields: string[] }
+  // Название или описание поменяли в YouTrack: ничего не отправлено.
+  | { kind: "diverged"; summary: string; description: string };
+
+// Плашка опубликованной задачи.
+export type IssueState = { id: string; state: string | null; assignee: string | null; url: string };
+
 // Коды отказов из domain.rs и use_case.rs, у каждого своя подсказка.
 const PROBLEMS = [
   "youtrack_host_empty",
@@ -16,6 +28,11 @@ const PROBLEMS = [
   "youtrack_not_youtrack",
   "youtrack_token_rejected",
   "youtrack_token_missing",
+  "youtrack_not_connected",
+  "youtrack_project_missing",
+  "youtrack_issue_invalid",
+  "youtrack_rejected",
+  "youtrack_missing",
 ] as const;
 
 export type YoutrackProblem = (typeof PROBLEMS)[number] | "failed";

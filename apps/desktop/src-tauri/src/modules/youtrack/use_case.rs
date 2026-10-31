@@ -298,7 +298,13 @@ pub async fn publish(
         fields: applied,
     };
 
-    ledger.save(&id, &sent)?;
+    // Задача уже есть, и её номер важнее памяти: без памяти следующая
+    // публикация спросит человека, как с другого устройства, а без номера
+    // повтор создал бы вторую задачу.
+    if ledger.save(&id, &sent).is_err() {
+        log::warn!("память опубликованного не записана для {id}");
+    }
+
     Ok(Published::Done { id, failed })
 }
 
@@ -776,6 +782,44 @@ mod tests {
                 "subtask of SAP-90",
                 "depends on SAP-91"
             ]
+        );
+    }
+
+    /// Папка данных недоступна для записи.
+    struct Unwritable;
+
+    impl Ledger for Unwritable {
+        fn load(&self, _: &str) -> Option<Sent> {
+            None
+        }
+
+        fn save(&self, _: &str, _: &Sent) -> Result<(), AppError> {
+            Err(AppError::unavailable("youtrack_sent_unwritable"))
+        }
+    }
+
+    #[test]
+    fn номер_созданной_задачи_приходит_и_без_памяти_о_публикации() {
+        let board = Board::default();
+        let (place, secrets) = connected();
+        let draft = draft(vec![field("Subsystem", "Backend")]);
+
+        let published = block_on(publish(
+            &board,
+            &place,
+            &secrets,
+            &Unwritable,
+            &draft,
+            None,
+            false,
+        ));
+
+        assert_eq!(
+            published,
+            Ok(Published::Done {
+                id: "SAP-1".into(),
+                failed: vec![]
+            })
         );
     }
 

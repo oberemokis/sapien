@@ -22,6 +22,9 @@ type Props = {
   editor: ComponentType<EditorProps>;
   // Показывает спрятанное дерево: поле нового файла живёт в нём.
   showFiles: () => void;
+  // Что стоит над текстом заметки, например форма черновика задачи. Правит
+  // ту же заметку, что и редактор.
+  above?: ComponentType<{ path: string; text: string; readOnly: boolean; onChange: (text: string) => void }>;
 };
 
 function Notice({ children, action }: { children: ReactNode; action?: ReactNode }) {
@@ -101,9 +104,10 @@ type OpenNoteProps = {
   insert: string | null;
   tags: string[];
   editor: Props["editor"];
+  above: Props["above"];
 };
 
-function OpenNote({ path, hidden, focusRequest, insert, tags, editor: Editor }: OpenNoteProps) {
+function OpenNote({ path, hidden, focusRequest, insert, tags, editor: Editor, above: Above }: OpenNoteProps) {
   const { t } = useTranslation();
   const note = useNote(path);
   const { title, folders } = notePlace(path);
@@ -185,6 +189,9 @@ function OpenNote({ path, hidden, focusRequest, insert, tags, editor: Editor }: 
           </section>
         </>
       )}
+      {note.text !== undefined && Above !== undefined && (
+        <Above path={path} text={note.text} readOnly={note.missing} onChange={note.change} />
+      )}
       {note.text !== undefined && (
         <Editor
           value={note.text}
@@ -206,7 +213,7 @@ function OpenNote({ path, hidden, focusRequest, insert, tags, editor: Editor }: 
 // Середина окна: открытые заметки или пустой экран. Заметки всех вкладок
 // живут, на экране только активная: у каждой своя история правок
 // и прокрутка, и они переживают переключение вкладок.
-export function NoteView({ editor, showFiles }: Props) {
+export function NoteView({ editor, showFiles, above }: Props) {
   const { tabs, active, focus, insert } = useTreeState();
   const tagList = useTagList();
   const tags = useMemo(() => tagList.map((tag) => tag.name), [tagList]);
@@ -234,6 +241,7 @@ export function NoteView({ editor, showFiles }: Props) {
           insert={insert?.path === path ? insert.text : null}
           tags={tags}
           editor={editor}
+          above={above}
         />
       ))}
     </>

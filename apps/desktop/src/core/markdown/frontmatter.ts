@@ -69,8 +69,115 @@ export function frontmatterValue(yaml: string, key: string) {
     return null;
   }
 
-  return line
-    .slice(line.indexOf(":") + 1)
-    .trim()
-    .replace(/^(["'])(.*)\1$/, "$2");
+  return unquote(line.slice(line.indexOf(":") + 1));
+}
+
+function unquote(value: string) {
+  return value.trim().replace(/^(["'])(.*)\1$/, "$2");
+}
+
+// Пары «имя: значение» под ключом-картой, строками с отступом:
+// «fields:», ниже «  Severity: High».
+export function frontmatterMap(yaml: string, key: string) {
+  const lines = yaml.split("\n");
+  const at = lines.findIndex((line) => keyLine(key).test(line));
+  const entries: { name: string; value: string }[] = [];
+
+  if (at === -1) {
+    return entries;
+  }
+
+  for (const line of lines.slice(at + 1)) {
+    const entry = /^\s+([^:]+):(.*)$/.exec(line);
+
+    if (entry === null) {
+      break;
+    }
+
+    entries.push({ name: (entry[1] ?? "").trim(), value: unquote(entry[2] ?? "") });
+  }
+
+  return entries;
+}
+
+// Значение с «: » или « #» YAML прочёл бы иначе: такое берётся в кавычки.
+// ponytail: кавычки внутри значения не экранируются, полям задач их не нужно.
+function yamlValue(value: string) {
+  if (/: | #|^[\s"'[\]{}>|*&!%@`#,?:-]/.test(value)) {
+    return `"${value}"`;
+  }
+
+  return value;
+}
+
+// Текст, в шапке которого ключ записан заново: строка ключа и строки под
+// ней (список «- a» или карта с отступом) меняются на новые. Без новых
+// строк ключ уходит. Шапки нет, она появляется.
+function withKey(text: string, key: string, replacement: string[]) {
+  const head = FRONTMATTER.exec(text);
+
+  if (head === null) {
+    if (replacement.length === 0) {
+      return text;
+    }
+
+    return `---\n${replacement.join("\n")}\n---\n${text}`;
+  }
+
+  const yaml = head[1] ?? "";
+  let lines: string[] = [];
+
+  if (yaml !== "") {
+    lines = yaml.split(/\r?\n/);
+  }
+
+  const at = lines.findIndex((line) => keyLine(key).test(line));
+  let next = [...lines, ...replacement];
+
+  if (at !== -1) {
+    let end = at + 1;
+
+    while (end < lines.length && /^(\s+\S|-\s)/.test(lines[end] ?? "")) {
+      end += 1;
+    }
+
+    next = [...lines.slice(0, at), ...replacement, ...lines.slice(end)];
+  }
+
+  return `---\n${next.join("\n")}\n---\n${text.slice(head[0].length)}`;
+}
+
+// Пустое значение убирает ключ из шапки.
+export function withFrontmatterValue(text: string, key: string, value: string) {
+  const trimmed = value.trim();
+
+  if (trimmed === "") {
+    return withKey(text, key, []);
+  }
+
+  return withKey(text, key, [`${key}: ${yamlValue(trimmed)}`]);
+}
+
+// Список одной строкой, «key: [a, b]». Пустой список убирает ключ.
+export function withFrontmatterList(text: string, key: string, items: string[]) {
+  const kept = items.map((item) => item.trim()).filter((item) => item !== "");
+
+  if (kept.length === 0) {
+    return withKey(text, key, []);
+  }
+
+  return withKey(text, key, [`${key}: [${kept.map(yamlValue).join(", ")}]`]);
+}
+
+// Карта под ключом целиком. Пары без имени не пишутся, пустая карта
+// убирает ключ.
+export function withFrontmatterMap(text: string, key: string, entries: { name: string; value: string }[]) {
+  const kept = entries.filter((entry) => entry.name.trim() !== "");
+  const lines = kept.map((entry) => `  ${entry.name.trim()}: ${yamlValue(entry.value.trim())}`);
+
+  if (kept.length === 0) {
+    return withKey(text, key, []);
+  }
+
+  return withKey(text, key, [`${key}:`, ...lines]);
 }

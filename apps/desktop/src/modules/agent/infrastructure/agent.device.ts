@@ -19,18 +19,3 @@ export function writeAgentModel(model: AgentModel) {
     // Выбор уже действует, без записи он только не переживёт перезапуск.
   }
 }
-
-// Сеть пропала или вернулась.
-export function subscribeOnline(onChange: () => void) {
-  window.addEventListener("online", onChange);
-  window.addEventListener("offline", onChange);
-
-  return () => {
-    window.removeEventListener("online", onChange);
-    window.removeEventListener("offline", onChange);
-  };
-}
-
-export function isOnline() {
-  return navigator.onLine;
-}

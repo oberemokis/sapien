@@ -9,13 +9,15 @@ import {
   FileSearch,
   NoteTabs,
   NoteView,
+  openNote,
   TagList,
   useActiveNote,
   useFolderNotes,
+  useNoteTexts,
   VaultGate,
   VaultTree,
 } from "@/modules/vault";
-import { useYoutrackCheck } from "@/modules/youtrack";
+import { TaskDraftForm, useYoutrackCheck } from "@/modules/youtrack";
 
 export const Route = createFileRoute("/")({ component: Home });
 
@@ -28,6 +30,18 @@ function showFiles() {
 // Ход действия виден в чате: спрятанный чат показывается.
 function showChat() {
   showPanel("chat");
+}
+
+function openDraft(path: string) {
+  openNote(path, { focus: true });
+}
+
+// Над текстом заметки форма черновика задачи. Связь на другой черновик
+// встаёт номером его задачи, поэтому форме нужны тексты заметок хранилища.
+function DraftAbove(props: { path: string; text: string; readOnly: boolean; onChange: (text: string) => void }) {
+  const notes = useNoteTexts();
+
+  return <TaskDraftForm {...props} notes={notes ?? []} onOpen={openDraft} />;
 }
 
 function Home() {
@@ -63,7 +77,7 @@ function Home() {
         title={<NoteTabs onCreateStart={showFiles} />}
         main={
           <VaultGate>
-            <NoteView editor={MarkdownEditor} showFiles={showFiles} />
+            <NoteView editor={MarkdownEditor} showFiles={showFiles} above={DraftAbove} />
           </VaultGate>
         }
         chat={<AgentChat context={note} actions={actions} />}

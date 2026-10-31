@@ -52,6 +52,15 @@ export function useFolderNotes(folder: string) {
   }).data;
 }
 
+// Все заметки хранилища с текстом, из того же кеша. Пока хранилище
+// не открыто или текст не прочитан, undefined.
+export function useNoteTexts() {
+  const status = useVaultStatus();
+
+  return useQuery({ queryKey: TEXTS_KEY, queryFn: vaultTexts, enabled: status.data?.kind === "ready", ...NO_RETRY })
+    .data;
+}
+
 // Все теги хранилища с числом заметок.
 export function useTagList() {
   const noteTags = useNoteTags();
