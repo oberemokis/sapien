@@ -1,7 +1,9 @@
-import { useEffect, useLayoutEffect, useRef, type KeyboardEvent } from "react";
+import { Fragment, useEffect, useLayoutEffect, useRef, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 
-export type MenuItem = { label: string; onSelect: () => void };
+// Недоступный пункт виден серым с пометкой справа, почему. separated
+// отделяет пункт и следующие за ним чертой сверху.
+export type MenuItem = { label: string; onSelect: () => void; disabled?: boolean; hint?: string; separated?: boolean };
 
 type Props = {
   // Точка, где нажали правую кнопку, в координатах окна.
@@ -16,7 +18,7 @@ const EDGE = 4;
 
 // Стрелки ходят по кругу: вниз с последнего пункта на первый.
 function moveFocus(menu: HTMLElement, step: number) {
-  const items = [...menu.querySelectorAll<HTMLElement>('[role="menuitem"]')];
+  const items = [...menu.querySelectorAll<HTMLElement>('[role="menuitem"]:not(:disabled)')];
   const index = items.findIndex((item) => item === document.activeElement);
 
   items.at((index + step) % items.length)?.focus();
@@ -39,7 +41,7 @@ export function ContextMenu({ x, y, items, onClose }: Props) {
     const { width, height } = menu.getBoundingClientRect();
     menu.style.left = `${Math.max(EDGE, Math.min(x, window.innerWidth - width - EDGE))}px`;
     menu.style.top = `${Math.max(EDGE, Math.min(y, window.innerHeight - height - EDGE))}px`;
-    menu.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
+    menu.querySelector<HTMLElement>('[role="menuitem"]:not(:disabled)')?.focus();
   }, [x, y]);
 
   useEffect(() => {
@@ -93,18 +95,22 @@ export function ContextMenu({ x, y, items, onClose }: Props) {
       onContextMenu={(event) => event.preventDefault()}
     >
       {items.map((item) => (
-        <button
-          key={item.label}
-          type="button"
-          role="menuitem"
-          className="flex h-7 w-full items-center rounded-md px-2 text-left text-[13px] outline-none transition-colors duration-120 hover:bg-selection-hover focus-visible:bg-selection-hover"
-          onClick={() => {
-            onClose();
-            item.onSelect();
-          }}
-        >
-          {item.label}
-        </button>
+        <Fragment key={item.label}>
+          {item.separated === true && <hr className="mx-2 my-1 border-hairline" />}
+          <button
+            type="button"
+            role="menuitem"
+            disabled={item.disabled}
+            className="flex h-7 w-full items-center gap-4 rounded-md px-2 text-left text-[13px] outline-none transition-colors duration-120 hover:bg-selection-hover focus-visible:bg-selection-hover disabled:text-content/40 disabled:hover:bg-transparent"
+            onClick={() => {
+              onClose();
+              item.onSelect();
+            }}
+          >
+            <span className="flex-1 truncate">{item.label}</span>
+            {item.hint !== undefined && <span className="text-[12px] text-content/40">{item.hint}</span>}
+          </button>
+        </Fragment>
       ))}
     </div>,
     document.body,

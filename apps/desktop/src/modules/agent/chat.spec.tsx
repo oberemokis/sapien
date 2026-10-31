@@ -150,6 +150,10 @@ describe("чат с агентом", () => {
     fireEvent.click(screen.getByRole("button", { name: "Повторить" }));
     await waitFor(() => expect(rust.sent).toHaveLength(2));
     expect(rust.sent[1].text).toBe("");
+
+    rust.finish([{ kind: "assistant", text: "Ответ" }]);
+    expect(await screen.findByText("Ответ")).toBeDefined();
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("без ключа вместо поля ввода ведёт в настройки", async () => {

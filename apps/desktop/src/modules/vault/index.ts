@@ -6,5 +6,6 @@ export { VaultGate } from "./components/vault-gate";
 export { VaultSettings } from "./components/vault-settings";
 export { VaultTree } from "./components/vault-tree";
 export { useActiveNote } from "./interactions/active-note";
-export { restoreSession } from "./interactions/tree";
-export { useVaultSync } from "./interactions/vault";
+export { useFolderNotes } from "./interactions/tags";
+export { openNote, restoreSession } from "./interactions/tree";
+export { useCreateNote, useVaultSync } from "./interactions/vault";

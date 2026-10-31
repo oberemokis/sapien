@@ -14,7 +14,7 @@ import {
   type ReactNode,
 } from "react";
 import { useTranslation } from "react-i18next";
-import { ContextMenu } from "@/core/ui/context-menu";
+import { ContextMenu, type MenuItem } from "@/core/ui/context-menu";
 import { FileTypeIcon } from "@/core/ui/file-type-icon";
 import { Icon } from "@/core/ui/icon";
 import { IconButton } from "@/core/ui/icon-button";
@@ -274,16 +274,20 @@ type Props = {
   // Зовётся, когда в дереве открылось поле имени: страница показывает
   // спрятанную панель, иначе поля не видно.
   onCreateStart?: () => void;
+  // Пункты соседних модулей в меню заметки, например действия агента.
+  noteMenu?: (path: string) => MenuItem[];
 };
+
+type Menu = { x: number; y: number; parent: string; entry: string | null; note: string | null };
 
 // Дерево хранилища в левой панели. Пока хранилище не открыто, панель пуста:
 // что делать, объясняет середина окна.
-export function VaultTree({ onCreateStart }: Props) {
+export function VaultTree({ onCreateStart, noteMenu }: Props) {
   const { t } = useTranslation();
   const status = useVaultStatus();
   const tree = useVaultTree();
   const state = useTreeState();
-  const [menu, setMenu] = useState<{ x: number; y: number; parent: string; entry: string | null } | null>(null);
+  const [menu, setMenu] = useState<Menu | null>(null);
   const closeMenu = useCallback(() => setMenu(null), []);
   const trash = useTrashEntry();
 
@@ -310,6 +314,7 @@ export function VaultTree({ onCreateStart }: Props) {
     const row = rowOf(event.target);
     let parent = "";
     let entry: string | null = null;
+    let note: string | null = null;
 
     if (row?.dataset.entry !== undefined) {
       const path = row.dataset.entry;
@@ -318,9 +323,10 @@ export function VaultTree({ onCreateStart }: Props) {
       selectEntry(path, isFolder ? "folder" : "note");
       parent = isFolder ? path : parentOf(path);
       entry = path;
+      note = isFolder ? null : path;
     }
 
-    setMenu({ x: event.clientX, y: event.clientY, parent, entry });
+    setMenu({ x: event.clientX, y: event.clientY, parent, entry, note });
   }
 
   // ⌘⌫ или Delete на строке дерева, как в Finder и Проводнике.
@@ -334,6 +340,12 @@ export function VaultTree({ onCreateStart }: Props) {
   }
 
   const menuEntry = menu?.entry ?? null;
+  let extra: MenuItem[] = [];
+
+  // Пункты соседей отделены чертой от своих.
+  if (menu?.note != null && noteMenu !== undefined) {
+    extra = noteMenu(menu.note).map((item, index) => ({ ...item, separated: index === 0 }));
+  }
 
   return (
     <>
@@ -390,6 +402,7 @@ export function VaultTree({ onCreateStart }: Props) {
             menuEntry === null
               ? { label: t("vault.history.deleted"), onSelect: showDeleted }
               : { label: t("vault.trash.action"), onSelect: () => trash.mutate(menuEntry) },
+            ...extra,
           ]}
           onClose={closeMenu}
         />

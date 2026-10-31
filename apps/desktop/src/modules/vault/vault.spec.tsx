@@ -12,8 +12,11 @@ import {
   VaultGate,
   VaultTree,
   restoreSession,
+  useCreateNote,
+  useFolderNotes,
   useVaultSync,
 } from "@/modules/vault";
+import type { MenuItem } from "@/core/ui/context-menu";
 import { forgetNotes } from "./interactions/note";
 import { closeHistory } from "./interactions/history";
 import { closeSearch } from "./interactions/search";
@@ -224,7 +227,7 @@ function TextEditor({ value, onChange, readOnly, focusRequest, insert, label, ta
   );
 }
 
-function Window() {
+function Window({ noteMenu }: { noteMenu?: (path: string) => MenuItem[] }) {
   useVaultSync();
 
   return (
@@ -233,7 +236,7 @@ function Window() {
         <NoteTabs onCreateStart={() => undefined} />
       </header>
       <aside aria-label="дерево">
-        <VaultTree />
+        <VaultTree noteMenu={noteMenu} />
         <TagList />
       </aside>
       <main>
@@ -246,13 +249,33 @@ function Window() {
   );
 }
 
-function launch() {
+function launch(noteMenu?: (path: string) => MenuItem[]) {
   const client = new QueryClient();
 
   return render(
     <QueryClientProvider client={client}>
-      <Window />
+      <Window noteMenu={noteMenu} />
     </QueryClientProvider>,
+  );
+}
+
+// Соседний модуль, который держит свои файлы в папке хранилища.
+function FolderOwner() {
+  const folderNotes = useFolderNotes("Действия");
+  const create = useCreateNote();
+
+  return (
+    <section aria-label="папка">
+      {folderNotes?.map((entry) => (
+        <p key={entry.path}>{entry.path}</p>
+      ))}
+      <button
+        type="button"
+        onClick={() => create.mutate({ folder: "Действия", name: "Сводка", text: "Собери сводку\n" })}
+      >
+        создать
+      </button>
+    </section>
   );
 }
 
@@ -506,6 +529,47 @@ describe("создание в дереве", () => {
       { parent: "Проекты", name: "План", kind: "note" },
       { parent: "", name: "Архив", kind: "folder" },
     ]);
+  });
+
+  it("меню заметки дополняют соседи, недоступный пункт помечен, у папки их пунктов нет", async () => {
+    const chosen: string[] = [];
+    fakeRust({ status: { kind: "ready", path: "/notes" }, tree: [folder("Проекты"), note("идеи.md")] });
+    launch((path) => [
+      { label: "Сводка", onSelect: () => chosen.push(path) },
+      { label: "Отчёт", disabled: true, hint: "нет сети", onSelect: () => chosen.push("недоступный") },
+    ]);
+
+    fireEvent.contextMenu(await inTree().findByRole("button", { name: "идеи" }));
+    expect(screen.getByRole<HTMLButtonElement>("menuitem", { name: "Отчёт нет сети" }).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Сводка" }));
+    expect(chosen).toEqual(["идеи.md"]);
+
+    fireEvent.contextMenu(inTree().getByRole("button", { name: "Проекты" }));
+    expect(screen.getByRole("menuitem", { name: "Новый файл" })).toBeDefined();
+    expect(screen.queryByRole("menuitem", { name: "Сводка" })).toBeNull();
+  });
+
+  it("заметка с текстом ложится в папку, которой ещё не было, список папки без вложенных", async () => {
+    const disk = fakeRust({
+      status: { kind: "ready", path: "/notes" },
+      tree: [],
+      files: { "Действия/Архив/давнее.md": "", "идеи.md": "" },
+    });
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <FolderOwner />
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "создать" }));
+
+    expect(await screen.findByText("Действия/Сводка.md")).toBeDefined();
+    expect(disk.created).toEqual([
+      { parent: "", name: "Действия", kind: "folder" },
+      { parent: "Действия", name: "Сводка", kind: "note" },
+    ]);
+    expect(disk.files?.["Действия/Сводка.md"]).toBe("Собери сводку\n");
+    expect(screen.getAllByRole("paragraph")).toHaveLength(1);
   });
 
   it("Escape закрывает меню, а не что-то под ним", async () => {

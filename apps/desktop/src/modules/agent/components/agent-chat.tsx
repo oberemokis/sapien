@@ -1,20 +1,33 @@
+// Список действий после «/» это combobox по ARIA, как поиск файла: фокус
+// остаётся в поле, строку выбирают стрелками через aria-activedescendant,
+// мышь только дублирует их. Родной datalist не показывает клавишу действия
+// и пометку «нет сети».
+/* oxlint-disable jsx-a11y/prefer-tag-over-role, jsx-a11y/click-events-have-key-events */
 import Delete02Icon from "@hugeicons/core-free-icons/Delete02Icon";
 import Key01Icon from "@hugeicons/core-free-icons/Key01Icon";
 import { Link } from "@tanstack/react-router";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/core/ui/button";
 import { Icon } from "@/core/ui/icon";
 import { IconButton } from "@/core/ui/icon-button";
+import type { ActionLauncher } from "../interactions/actions";
 import { useChat, useOnline } from "../interactions/chat";
 import { useAgentModel } from "../interactions/model";
 import { useModelKey } from "../interactions/model-key";
+import { hotkeyLabel, type Action } from "../model/actions";
 import { isToolName, MODEL_NAMES, type ChatContext, type ChatEntry } from "../model/chat";
 
 type Props = {
   // Открытая заметка и выделенное в ней: их даёт страница.
   context: ChatContext;
+  // Действия хранилища для «/» в поле ввода.
+  actions?: ActionLauncher;
 };
+
+const OPTION = "flex h-7 cursor-default items-center gap-2 rounded-md px-2 text-[13px] aria-selected:bg-selection";
+
+const LINK = "shrink-0 text-[13px] font-medium underline-offset-2 hover:underline";
 
 function Line({ entry }: { entry: ChatEntry }) {
   const { t } = useTranslation();
@@ -80,16 +93,20 @@ function Notice({ children, action }: { children: string; action?: ReactNode }) 
 }
 
 // Чат с агентом в правой панели. Enter отправляет, Shift+Enter переносит
-// строку. Пока идёт ответ, кнопка отправки становится «Стоп».
-export function AgentChat({ context }: Props) {
+// строку. Пока идёт ответ, кнопка отправки становится «Стоп». «/» в начале
+// поля открывает список действий: стрелки выбирают, Enter запускает,
+// Escape закрывает.
+export function AgentChat({ context, actions }: Props) {
   const { t } = useTranslation();
   const key = useModelKey();
   const model = useAgentModel();
   const chat = useChat();
   const online = useOnline();
   const [draft, setDraft] = useState("");
+  const [picked, setPicked] = useState(0);
   const [clearing, setClearing] = useState(false);
   const logRef = useRef<HTMLDivElement>(null);
+  const listId = useId();
   const last = chat.entries.at(-1)?.entry;
   const count = chat.entries.length;
   let tail = "";
@@ -117,6 +134,16 @@ export function AgentChat({ context }: Props) {
   }
 
   const canSend = online && !chat.running && draft.trim() !== "";
+  const canRun = online && !chat.running;
+  const slash = actions !== undefined && /^\/[^\n]*$/.test(draft);
+  const query = draft.slice(1).trim().toLowerCase();
+  let matches: Action[] = [];
+
+  if (slash) {
+    matches = actions.actions.filter((action) => action.name.toLowerCase().includes(query));
+  }
+
+  const active = Math.min(picked, Math.max(matches.length - 1, 0));
 
   function send() {
     if (!canSend) {
@@ -125,6 +152,16 @@ export function AgentChat({ context }: Props) {
 
     setDraft("");
     void chat.send(model, draft, context);
+  }
+
+  function run(action: Action | undefined) {
+    if (!canRun || action === undefined || actions === undefined) {
+      return;
+    }
+
+    setDraft("");
+    setPicked(0);
+    void actions.run(action, context);
   }
 
   let seen = "";
@@ -163,6 +200,30 @@ export function AgentChat({ context }: Props) {
     );
   }
 
+  // Действию не хватило интеграции: вместо повтора ссылка туда, где её
+  // подключают.
+  let fix = (
+    <button type="button" className={LINK} onClick={() => void chat.send(model, "", context)}>
+      {t("agent.chat.retry")}
+    </button>
+  );
+
+  if (chat.problem === "needsYoutrack") {
+    fix = (
+      <Link to="/settings/integrations" className={LINK}>
+        {t("agent.actions.connect")}
+      </Link>
+    );
+  }
+
+  let noMatch: string | null = null;
+
+  if (slash && actions.actions.length === 0) {
+    noMatch = t("agent.actions.none");
+  } else if (slash && matches.length === 0) {
+    noMatch = t("agent.actions.noMatch");
+  }
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex h-10 shrink-0 items-center gap-2 px-3">{header}</div>
@@ -183,32 +244,63 @@ export function AgentChat({ context }: Props) {
         )}
       </div>
       {!online && <Notice>{t("agent.chat.offline")}</Notice>}
-      {online && chat.problem !== null && (
-        <Notice
-          action={
-            <button
-              type="button"
-              className="shrink-0 text-[13px] font-medium underline-offset-2 hover:underline"
-              onClick={() => void chat.send(model, "", context)}
-            >
-              {t("agent.chat.retry")}
-            </button>
-          }
-        >
-          {t(`agent.problems.${chat.problem}`)}
-        </Notice>
-      )}
+      {online && chat.problem !== null && <Notice action={fix}>{t(`agent.problems.${chat.problem}`)}</Notice>}
       <div className="p-3 pt-0">
         <div className="rounded-lg border border-stroke focus-within:border-accent">
+          {slash && (
+            <div className="max-h-48 overflow-y-auto border-b border-hairline p-1">
+              {noMatch !== null && <p className="px-2 py-1 text-[12px] text-content/50">{noMatch}</p>}
+              <div id={listId} role="listbox" aria-label={t("agent.actions.title")}>
+                {matches.map((action, index) => (
+                  <div
+                    key={action.path}
+                    id={`${listId}-${index}`}
+                    role="option"
+                    tabIndex={-1}
+                    aria-selected={index === active}
+                    aria-disabled={!canRun}
+                    className={`${OPTION} aria-disabled:text-content/40`}
+                    onMouseMove={() => setPicked(index)}
+                    onClick={() => run(action)}
+                  >
+                    <span className="min-w-0 flex-1 truncate">{action.name}</span>
+                    {!online && <span className="text-[12px]">{t("agent.actions.offline")}</span>}
+                    {online && action.hotkey !== null && (
+                      <kbd className="font-sans text-[11px] text-content/40">{hotkeyLabel(action.hotkey)}</kbd>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           <textarea
+            role={slash ? "combobox" : undefined}
             aria-label={t("agent.chat.message")}
+            aria-expanded={slash ? true : undefined}
+            aria-controls={slash ? listId : undefined}
+            aria-autocomplete={slash ? "list" : undefined}
+            aria-activedescendant={matches.length > 0 ? `${listId}-${active}` : undefined}
             placeholder={t("agent.chat.placeholder")}
             value={draft}
             rows={3}
             className="block w-full resize-none bg-transparent px-3 pt-2.5 text-[13px] outline-none"
-            onChange={(event) => setDraft(event.target.value)}
+            onChange={(event) => {
+              setDraft(event.target.value);
+              setPicked(0);
+            }}
             onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+              const enter = event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing;
+
+              if (slash && event.key === "Escape") {
+                event.preventDefault();
+                setDraft("");
+              } else if (matches.length > 0 && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+                event.preventDefault();
+                setPicked((active + (event.key === "ArrowDown" ? 1 : matches.length - 1)) % matches.length);
+              } else if (enter && matches.length > 0) {
+                event.preventDefault();
+                run(matches[active]);
+              } else if (enter) {
                 event.preventDefault();
                 send();
               }

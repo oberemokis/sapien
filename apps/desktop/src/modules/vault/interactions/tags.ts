@@ -4,7 +4,7 @@ import { tagsOf } from "@/core/markdown/tags";
 import { vaultTexts } from "../infrastructure/vault.api";
 import { tagList, type NoteTags } from "../model/tags";
 import { isTemplate } from "../model/templates";
-import type { NoteText } from "../model/vault";
+import { parentOf, type NoteText } from "../model/vault";
 import { TEXTS_KEY } from "./note";
 import { useTemplateSettings } from "./templates";
 import { NO_RETRY, useVaultStatus } from "./vault";
@@ -34,6 +34,22 @@ export function useNoteTags() {
     enabled: status.data?.kind === "ready",
     ...NO_RETRY,
   });
+}
+
+// Заметки прямо в папке, без вложенных, с текстом. Тот же кеш, что у тегов:
+// своя правка и правка снаружи видны здесь сразу. Пока хранилище не открыто
+// или текст не прочитан, undefined.
+export function useFolderNotes(folder: string) {
+  const status = useVaultStatus();
+  const select = useCallback((texts: NoteText[]) => texts.filter((note) => parentOf(note.path) === folder), [folder]);
+
+  return useQuery({
+    queryKey: TEXTS_KEY,
+    queryFn: vaultTexts,
+    select,
+    enabled: status.data?.kind === "ready",
+    ...NO_RETRY,
+  }).data;
 }
 
 // Все теги хранилища с числом заметок.

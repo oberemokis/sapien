@@ -11,20 +11,25 @@ import {
   vaultTree,
   vaultWrite,
 } from "../infrastructure/vault.api";
-import type { EntryKind, VaultStatus } from "../model/vault";
+import { errorCodeOf, type EntryKind, type VaultStatus } from "../model/vault";
 import { dropNotesWithin, followNoteMoves, forgetNotes } from "./note";
 import { readTemplate } from "./templates";
 import { closeNotesWithin, finishCreate, followTreeMoves, openNote, resetTree } from "./tree";
 
-type CreateInput = { parent: string; name: string; kind: EntryKind; template?: string };
+type CreateInput = { parent: string; name: string; kind: EntryKind; template?: string; text?: string };
 
 // Шаблон читается до создания: пропал он, и пустой файл не остаётся.
-async function createEntry({ template, ...input }: CreateInput) {
-  if (template === undefined) {
+async function createEntry({ template, text: given, ...input }: CreateInput) {
+  let text = given;
+
+  if (template !== undefined) {
+    text = await readTemplate(template, input.name);
+  }
+
+  if (text === undefined) {
     return vaultCreate(input);
   }
 
-  const text = await readTemplate(template, input.name);
   const path = await vaultCreate(input);
 
   // Файл только что создан пустым, сверять его не с чем.
@@ -89,6 +94,30 @@ export function useCreateEntry(draftId = 0) {
       await queryClient.invalidateQueries({ queryKey: VAULT_KEY });
       finishCreate(draftId, path, kind);
     },
+  });
+}
+
+type NoteInput = { folder: string; name: string; text: string };
+
+// Заметка с готовым текстом в папке корня, которой может ещё не быть:
+// так соседние модули кладут в хранилище свои файлы. Занятое имя отвечает
+// name_taken, как поле имени в дереве. Вкладку новая заметка не открывает.
+export function useCreateNote() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ folder, name, text }: NoteInput) => {
+      try {
+        await vaultCreate({ parent: "", name: folder, kind: "folder" });
+      } catch (error) {
+        if (errorCodeOf(error) !== "name_taken") {
+          throw error;
+        }
+      }
+
+      return createEntry({ parent: folder, name, kind: "note", text });
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: VAULT_KEY }),
   });
 }
 
