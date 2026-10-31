@@ -1,7 +1,8 @@
-use crate::durable::{self, file_key};
+use crate::durable::file_key;
 use crate::error::AppError;
 use crate::modules::agent::domain::{Change, Chat};
 use crate::modules::agent::ports::ChatStore;
+use crate::sealed;
 use serde_json::{Value, json};
 use std::fs;
 use std::io::ErrorKind;
@@ -11,6 +12,7 @@ use std::path::{Path, PathBuf};
 /// `chats/<хеш пути хранилища>.json`, внутри `{ "messages": [...],
 /// "changes": [...] }`. Файл без `changes` читается с пустым списком.
 /// В хранилище её нет: она не попадает ни в дерево, ни на облачный диск.
+/// На диске файл зашифрован (sealed.rs).
 pub struct ChatFile {
     file: PathBuf,
 }
@@ -27,7 +29,7 @@ impl ChatFile {
 
 impl ChatStore for ChatFile {
     fn load(&self) -> Result<Chat, AppError> {
-        let bytes = match fs::read(&self.file) {
+        let bytes = match sealed::read(&self.file) {
             Ok(bytes) => bytes,
             Err(error) if error.kind() == ErrorKind::NotFound => return Ok(Chat::default()),
             Err(_) => return Err(AppError::unavailable("chat_unreadable")),
@@ -45,7 +47,7 @@ impl ChatStore for ChatFile {
 
         let saved = json!({ "messages": messages, "changes": changes });
 
-        durable::write(&self.file, saved.to_string().as_bytes()).map_err(unwritable)
+        sealed::write(&self.file, saved.to_string().as_bytes()).map_err(unwritable)
     }
 
     fn clear(&self) -> Result<(), AppError> {

@@ -1,3 +1,4 @@
+import { appStorage } from "@/core/storage/app-storage";
 import type { IssueState } from "../model/youtrack";
 
 const STORAGE_KEY = "sapien.youtrack.known";
@@ -6,11 +7,11 @@ const LIMIT = 500;
 
 type Known = { projects: string[]; issues: Record<string, IssueState> };
 
-// Хранилище окна бывает закрыто политикой или испорчено: тогда последнего
-// известного нет, а плашки просто ждут ответа YouTrack.
+// Названия задач лежат в хранилище приложения, зашифрованными. Испорченное
+// или пропавшее это пустое последнее известное: плашки ждут ответа YouTrack.
 function read(): Known {
   try {
-    const known: Partial<Known> | null = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "null");
+    const known: Partial<Known> | null = JSON.parse(appStorage.getItem(STORAGE_KEY) ?? "null");
 
     return { projects: known?.projects ?? [], issues: known?.issues ?? {} };
   } catch {
@@ -19,11 +20,7 @@ function read(): Known {
 }
 
 function write(known: Known) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(known));
-  } catch {
-    // Ответ уже в окне, без записи он только не переживёт перезапуск.
-  }
+  appStorage.setItem(STORAGE_KEY, JSON.stringify(known));
 }
 
 // Проекты и задачи на момент последнего ответа YouTrack: без сети плашки

@@ -12,11 +12,14 @@ const router = createRouter({ routeTree });
 
 // Тема, раскладка и вкладки до первой отрисовки, иначе окно мигнёт чужой
 // темой, а панели и вкладки прыгнут из пустых значений в сохранённые.
-restoreTheme();
-restoreLayout();
-restoreSession();
-restoreDefaultProject();
-restoreInbox();
+// Зовёт main.tsx, когда хранилище приложения уже прочитано: в нём лента.
+export function restoreDevice() {
+  restoreTheme();
+  restoreLayout();
+  restoreSession();
+  restoreDefaultProject();
+  restoreInbox();
+}
 
 // Без регистрации Link и navigate не знают дерева и принимают любую строку.
 declare module "@tanstack/react-router" {

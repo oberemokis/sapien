@@ -1,3 +1,4 @@
+import { appStorage } from "@/core/storage/app-storage";
 import type { TaskGraph } from "../model/youtrack";
 
 const STORAGE_KEY = "sapien.youtrack.graphs";
@@ -6,11 +7,11 @@ const LIMIT = 20;
 
 type Graphs = Record<string, TaskGraph>;
 
-// Хранилище окна бывает закрыто политикой или испорчено: тогда без сети
-// граф строится только по черновикам.
+// Графы лежат в хранилище приложения, зашифрованными. Испорченные или
+// пропавшие: без сети граф строится только по черновикам.
 function read(): Graphs {
   try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}") ?? {};
+    return JSON.parse(appStorage.getItem(STORAGE_KEY) ?? "{}") ?? {};
   } catch {
     return {};
   }
@@ -24,9 +25,5 @@ export function knownGraph(key: string): TaskGraph | undefined {
 export function rememberGraph(key: string, graph: TaskGraph) {
   const rest = Object.entries(read()).filter(([known]) => known !== key);
 
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(Object.fromEntries([...rest.slice(-(LIMIT - 1)), [key, graph]])));
-  } catch {
-    // Граф уже в окне, без записи он только не переживёт перезапуск.
-  }
+  appStorage.setItem(STORAGE_KEY, JSON.stringify(Object.fromEntries([...rest.slice(-(LIMIT - 1)), [key, graph]])));
 }
