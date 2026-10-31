@@ -1,3 +1,4 @@
+use crate::durable;
 use crate::error::AppError;
 use crate::modules::vault::ports::VaultPlace;
 use std::fs;
@@ -36,7 +37,8 @@ impl VaultPlace for ConfigFile {
             fs::create_dir_all(dir).map_err(|_| AppError::unavailable("config_unwritable"))?;
         }
 
-        fs::write(&self.file, text).map_err(|_| AppError::unavailable("config_unwritable"))
+        durable::write(&self.file, text.as_bytes())
+            .map_err(|_| AppError::unavailable("config_unwritable"))
     }
 }
 

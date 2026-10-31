@@ -1,3 +1,4 @@
+mod durable;
 mod error;
 #[cfg(target_os = "macos")]
 mod menu;
@@ -27,6 +28,9 @@ pub fn run() {
             vault::transport::vault_read,
             vault::transport::vault_write,
             vault::transport::vault_texts,
+            vault::transport::vault_unsaved,
+            vault::transport::vault_forget_unsaved,
+            vault::transport::vault_trash,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

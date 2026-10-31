@@ -17,7 +17,7 @@ import {
 import { forgetNotes } from "./interactions/note";
 import { closeSearch } from "./interactions/search";
 import { DEFAULT_TEMPLATES } from "./model/templates";
-import type { EditorProps } from "./model/vault";
+import type { EditorProps, Unsaved } from "./model/vault";
 import { templatesStore } from "./store/templates.store";
 import { EMPTY_TREE, treeStore } from "./store/tree.store";
 
@@ -38,9 +38,19 @@ type Disk = {
   refuse?: unknown;
   // Запись падает, как на полном диске.
   full?: boolean;
+  // Журнал восстановления по пути заметки.
+  journal?: Record<string, Unsaved>;
+  // Что ушло в корзину, по порядку.
+  trashed?: string[];
 };
 
 const missing = { kind: "not_found", code: "note_missing" };
+
+function withoutEntry(tree: Entry[], entry: string): Entry[] {
+  return tree
+    .filter((item) => item.path !== entry)
+    .map((item) => (item.children === undefined ? item : { ...item, children: withoutEntry(item.children, entry) }));
+}
 
 // Кладёт созданное в дерево так, как его потом отдаст vault_tree.
 function place(tree: Entry[], files: Record<string, string>, { parent, name, kind }: CreateArgs) {
@@ -61,11 +71,13 @@ function place(tree: Entry[], files: Record<string, string>, { parent, name, kin
 // Rust это граница процесса: подменяются его команды, а не модуль.
 function fakeRust(disk: Disk) {
   disk.created = [];
+  disk.trashed = [];
   const files = (disk.files ??= {});
+  const journal = (disk.journal ??= {});
 
   mockIPC(
     (command, args) => {
-      const { path, text } = args as { path: string; text: string };
+      const { path, text, base } = args as Unsaved;
 
       switch (command) {
         case "vault_read":
@@ -75,6 +87,8 @@ function fakeRust(disk: Disk) {
 
           return files[path];
         case "vault_write":
+          journal[path] = { path, base, text };
+
           if (disk.full) {
             throw { kind: "unavailable", code: "note_unwritable" };
           }
@@ -83,7 +97,28 @@ function fakeRust(disk: Disk) {
             throw missing;
           }
 
+          if (base !== null && files[path] !== base) {
+            throw { kind: "conflict", code: "note_conflict" };
+          }
+
           files[path] = text;
+          delete journal[path];
+          return null;
+        case "vault_unsaved":
+          return Object.values(journal);
+        case "vault_forget_unsaved":
+          delete journal[path];
+          return null;
+        case "vault_trash":
+          disk.trashed?.push(path);
+          disk.tree = withoutEntry(disk.tree, path);
+
+          for (const file of Object.keys(files)) {
+            if (file === path || file.startsWith(`${path}/`)) {
+              delete files[file];
+            }
+          }
+
           return null;
         case "vault_status":
           return disk.status;
@@ -461,11 +496,12 @@ function editorText(label: string) {
 // Пауза в наборе, после которой правка уходит на диск, с запасом.
 const SAVED = { timeout: 1500 };
 
-function notes(files: Record<string, string>) {
+function notes(files: Record<string, string>, journal: Record<string, Unsaved> = {}) {
   const disk = fakeRust({
     status: { kind: "ready", path: "/notes" },
     tree: [folder("Проекты", [note("Проекты/план.md")]), note("идеи.md")],
     files,
+    journal,
   });
 
   return { files, disk };
@@ -538,7 +574,7 @@ describe("открытая заметка", () => {
     await waitFor(() => expect(editorText("идеи")).toBe("дописали в Obsidian"));
   });
 
-  it("несохранённая правка побеждает изменение снаружи", async () => {
+  it("правка снаружи посреди своей: ни одна не затёрта, видны обе, своя остаётся по выбору", async () => {
     const { files } = notes({ "идеи.md": "было" });
     launch();
 
@@ -549,9 +585,33 @@ describe("открытая заметка", () => {
     files["идеи.md"] = "правка агента";
     await act(() => emit("vault://changed"));
 
+    expect(await screen.findByText(/Файл изменили снаружи/, undefined, SAVED)).toBeDefined();
+    expect(files["идеи.md"]).toBe("правка агента");
     expect(editorText("идеи")).toBe("моя правка");
-    await waitFor(() => expect(files["идеи.md"]).toBe("моя правка"), SAVED);
-    expect(editorText("идеи")).toBe("моя правка");
+    expect(screen.getByRole("region", { name: "Версия на диске" }).textContent).toBe("правка агента");
+
+    fireEvent.click(screen.getByRole("button", { name: "Оставить мою" }));
+
+    await waitFor(() => expect(files["идеи.md"]).toBe("моя правка"));
+    expect(screen.queryByText(/Файл изменили снаружи/)).toBeNull();
+  });
+
+  it("версия с диска вместо своей: правка уходит и из журнала, следующая пишется от новой", async () => {
+    const { files, disk } = notes({ "идеи.md": "было" });
+    launch();
+
+    fireEvent.click(await screen.findByRole("button", { name: "идеи" }));
+    await screen.findByRole("textbox", { name: "идеи" });
+    type("идеи", "моя правка");
+    files["идеи.md"] = "правка агента";
+
+    fireEvent.click(await screen.findByRole("button", { name: "Взять с диска" }, SAVED));
+
+    await waitFor(() => expect(editorText("идеи")).toBe("правка агента"));
+    expect(disk.journal).toEqual({});
+
+    type("идеи", "правка агента и моя");
+    await waitFor(() => expect(files["идеи.md"]).toBe("правка агента и моя"), SAVED);
   });
 
   it("файл удалили снаружи: сообщение, а текст остаётся на экране", async () => {
@@ -581,6 +641,61 @@ describe("открытая заметка", () => {
     const editor = await screen.findByRole("textbox", { name: "Встреча" });
     expect(document.activeElement).toBe(editor);
     expect(screen.getByRole("heading", { name: "Встреча" })).toBeDefined();
+  });
+});
+
+describe("журнал и корзина", () => {
+  const left = { "идеи.md": { path: "идеи.md", base: "было", text: "не успело" } };
+
+  it("правка, не дошедшая до файла в прошлый раз, возвращается по согласию", async () => {
+    const { files, disk } = notes({ "идеи.md": "было" }, { ...left });
+    launch();
+
+    expect(await screen.findByText(/остались правки, которые не записались в файлы: идеи/)).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: "Вернуть" }));
+
+    await screen.findByRole("textbox", { name: "идеи" });
+    expect(editorText("идеи")).toBe("не успело");
+    await waitFor(() => expect(files["идеи.md"]).toBe("не успело"));
+    expect(disk.journal).toEqual({});
+    expect(screen.queryByText(/остались правки/)).toBeNull();
+  });
+
+  it("от правки из журнала можно отказаться, файл остаётся как был", async () => {
+    const { files, disk } = notes({ "идеи.md": "было" }, { ...left });
+    launch();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Отказаться" }));
+
+    await waitFor(() => expect(screen.queryByText(/остались правки/)).toBeNull());
+    expect(disk.journal).toEqual({});
+    expect(files["идеи.md"]).toBe("было");
+  });
+
+  it("удалённое из дерева уходит в корзину, вкладки внутри него закрываются", async () => {
+    const disk = workspace();
+    launch();
+
+    await openFromTree("Проекты", "план");
+    fireEvent.click(inTree().getByRole("button", { name: "идеи" }), mod);
+    expect(tabs()).toHaveLength(2);
+
+    fireEvent.contextMenu(inTree().getByRole("button", { name: "Проекты" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Переместить в корзину" }));
+
+    await waitFor(() => expect(inTree().queryByRole("button", { name: "Проекты" })).toBeNull());
+    expect(disk.trashed).toEqual(["Проекты"]);
+    expect(tabs()).toHaveLength(1);
+
+    fireEvent.keyDown(inTree().getByRole("button", { name: "идеи" }), { key: "Backspace", ...mod });
+
+    await waitFor(() => expect(inTree().queryByRole("button", { name: "идеи" })).toBeNull());
+    expect(disk.trashed).toEqual(["Проекты", "идеи.md"]);
+    expect(tabs()).toEqual([]);
+
+    // Пустое место дерева удалять нечего.
+    fireEvent.contextMenu(inTree().getByRole("navigation"));
+    expect(screen.queryByRole("menuitem", { name: "Переместить в корзину" })).toBeNull();
   });
 });
 

@@ -13,6 +13,10 @@ export type EntryKind = VaultEntry["kind"];
 
 export type NoteText = { path: string; text: string };
 
+// Правка из журнала. base это текст файла, от которого она шла, null у правки,
+// которую человек решил записать поверх правки снаружи.
+export type Unsaved = { path: string; base: string | null; text: string };
+
 // Что середина окна отдаёт редактору открытой заметки. Сам редактор
 // ставит страница.
 export type EditorProps = {
@@ -152,6 +156,12 @@ export function childrenOf(tree: VaultEntry[], folder: string): VaultEntry[] {
 
 export function parentOf(path: string) {
   return path.slice(0, Math.max(path.lastIndexOf("/"), 0));
+}
+
+// Путь это сам элемент или что-то внутри папки с этим путём. «план»
+// не внутри «пла»: граница по «/».
+export function isWithin(path: string, entry: string) {
+  return path === entry || path.startsWith(`${entry}/`);
 }
 
 // Папка и все над ней: «a/b» даёт «a» и «a/b». Их раскрывают, чтобы новый

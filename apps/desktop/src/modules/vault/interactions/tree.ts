@@ -3,7 +3,7 @@ import { readRecent, writeRecent } from "../infrastructure/recent.device";
 import { readTabs, writeTabs } from "../infrastructure/tabs.device";
 import { parseRecent, pushRecent } from "../model/search";
 import { closeTab, cycleTab, keepTabs, moveTab, openTab, parseTabs, type Tabs } from "../model/tabs";
-import { foldersDownTo, notePlace, parentOf, type EntryKind } from "../model/vault";
+import { foldersDownTo, isWithin, notePlace, parentOf, type EntryKind } from "../model/vault";
 import { EMPTY_TREE, treeStore } from "../store/tree.store";
 import { readTemplate, restoreTemplateSettings } from "./templates";
 
@@ -111,6 +111,18 @@ export function openNote(path: string, { focus = false, newTab = false } = {}) {
 
 export function closeNote(path: string) {
   updateTabs((tabs) => closeTab(tabs, path));
+}
+
+// Элемент удалён: его вкладки и вкладки всего, что было в папке, закрываются.
+export function closeNotesWithin(entry: string) {
+  updateTabs((tabs) => keepTabs(tabs, (path) => !isWithin(path, entry)));
+  treeStore.setState((state) => {
+    if (state.selected === null || !isWithin(state.selected.path, entry)) {
+      return state;
+    }
+
+    return { ...state, selected: null };
+  });
 }
 
 export function closeActiveNote() {

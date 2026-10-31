@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/core/ui/button";
 import { Icon } from "@/core/ui/icon";
 import { IconButton } from "@/core/ui/icon-button";
+import { useLeftUnsaved } from "../interactions/journal";
 import { useNote } from "../interactions/note";
 import { openSearch, pickTemplate, showTag } from "../interactions/search";
 import { useTagList } from "../interactions/tags";
@@ -23,6 +24,42 @@ function Notice({ children, action }: { children: ReactNode; action?: ReactNode 
     <div role="alert" className="mx-4 mb-2 flex items-center gap-3 rounded-md bg-diff-del-bg px-3 py-2 text-[13px]">
       <p className="flex-1">{children}</p>
       {action}
+    </div>
+  );
+}
+
+function NoticeAction({ children, onClick }: { children: ReactNode; onClick: () => void }) {
+  return (
+    <button type="button" className="shrink-0 underline underline-offset-2" onClick={onClick}>
+      {children}
+    </button>
+  );
+}
+
+// Правки, которые не дошли до файлов в прошлый раз. Предложение висит над
+// заметками, пока человек не ответит.
+function LeftUnsaved() {
+  const { t } = useTranslation();
+  const left = useLeftUnsaved();
+
+  if (left.entries.length === 0) {
+    return null;
+  }
+
+  const names = left.entries.map(({ path }) => notePlace(path).title).join(", ");
+
+  return (
+    <div className="pt-2">
+      <Notice
+        action={
+          <>
+            <NoticeAction onClick={left.restore}>{t("editor.restore")}</NoticeAction>
+            <NoticeAction onClick={left.discard}>{t("editor.discard")}</NoticeAction>
+          </>
+        }
+      >
+        {t("editor.left", { names })}
+      </Notice>
     </div>
   );
 }
@@ -116,15 +153,31 @@ function OpenNote({ path, hidden, focusRequest, insert, tags, editor: Editor }: 
       {note.missing && <Notice>{t("editor.missing")}</Notice>}
       {note.unreadable && !note.missing && <Notice>{t("editor.unreadable")}</Notice>}
       {note.saveFailed && !note.missing && (
-        <Notice
-          action={
-            <button type="button" className="shrink-0 underline underline-offset-2" onClick={save}>
-              {t("editor.retry")}
-            </button>
-          }
-        >
+        <Notice action={<NoticeAction onClick={save}>{t("editor.retry")}</NoticeAction>}>
           {t("editor.saveFailed")}
         </Notice>
+      )}
+      {/* Обе версии на экране: своя в редакторе, с диска под предупреждением.
+          Слить это перенести нужное из версии с диска и оставить свою. */}
+      {note.conflict && (
+        <>
+          <Notice
+            action={
+              <>
+                <NoticeAction onClick={note.keepMine}>{t("editor.keepMine")}</NoticeAction>
+                <NoticeAction onClick={note.takeDisk}>{t("editor.takeDisk")}</NoticeAction>
+              </>
+            }
+          >
+            {t("editor.conflict")}
+          </Notice>
+          <section
+            aria-label={t("editor.diskVersion")}
+            className="mx-4 mb-2 max-h-48 shrink-0 overflow-auto rounded-md border border-stroke px-3 py-2"
+          >
+            <pre className="font-mono text-[12px] whitespace-pre-wrap">{note.disk}</pre>
+          </section>
+        </>
       )}
       {note.text !== undefined && (
         <Editor
@@ -151,11 +204,17 @@ export function NoteView({ editor, showFiles }: Props) {
   const tags = useMemo(() => tagList.map((tag) => tag.name), [tagList]);
 
   if (active === null) {
-    return <NoNote showFiles={showFiles} />;
+    return (
+      <>
+        <LeftUnsaved />
+        <NoNote showFiles={showFiles} />
+      </>
+    );
   }
 
   return (
     <>
+      <LeftUnsaved />
       {tabs.map((path) => (
         <OpenNote
           key={path}
