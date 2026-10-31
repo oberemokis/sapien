@@ -9,6 +9,7 @@ import {
   NoteTabs,
   NoteView,
   TagList,
+  TagPanelSetting,
   VaultGate,
   VaultTree,
   restoreSession,
@@ -25,6 +26,7 @@ import { closeHistory } from "./interactions/history";
 import { closeSearch } from "./interactions/search";
 import { DEFAULT_TEMPLATES } from "./model/templates";
 import type { EditorProps, Unsaved } from "./model/vault";
+import { tagPanelStore } from "./store/tag-panel.store";
 import { templatesStore } from "./store/templates.store";
 import { EMPTY_TREE, treeStore } from "./store/tree.store";
 
@@ -358,6 +360,7 @@ afterEach(async () => {
   closeSearch();
   closeHistory();
   templatesStore.setState(() => DEFAULT_TEMPLATES);
+  tagPanelStore.setState(() => "open");
   setTemplateValues({});
   localStorage.clear();
   vi.useRealTimers();
@@ -1266,10 +1269,25 @@ function tagged() {
   });
 }
 
+function tagsRegion() {
+  return screen.queryByRole("region", { name: "Теги" });
+}
+
+// Кнопки тегов из списка, без заголовка. Свёрнутый список не виден и пуст.
 function tagButtons() {
-  return within(screen.getByRole("region", { name: "Теги" }))
+  const list = within(tagsRegion() as HTMLElement).queryByRole("list");
+
+  if (list === null) {
+    return [];
+  }
+
+  return within(list)
     .queryAllByRole("button")
     .map((button) => button.getAttribute("aria-label"));
+}
+
+function tagsHeader() {
+  return within(tagsRegion() as HTMLElement).getByRole("button", { name: "Теги" });
 }
 
 describe("теги", () => {
@@ -1326,6 +1344,50 @@ describe("теги", () => {
     // Тег ушёл из последней заметки и пропал из списка.
     type("идеи", "идеи");
     await waitFor(() => expect(tagButtons()).not.toContain("#отпуск, заметок: 1"), SAVED);
+  });
+
+  it("заголовок сворачивает раздел до одной строки, и это переживает перезапуск", async () => {
+    tagged();
+    const first = launch();
+    await waitFor(() => expect(tagButtons()).toHaveLength(3));
+
+    fireEvent.click(tagsHeader());
+
+    expect(tagsHeader().getAttribute("aria-expanded")).toBe("false");
+    expect(tagButtons()).toEqual([]);
+    first.unmount();
+
+    tagPanelStore.setState(() => "open");
+    restoreSession();
+    launch();
+
+    await waitFor(() => expect(tagsHeader().getAttribute("aria-expanded")).toBe("false"));
+    expect(tagButtons()).toEqual([]);
+
+    fireEvent.click(tagsHeader());
+    expect(tagsHeader().getAttribute("aria-expanded")).toBe("true");
+    await waitFor(() => expect(tagButtons()).toHaveLength(3));
+  });
+
+  it("меню заголовка убирает раздел, а «Внешний вид» возвращает его развёрнутым", async () => {
+    tagged();
+    launch();
+    render(<TagPanelSetting />);
+    await waitFor(() => expect(tagButtons()).toHaveLength(3));
+    const show = screen.getByRole("checkbox", { name: "Показывать панель тегов" });
+    expect(show).toHaveProperty("checked", true);
+
+    fireEvent.contextMenu(tagsHeader());
+    fireEvent.click(screen.getByRole("menuitem", { name: "Скрыть панель тегов" }));
+
+    expect(tagsRegion()).toBeNull();
+    expect(show).toHaveProperty("checked", false);
+    expect(localStorage.getItem("sapien.tags.panel")).toBe("hidden");
+
+    fireEvent.click(show);
+
+    expect(tagsHeader().getAttribute("aria-expanded")).toBe("true");
+    expect(tagButtons()).toHaveLength(3);
   });
 });
 
