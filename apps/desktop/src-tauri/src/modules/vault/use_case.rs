@@ -1,4 +1,6 @@
-use super::domain::{Entry, EntryKind, check_name, note_file_name, parse_folder_path};
+use super::domain::{
+    Entry, EntryKind, check_name, note_file_name, parse_folder_path, parse_note_path,
+};
 use super::ports::{VaultDisk, VaultPlace};
 use crate::error::AppError;
 use serde::Serialize;
@@ -79,6 +81,34 @@ pub fn create(
     Ok(path)
 }
 
+fn note_at(
+    place: &impl VaultPlace,
+    disk: &impl VaultDisk,
+    path: &str,
+) -> Result<PathBuf, AppError> {
+    let root = open_root(place, disk)?;
+    let path = parse_note_path(path).ok_or(AppError::invalid("path_invalid"))?;
+
+    Ok(root.join(path))
+}
+
+pub fn read(
+    place: &impl VaultPlace,
+    disk: &impl VaultDisk,
+    path: &str,
+) -> Result<String, AppError> {
+    disk.read(&note_at(place, disk, path)?)
+}
+
+pub fn write(
+    place: &impl VaultPlace,
+    disk: &impl VaultDisk,
+    path: &str,
+    text: &str,
+) -> Result<(), AppError> {
+    disk.write(&note_at(place, disk, path)?, text)
+}
+
 /// Папку дал системный диалог, то есть её выбрал человек. Путь из интерфейса
 /// сюда не попадает: окно не может подсунуть хранилищем чужую папку.
 pub fn choose(
@@ -132,6 +162,14 @@ mod tests {
         fn create(&self, _path: &Path, _kind: EntryKind) -> Result<(), AppError> {
             Ok(())
         }
+
+        fn read(&self, _path: &Path) -> Result<String, AppError> {
+            Ok(String::new())
+        }
+
+        fn write(&self, _path: &Path, _text: &str) -> Result<(), AppError> {
+            Ok(())
+        }
     }
 
     /// Диск, на котором хранилище `/notes` на месте, а созданное записывается.
@@ -149,6 +187,18 @@ mod tests {
 
         fn create(&self, path: &Path, kind: EntryKind) -> Result<(), AppError> {
             self.0.borrow_mut().push((path.to_path_buf(), kind));
+            Ok(())
+        }
+
+        /// Отвечает полным путём, который у него спросили.
+        fn read(&self, path: &Path) -> Result<String, AppError> {
+            Ok(path.display().to_string())
+        }
+
+        fn write(&self, path: &Path, _text: &str) -> Result<(), AppError> {
+            self.0
+                .borrow_mut()
+                .push((path.to_path_buf(), EntryKind::Note));
             Ok(())
         }
     }
@@ -196,6 +246,39 @@ mod tests {
         );
         assert_eq!(
             create(&place, &disk, "..", "план", EntryKind::Note),
+            Err(AppError::invalid("path_invalid"))
+        );
+        assert!(disk.0.borrow().is_empty());
+    }
+
+    #[test]
+    fn заметка_читается_и_пишется_внутри_хранилища() {
+        let disk = Recorder::default();
+        let place = chosen("/notes");
+
+        assert_eq!(
+            read(&place, &disk, "Проекты/план.md"),
+            Ok("/notes/Проекты/план.md".into())
+        );
+        assert_eq!(write(&place, &disk, "план.md", "текст"), Ok(()));
+        assert_eq!(disk.0.borrow()[0].0, PathBuf::from("/notes/план.md"));
+    }
+
+    #[test]
+    fn путь_наружу_и_не_заметка_до_диска_не_доходят() {
+        let disk = Recorder::default();
+        let place = chosen("/notes");
+
+        assert_eq!(
+            read(&place, &disk, "../../.ssh/id_rsa"),
+            Err(AppError::invalid("path_invalid"))
+        );
+        assert_eq!(
+            write(&place, &disk, "../соседи/план.md", "текст"),
+            Err(AppError::invalid("path_invalid"))
+        );
+        assert_eq!(
+            write(&place, &disk, ".obsidian/app.json", "{}"),
             Err(AppError::invalid("path_invalid"))
         );
         assert!(disk.0.borrow().is_empty());

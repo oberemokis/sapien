@@ -20,6 +20,16 @@ export function vaultCreate(input: { parent: string; name: string; kind: EntryKi
   return invoke<string>("vault_create", input);
 }
 
+export function vaultRead(path: string) {
+  return invoke<string>("vault_read", { path });
+}
+
+// Переписывает существующую заметку. Пропавшую Rust не создаёт заново,
+// а отвечает кодом note_missing.
+export function vaultWrite(path: string, text: string) {
+  return invoke<null>("vault_write", { path, text });
+}
+
 // Rust следит за папкой и шлёт событие, когда в ней что-то поменялось снаружи.
 // Без Rust, в браузере и тестах, подписаться не на что: окно тогда просто
 // не узнает о правках снаружи, а ошибку открытия покажет статус.

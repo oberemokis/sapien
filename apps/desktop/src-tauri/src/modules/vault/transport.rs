@@ -54,6 +54,16 @@ pub fn vault_create(
     use_case::create(&place(&app)?, &Disk, &parent, &name, kind)
 }
 
+#[tauri::command]
+pub fn vault_read(app: AppHandle, path: String) -> Result<String, AppError> {
+    use_case::read(&place(&app)?, &Disk, &path)
+}
+
+#[tauri::command]
+pub fn vault_write(app: AppHandle, path: String, text: String) -> Result<(), AppError> {
+    use_case::write(&place(&app)?, &Disk, &path, &text)
+}
+
 /// Асинхронная, потому что диалог ждёт человека: синхронная команда держала
 /// бы главный поток, и окно бы замерло.
 #[tauri::command]

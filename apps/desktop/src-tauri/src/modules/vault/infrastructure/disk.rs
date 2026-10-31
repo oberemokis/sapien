@@ -37,6 +37,32 @@ impl VaultDisk for Disk {
             _ => AppError::unavailable("vault_unwritable"),
         })
     }
+
+    fn read(&self, path: &Path) -> Result<String, AppError> {
+        fs::read_to_string(path).map_err(|error| match error.kind() {
+            ErrorKind::NotFound => AppError::not_found("note_missing"),
+            _ => AppError::unavailable("note_unreadable"),
+        })
+    }
+
+    fn write(&self, path: &Path, text: &str) -> Result<(), AppError> {
+        if !path.is_file() {
+            return Err(AppError::not_found("note_missing"));
+        }
+
+        // Сначала во временный файл рядом, потом подмена одним переименованием:
+        // кончилось место на середине записи, и на диске остаётся прежний текст
+        // целиком, а не обрезанный. Точка в начале прячет его из дерева.
+        let name = path.file_name().unwrap_or_default().to_string_lossy();
+        let temp = path.with_file_name(format!(".{name}.sapien"));
+
+        fs::write(&temp, text)
+            .and_then(|()| fs::rename(&temp, path))
+            .map_err(|_| {
+                let _ = fs::remove_file(&temp);
+                AppError::unavailable("note_unwritable")
+            })
+    }
 }
 
 // ponytail: обход целиком на каждый запрос, на хранилищах в десятки тысяч
@@ -152,6 +178,49 @@ mod tests {
             Disk.create(&root.path().join("план.md"), EntryKind::Folder),
             Err(AppError::conflict("name_taken"))
         );
+    }
+
+    #[test]
+    fn запись_заменяет_текст_и_не_оставляет_временного_файла() {
+        let root = tempfile::tempdir().unwrap();
+        let note = root.path().join("план.md");
+        fs::write(&note, "было").unwrap();
+
+        Disk.write(&note, "стало").unwrap();
+
+        assert_eq!(Disk.read(&note), Ok("стало".into()));
+        assert_eq!(fs::read_dir(root.path()).unwrap().count(), 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn неудачная_запись_оставляет_прежний_текст() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = tempfile::tempdir().unwrap();
+        let note = root.path().join("план.md");
+        fs::write(&note, "было").unwrap();
+        let lock = |mode| fs::set_permissions(root.path(), fs::Permissions::from_mode(mode));
+
+        lock(0o555).unwrap();
+        let written = Disk.write(&note, "стало");
+        lock(0o755).unwrap();
+
+        assert_eq!(written, Err(AppError::unavailable("note_unwritable")));
+        assert_eq!(Disk.read(&note), Ok("было".into()));
+    }
+
+    #[test]
+    fn пропавшая_заметка_не_создаётся_заново() {
+        let root = tempfile::tempdir().unwrap();
+        let note = root.path().join("план.md");
+
+        assert_eq!(Disk.read(&note), Err(AppError::not_found("note_missing")));
+        assert_eq!(
+            Disk.write(&note, "текст"),
+            Err(AppError::not_found("note_missing"))
+        );
+        assert!(!note.exists());
     }
 
     #[test]

@@ -53,6 +53,16 @@ pub fn parse_folder_path(path: &str) -> Option<&str> {
     valid.then_some(path)
 }
 
+/// Путь заметки из окна: папки как у `parse_folder_path` и файл `.md`
+/// в конце. Окно не может прочитать или переписать файл вне хранилища
+/// или не заметку.
+pub fn parse_note_path(path: &str) -> Option<&str> {
+    let (folder, name) = path.rsplit_once('/').unwrap_or(("", path));
+    let valid = parse_folder_path(folder).is_some() && check_name(name).is_ok() && is_note(name);
+
+    valid.then_some(path)
+}
+
 /// Строка дерева хранилища. Путь относительный от корня хранилища и всегда
 /// через `/`: по нему интерфейс узнаёт файл и на macOS, и на Windows.
 #[derive(Debug, PartialEq, Serialize)]
@@ -175,5 +185,19 @@ mod tests {
         assert_eq!(parse_folder_path("/etc"), None);
         assert_eq!(parse_folder_path("C:\\Windows"), None);
         assert_eq!(parse_folder_path("Проекты//sapien"), None);
+    }
+
+    #[test]
+    fn путь_заметки_только_к_md_внутри_хранилища() {
+        assert_eq!(parse_note_path("план.md"), Some("план.md"));
+        assert_eq!(
+            parse_note_path("Проекты/sapien/план.md"),
+            Some("Проекты/sapien/план.md")
+        );
+        assert_eq!(parse_note_path("../план.md"), None);
+        assert_eq!(parse_note_path("/etc/hosts.md"), None);
+        assert_eq!(parse_note_path("Проекты/схема.png"), None);
+        assert_eq!(parse_note_path(".obsidian/app.md"), None);
+        assert_eq!(parse_note_path(""), None);
     }
 }
