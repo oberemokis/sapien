@@ -5,13 +5,14 @@ import {
   vaultChoose,
   vaultCreate,
   vaultStatus,
+  vaultTrash,
   vaultTree,
   vaultWrite,
 } from "../infrastructure/vault.api";
 import type { EntryKind, VaultStatus } from "../model/vault";
-import { forgetNotes } from "./note";
+import { dropNotesWithin, forgetNotes } from "./note";
 import { readTemplate } from "./templates";
-import { finishCreate, resetTree } from "./tree";
+import { closeNotesWithin, finishCreate, resetTree } from "./tree";
 
 type CreateInput = { parent: string; name: string; kind: EntryKind; template?: string };
 
@@ -24,7 +25,8 @@ async function createEntry({ template, ...input }: CreateInput) {
   const text = await readTemplate(template, input.name);
   const path = await vaultCreate(input);
 
-  await vaultWrite(path, text);
+  // Файл только что создан пустым, сверять его не с чем.
+  await vaultWrite(path, text, null);
 
   return path;
 }
@@ -84,6 +86,23 @@ export function useCreateEntry(draftId = 0) {
     onSuccess: async (path, { kind }) => {
       await queryClient.invalidateQueries({ queryKey: VAULT_KEY });
       finishCreate(draftId, path, kind);
+    },
+  });
+}
+
+// Удалённое уходит в системную корзину, оттуда его можно вернуть. Вкладки
+// внутри него закрываются, а правки забываются: человек сам решил, что они
+// не нужны.
+export function useTrashEntry() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: vaultTrash,
+    onSuccess: (_, entry) => {
+      dropNotesWithin(entry);
+      closeNotesWithin(entry);
+
+      return queryClient.invalidateQueries({ queryKey: VAULT_KEY });
     },
   });
 }

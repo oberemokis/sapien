@@ -1,5 +1,21 @@
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
+use std::time::Duration;
+
+/// Правка заметки, которая ещё не дошла до файла. `base` это текст файла,
+/// от которого шла правка: по нему видно, что файл изменили снаружи.
+/// Без `base` правка пишется поверх любого текста.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Unsaved {
+    pub path: String,
+    pub base: Option<String>,
+    pub text: String,
+}
+
+/// Сколько журнал восстановления хранит правку, которую так и не вернули.
+/// За неделю приложение точно открывали, а правку, от которой молча
+/// отказались, дольше хранить незачем.
+pub const JOURNAL_KEEP: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 
 /// Что создают в дереве.
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize)]

@@ -1,9 +1,11 @@
+use crate::durable;
 use crate::error::AppError;
 use crate::modules::vault::domain::{Entry, EntryKind, is_hidden, is_note, sort_entries};
 use crate::modules::vault::ports::VaultDisk;
 use std::fs::{self, OpenOptions};
 use std::io::ErrorKind;
 use std::path::Path;
+use trash::TrashContext;
 
 pub struct Disk;
 
@@ -45,23 +47,41 @@ impl VaultDisk for Disk {
         })
     }
 
-    fn write(&self, path: &Path, text: &str) -> Result<(), AppError> {
+    fn write(&self, path: &Path, text: &str, base: Option<&str>) -> Result<(), AppError> {
         if !path.is_file() {
             return Err(AppError::not_found("note_missing"));
         }
 
-        // Сначала во временный файл рядом, потом подмена одним переименованием:
-        // кончилось место на середине записи, и на диске остаётся прежний текст
-        // целиком, а не обрезанный. Точка в начале прячет его из дерева.
-        let name = path.file_name().unwrap_or_default().to_string_lossy();
-        let temp = path.with_file_name(format!(".{name}.sapien"));
+        // ponytail: между сравнением и подменой правка снаружи может успеть
+        // проскочить, окно тут в миллисекунды. Закрыть его совсем можно только
+        // блокировкой файла, которую соблюдают и чужие редакторы.
+        if let Some(base) = base
+            && self.read(path)? != base
+        {
+            return Err(AppError::conflict("note_conflict"));
+        }
 
-        fs::write(&temp, text)
-            .and_then(|()| fs::rename(&temp, path))
-            .map_err(|_| {
-                let _ = fs::remove_file(&temp);
-                AppError::unavailable("note_unwritable")
-            })
+        durable::write(path, text.as_bytes()).map_err(|_| AppError::unavailable("note_unwritable"))
+    }
+
+    fn trash(&self, path: &Path) -> Result<(), AppError> {
+        if !path.exists() {
+            return Err(AppError::not_found("entry_missing"));
+        }
+
+        let mut bin = TrashContext::default();
+
+        // Через Finder корзина просит у человека права управлять Finder,
+        // NSFileManager кладёт туда же без вопросов.
+        #[cfg(target_os = "macos")]
+        {
+            use trash::macos::{DeleteMethod, TrashContextExtMacos};
+
+            bin.set_delete_method(DeleteMethod::NsFileManager);
+        }
+
+        bin.delete(path)
+            .map_err(|_| AppError::unavailable("trash_failed"))
     }
 }
 
@@ -186,10 +206,36 @@ mod tests {
         let note = root.path().join("план.md");
         fs::write(&note, "было").unwrap();
 
-        Disk.write(&note, "стало").unwrap();
+        Disk.write(&note, "стало", Some("было")).unwrap();
 
         assert_eq!(Disk.read(&note), Ok("стало".into()));
         assert_eq!(fs::read_dir(root.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn правка_снаружи_не_затирается_без_спроса() {
+        let root = tempfile::tempdir().unwrap();
+        let note = root.path().join("план.md");
+        fs::write(&note, "правка снаружи").unwrap();
+
+        assert_eq!(
+            Disk.write(&note, "моя правка", Some("было")),
+            Err(AppError::conflict("note_conflict"))
+        );
+        assert_eq!(Disk.read(&note), Ok("правка снаружи".into()));
+
+        Disk.write(&note, "моя правка", None).unwrap();
+        assert_eq!(Disk.read(&note), Ok("моя правка".into()));
+    }
+
+    // Настоящую корзину тест не трогает: прогон складывал бы файлы
+    // в корзину человека.
+    #[test]
+    fn пропавшее_в_корзину_не_уходит() {
+        let root = tempfile::tempdir().unwrap();
+        let note = root.path().join("план.md");
+
+        assert_eq!(Disk.trash(&note), Err(AppError::not_found("entry_missing")));
     }
 
     #[cfg(unix)]
@@ -203,7 +249,7 @@ mod tests {
         let lock = |mode| fs::set_permissions(root.path(), fs::Permissions::from_mode(mode));
 
         lock(0o555).unwrap();
-        let written = Disk.write(&note, "стало");
+        let written = Disk.write(&note, "стало", None);
         lock(0o755).unwrap();
 
         assert_eq!(written, Err(AppError::unavailable("note_unwritable")));
@@ -217,7 +263,7 @@ mod tests {
 
         assert_eq!(Disk.read(&note), Err(AppError::not_found("note_missing")));
         assert_eq!(
-            Disk.write(&note, "текст"),
+            Disk.write(&note, "текст", None),
             Err(AppError::not_found("note_missing"))
         );
         assert!(!note.exists());

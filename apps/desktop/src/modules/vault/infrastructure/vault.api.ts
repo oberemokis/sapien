@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { EntryKind, NoteText, VaultEntry, VaultStatus } from "../model/vault";
+import type { EntryKind, NoteText, Unsaved, VaultEntry, VaultStatus } from "../model/vault";
 
 export function vaultStatus() {
   return invoke<VaultStatus>("vault_status");
@@ -25,9 +25,26 @@ export function vaultRead(path: string) {
 }
 
 // Переписывает существующую заметку. Пропавшую Rust не создаёт заново,
-// а отвечает кодом note_missing.
-export function vaultWrite(path: string, text: string) {
-  return invoke<null>("vault_write", { path, text });
+// а отвечает кодом note_missing. С base пишет, только если в файле всё ещё
+// этот текст, иначе отвечает note_conflict: файл изменили снаружи. null
+// пишет поверх любого текста. Пока запись не дошла, правка лежит в журнале.
+export function vaultWrite(path: string, text: string, base: string | null) {
+  return invoke<null>("vault_write", { path, text, base });
+}
+
+// Правки из журнала, которые не дошли до файлов: приложение упало
+// или запись не прошла.
+export function vaultUnsaved() {
+  return invoke<Unsaved[]>("vault_unsaved");
+}
+
+export function vaultForgetUnsaved(path: string) {
+  return invoke<null>("vault_forget_unsaved", { path });
+}
+
+// В системную корзину, откуда файл или папку можно вернуть.
+export function vaultTrash(path: string) {
+  return invoke<null>("vault_trash", { path });
 }
 
 // Тексты всех заметок разом. Непрочитанные Rust пропускает.

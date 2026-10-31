@@ -2,7 +2,16 @@ import ArrowRight01Icon from "@hugeicons/core-free-icons/ArrowRight01Icon";
 import FileAddIcon from "@hugeicons/core-free-icons/FileAddIcon";
 import FolderAddIcon from "@hugeicons/core-free-icons/FolderAddIcon";
 import Search01Icon from "@hugeicons/core-free-icons/Search01Icon";
-import { useCallback, useEffect, useId, useRef, useState, type MouseEvent, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent,
+  type ReactNode,
+} from "react";
 import { useTranslation } from "react-i18next";
 import { ContextMenu } from "@/core/ui/context-menu";
 import { FileTypeIcon } from "@/core/ui/file-type-icon";
@@ -18,7 +27,7 @@ import {
   useTreeState,
 } from "../interactions/tree";
 import { openSearch, pickTemplate } from "../interactions/search";
-import { useCreateEntry, useVaultStatus, useVaultTree } from "../interactions/vault";
+import { useCreateEntry, useTrashEntry, useVaultStatus, useVaultTree } from "../interactions/vault";
 import {
   checkName,
   nameProblemOf,
@@ -118,6 +127,11 @@ function DraftRow({ draft, siblings, depth }: { draft: Draft; siblings: VaultEnt
       )}
     </li>
   );
+}
+
+// Строка дерева, на которой случилось событие.
+function rowOf(target: EventTarget) {
+  return target instanceof Element ? target.closest<HTMLElement>("[data-entry]") : null;
 }
 
 // Выделенная строка прокручивается в видимую часть: так на виду оказывается
@@ -268,8 +282,9 @@ export function VaultTree({ onCreateStart }: Props) {
   const status = useVaultStatus();
   const tree = useVaultTree();
   const state = useTreeState();
-  const [menu, setMenu] = useState<{ x: number; y: number; parent: string } | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number; parent: string; entry: string | null } | null>(null);
   const closeMenu = useCallback(() => setMenu(null), []);
+  const trash = useTrashEntry();
 
   const create = useCallback(
     (kind: EntryKind, parent?: string) => {
@@ -288,11 +303,12 @@ export function VaultTree({ onCreateStart }: Props) {
   }
 
   // Правый клик по папке создаёт внутри неё, по заметке рядом с ней,
-  // по пустому месту в корне.
+  // по пустому месту в корне. Строку под курсором меню ещё и удаляет.
   function openMenu(event: MouseEvent) {
     event.preventDefault();
-    const row = event.target instanceof Element ? event.target.closest<HTMLElement>("[data-entry]") : null;
+    const row = rowOf(event.target);
     let parent = "";
+    let entry: string | null = null;
 
     if (row?.dataset.entry !== undefined) {
       const path = row.dataset.entry;
@@ -300,10 +316,23 @@ export function VaultTree({ onCreateStart }: Props) {
 
       selectEntry(path, isFolder ? "folder" : "note");
       parent = isFolder ? path : parentOf(path);
+      entry = path;
     }
 
-    setMenu({ x: event.clientX, y: event.clientY, parent });
+    setMenu({ x: event.clientX, y: event.clientY, parent, entry });
   }
+
+  // ⌘⌫ или Delete на строке дерева, как в Finder и Проводнике.
+  function onRowKey(event: ReactKeyboardEvent) {
+    const entry = rowOf(event.target)?.dataset.entry;
+
+    if (entry !== undefined && (event.key === "Delete" || (event.key === "Backspace" && hasModKey(event)))) {
+      event.preventDefault();
+      trash.mutate(entry);
+    }
+  }
+
+  const menuEntry = menu?.entry ?? null;
 
   return (
     <>
@@ -329,10 +358,17 @@ export function VaultTree({ onCreateStart }: Props) {
         />
         <IconButton icon={FolderAddIcon} label={t("vault.create.folder")} onClick={() => create("folder")} />
       </div>
-      {/* Меню по правой кнопке повторяет кнопки над деревом, до которых
-          доходят с клавиатуры, поэтому своего пути с клавиатуры ему не надо. */}
+      {trash.isError && (
+        <p role="alert" className="px-3 pb-1 text-[12px] text-diff-del-fg">
+          {t("vault.trash.failed")}
+        </p>
+      )}
+      {/* Меню по правой кнопке повторяет кнопки над деревом и ⌘⌫ на строке,
+          до которых доходят с клавиатуры, поэтому своего пути с клавиатуры
+          ему не надо. Клавиши слушает дерево целиком, а приходят они
+          со строк, это кнопки. */}
       {/* oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */}
-      <nav className="min-h-0 flex-1 overflow-y-auto p-1 pt-0" onContextMenu={openMenu}>
+      <nav className="min-h-0 flex-1 overflow-y-auto p-1 pt-0" onContextMenu={openMenu} onKeyDown={onRowKey}>
         {tree.data.length === 0 && state.draft === null && (
           <p className="p-2 text-[13px] text-content/50">{t("files.empty")}</p>
         )}
@@ -349,6 +385,7 @@ export function VaultTree({ onCreateStart }: Props) {
               onSelect: () => pickTemplate({ kind: "newFromTemplate", parent: menu.parent }),
             },
             { label: t("vault.create.folder"), onSelect: () => create("folder", menu.parent) },
+            ...(menuEntry === null ? [] : [{ label: t("vault.trash.action"), onSelect: () => trash.mutate(menuEntry) }]),
           ]}
           onClose={closeMenu}
         />

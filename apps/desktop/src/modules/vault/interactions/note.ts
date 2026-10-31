@@ -1,8 +1,8 @@
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useSelector } from "@tanstack/react-store";
 import { useCallback, useEffect } from "react";
-import { vaultRead, vaultWrite } from "../infrastructure/vault.api";
-import { errorCodeOf, type NoteText } from "../model/vault";
+import { vaultForgetUnsaved, vaultRead, vaultWrite } from "../infrastructure/vault.api";
+import { errorCodeOf, isWithin, type NoteText, type Unsaved } from "../model/vault";
 import { EMPTY_NOTES, notesStore } from "../store/notes.store";
 
 // Пауза в наборе, после которой правка уходит на диск. Короткая: окно могут
@@ -30,20 +30,32 @@ function withText(texts: NoteText[] | undefined, path: string, text: string) {
   });
 }
 
+function without<T>(record: Record<string, T>, path: string) {
+  const { [path]: _dropped, ...rest } = record;
+
+  return rest;
+}
+
 async function write(queryClient: QueryClient, path: string) {
-  const text = notesStore.get().unsaved[path];
+  const { unsaved, bases } = notesStore.get();
+  const text = unsaved[path];
 
   if (text === undefined) {
     return;
   }
 
   try {
-    await vaultWrite(path, text);
+    await vaultWrite(path, text, bases[path] ?? null);
   } catch (error) {
-    notesStore.setState((state) => ({
-      ...state,
-      failed: { ...state.failed, [path]: errorCodeOf(error) ?? "note_unwritable" },
-    }));
+    const code = errorCodeOf(error) ?? "note_unwritable";
+
+    notesStore.setState((state) => ({ ...state, failed: { ...state.failed, [path]: code } }));
+
+    // Файл изменили снаружи: его новый текст нужен на экране рядом с правкой.
+    if (code === "note_conflict") {
+      void queryClient.invalidateQueries({ queryKey: noteKey(path) });
+    }
+
     return;
   }
 
@@ -54,16 +66,15 @@ async function write(queryClient: QueryClient, path: string) {
   queryClient.setQueryData<NoteText[]>(TEXTS_KEY, (texts) => withText(texts, path, text));
 
   notesStore.setState((state) => {
-    const { [path]: _failed, ...failed } = state.failed;
+    const failed = without(state.failed, path);
 
-    // Пока шла запись, человек печатал дальше: новый текст ещё не на диске.
+    // Пока шла запись, человек печатал дальше: новый текст ещё не на диске,
+    // и идёт он уже от записанного.
     if (state.unsaved[path] !== text) {
-      return { ...state, failed };
+      return { ...state, bases: { ...state.bases, [path]: text }, failed };
     }
 
-    const { [path]: _saved, ...unsaved } = state.unsaved;
-
-    return { unsaved, failed };
+    return { unsaved: without(state.unsaved, path), bases: without(state.bases, path), failed };
   });
 }
 
@@ -84,15 +95,69 @@ function saveNote(queryClient: QueryClient, path: string) {
   return next;
 }
 
+// Спор с правкой снаружи решён в пользу человека: его правка пишется поверх.
+function keepMine(queryClient: QueryClient, path: string) {
+  notesStore.setState((state) => ({ ...state, bases: without(state.bases, path), failed: without(state.failed, path) }));
+
+  return saveNote(queryClient, path);
+}
+
+// Правка заметки больше не нужна: взята версия с диска или файл удалён.
+// Из журнала она уходит тоже, иначе следующий запуск предложит её вернуть.
+function dropNote(path: string) {
+  clearTimeout(timers.get(path));
+  timers.delete(path);
+  notesStore.setState((state) => ({
+    unsaved: without(state.unsaved, path),
+    bases: without(state.bases, path),
+    failed: without(state.failed, path),
+  }));
+  void vaultForgetUnsaved(path).catch(() => undefined);
+}
+
+// Правки заметок внутри удалённого: человек сам решил, что они не нужны.
+export function dropNotesWithin(entry: string) {
+  const { unsaved, failed } = notesStore.get();
+
+  for (const path of new Set([...Object.keys(unsaved), ...Object.keys(failed)])) {
+    if (isWithin(path, entry)) {
+      dropNote(path);
+    }
+  }
+}
+
+// Правки из журнала встают на место несохранённых и пишутся. Файл с тех пор
+// изменили, и запись покажет спор, а не затрёт его.
+export function restoreNotes(queryClient: QueryClient, entries: Unsaved[]) {
+  notesStore.setState((state) => {
+    let { unsaved, bases } = state;
+
+    for (const { path, base, text } of entries) {
+      unsaved = { ...unsaved, [path]: text };
+      bases = without(bases, path);
+
+      if (base !== null) {
+        bases[path] = base;
+      }
+    }
+
+    return { ...state, unsaved, bases };
+  });
+
+  for (const { path } of entries) {
+    void saveNote(queryClient, path);
+  }
+}
+
 export function forgetNotes() {
   timers.forEach(clearTimeout);
   timers.clear();
   notesStore.setState(() => EMPTY_NOTES);
 }
 
-// Текст открытой заметки и его сохранение. Правка человека побеждает:
-// пока она не на диске, изменение файла снаружи её не заменяет, а следующая
-// запись перекроет его.
+// Текст открытой заметки и его сохранение. Пока правка человека не на диске,
+// изменение файла снаружи её не заменяет. Запись правки его тоже не затрёт:
+// Rust ответит спором, и человек выберет версию сам.
 export function useNote(path: string) {
   const queryClient = useQueryClient();
   const disk = useQuery({ queryKey: noteKey(path), queryFn: () => vaultRead(path), retry: false });
@@ -115,7 +180,17 @@ export function useNote(path: string) {
 
   const change = useCallback(
     (text: string) => {
-      notesStore.setState((state) => ({ ...state, unsaved: { ...state.unsaved, [path]: text } }));
+      notesStore.setState((state) => {
+        const next = { ...state, unsaved: { ...state.unsaved, [path]: text } };
+        const read = queryClient.getQueryData<string>(noteKey(path));
+
+        // Первая буква правки запоминает, от какого текста файла она пошла.
+        if (state.unsaved[path] === undefined && read !== undefined) {
+          next.bases = { ...state.bases, [path]: read };
+        }
+
+        return next;
+      });
       clearTimeout(timers.get(path));
       timers.set(
         path,
@@ -127,15 +202,22 @@ export function useNote(path: string) {
 
   // Пишет правку сейчас: повтор после ошибки, уход на другую вкладку.
   const save = useCallback(() => void saveNote(queryClient, path), [queryClient, path]);
+  const keep = useCallback(() => void keepMine(queryClient, path), [queryClient, path]);
+  const take = useCallback(() => dropNote(path), [path]);
   const readError = errorCodeOf(disk.error);
 
   return {
     text: unsaved ?? disk.data,
+    // Текст файла на диске, когда он разошёлся с правкой.
+    disk: disk.data,
     change,
     save,
+    keepMine: keep,
+    takeDisk: take,
     // Файл пропал: показывается последний известный текст.
     missing: readError === "note_missing" || failed === "note_missing",
     unreadable: disk.isError && readError !== "note_missing",
-    saveFailed: failed !== undefined && failed !== "note_missing",
+    conflict: failed === "note_conflict",
+    saveFailed: failed !== undefined && failed !== "note_missing" && failed !== "note_conflict",
   };
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkName, childrenOf, foldersDownTo, parentOf, suggestName, type VaultEntry } from "./vault";
+import { checkName, childrenOf, foldersDownTo, isWithin, parentOf, suggestName, type VaultEntry } from "./vault";
 
 const note = (path: string): VaultEntry => ({ kind: "note", name: path.split("/").at(-1) ?? path, path });
 const folder = (path: string, children: VaultEntry[] = []): VaultEntry => ({
@@ -57,5 +57,12 @@ describe("пути дерева", () => {
     expect(parentOf("Идеи.md")).toBe("");
     expect(foldersDownTo("Проекты/sapien")).toEqual(["Проекты", "Проекты/sapien"]);
     expect(foldersDownTo("")).toEqual([]);
+  });
+
+  it("внутри папки только её содержимое, а не соседи с тем же началом имени", () => {
+    expect(isWithin("Проекты/sapien/план.md", "Проекты")).toBe(true);
+    expect(isWithin("Проекты", "Проекты")).toBe(true);
+    expect(isWithin("Проекты 2/план.md", "Проекты")).toBe(false);
+    expect(isWithin("Проекты.md", "Проекты")).toBe(false);
   });
 });

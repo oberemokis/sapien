@@ -1,7 +1,8 @@
 use super::domain::{
-    Entry, EntryKind, check_name, note_file_name, note_paths, parse_folder_path, parse_note_path,
+    Entry, EntryKind, JOURNAL_KEEP, Unsaved, check_name, note_file_name, note_paths,
+    parse_folder_path, parse_note_path,
 };
-use super::ports::{VaultDisk, VaultPlace};
+use super::ports::{Journal, VaultDisk, VaultPlace};
 use crate::error::AppError;
 use serde::Serialize;
 use std::path::{Path, PathBuf};
@@ -100,13 +101,71 @@ pub fn read(
     disk.read(&note_at(place, disk, path)?)
 }
 
+/// Правка сначала ложится в журнал восстановления, потом в файл, и только
+/// после записи файла уходит из журнала. Упало приложение посреди записи,
+/// отказал диск, файл изменили снаружи: правка остаётся в журнале.
+/// Журнал запись не держит: не вышло записать в него, файл всё равно пишется.
 pub fn write(
     place: &impl VaultPlace,
     disk: &impl VaultDisk,
-    path: &str,
-    text: &str,
+    journal: &impl Journal,
+    unsaved: &Unsaved,
 ) -> Result<(), AppError> {
-    disk.write(&note_at(place, disk, path)?, text)
+    let root = open_root(place, disk)?;
+    let file = note_at(place, disk, &unsaved.path)?;
+    let _ = journal.put(&root, unsaved);
+
+    disk.write(&file, &unsaved.text, unsaved.base.as_deref())?;
+    journal.remove(&root, &unsaved.path);
+
+    Ok(())
+}
+
+/// Правки из журнала, которые можно вернуть. Те, что старше недели,
+/// журнал забывает.
+pub fn unsaved(
+    place: &impl VaultPlace,
+    disk: &impl VaultDisk,
+    journal: &impl Journal,
+) -> Result<Vec<Unsaved>, AppError> {
+    let root = open_root(place, disk)?;
+
+    Ok(journal
+        .list(&root)
+        .into_iter()
+        .filter_map(|(unsaved, age)| {
+            if age > JOURNAL_KEEP {
+                journal.remove(&root, &unsaved.path);
+                return None;
+            }
+
+            Some(unsaved)
+        })
+        .collect())
+}
+
+/// Человек отказался от правки заметки: не стал её возвращать или взял
+/// версию с диска.
+pub fn forget_unsaved(
+    place: &impl VaultPlace,
+    disk: &impl VaultDisk,
+    journal: &impl Journal,
+    path: &str,
+) -> Result<(), AppError> {
+    journal.remove(&open_root(place, disk)?, path);
+
+    Ok(())
+}
+
+/// Убирает заметку или папку в системную корзину. Корень хранилища
+/// и путь наружу до диска не доходят.
+pub fn trash(place: &impl VaultPlace, disk: &impl VaultDisk, path: &str) -> Result<(), AppError> {
+    let root = open_root(place, disk)?;
+    let path = parse_note_path(path)
+        .or_else(|| parse_folder_path(path).filter(|folder| !folder.is_empty()))
+        .ok_or(AppError::invalid("path_invalid"))?;
+
+    disk.trash(&root.join(path))
 }
 
 /// Текст заметки для разбора в интерфейсе: теги и всё, что ищется по тексту.
@@ -153,6 +212,7 @@ mod tests {
     use super::*;
     use std::cell::RefCell;
     use std::path::PathBuf;
+    use std::time::Duration;
 
     #[derive(Default)]
     struct Place(RefCell<Option<PathBuf>>);
@@ -190,7 +250,73 @@ mod tests {
             Ok(String::new())
         }
 
-        fn write(&self, _path: &Path, _text: &str) -> Result<(), AppError> {
+        fn write(&self, _path: &Path, _text: &str, _base: Option<&str>) -> Result<(), AppError> {
+            Ok(())
+        }
+
+        fn trash(&self, _path: &Path) -> Result<(), AppError> {
+            Ok(())
+        }
+    }
+
+    /// Журнал в памяти: запись по пути заметки и её возраст.
+    #[derive(Default)]
+    struct Memo(RefCell<Vec<(Unsaved, Duration)>>);
+
+    impl Journal for Memo {
+        fn put(&self, vault: &Path, unsaved: &Unsaved) -> Result<(), AppError> {
+            self.remove(vault, &unsaved.path);
+            self.0.borrow_mut().push((unsaved.clone(), Duration::ZERO));
+            Ok(())
+        }
+
+        fn remove(&self, _vault: &Path, path: &str) {
+            self.0
+                .borrow_mut()
+                .retain(|(unsaved, _)| unsaved.path != path);
+        }
+
+        fn list(&self, _vault: &Path) -> Vec<(Unsaved, Duration)> {
+            self.0.borrow().clone()
+        }
+    }
+
+    fn edit(path: &str, text: &str) -> Unsaved {
+        Unsaved {
+            path: path.into(),
+            base: Some("было".into()),
+            text: text.into(),
+        }
+    }
+
+    /// Хранилище `/notes`, где файл изменили снаружи: запись отказывает,
+    /// а убранное в корзину записывается.
+    #[derive(Default)]
+    struct Changed(RefCell<Vec<PathBuf>>);
+
+    impl VaultDisk for Changed {
+        fn is_dir(&self, path: &Path) -> bool {
+            path == Path::new("/notes")
+        }
+
+        fn list(&self, _root: &Path) -> Result<Vec<Entry>, AppError> {
+            Ok(vec![])
+        }
+
+        fn create(&self, _path: &Path, _kind: EntryKind) -> Result<(), AppError> {
+            Ok(())
+        }
+
+        fn read(&self, _path: &Path) -> Result<String, AppError> {
+            Ok("снаружи".into())
+        }
+
+        fn write(&self, _path: &Path, _text: &str, _base: Option<&str>) -> Result<(), AppError> {
+            Err(AppError::conflict("note_conflict"))
+        }
+
+        fn trash(&self, path: &Path) -> Result<(), AppError> {
+            self.0.borrow_mut().push(path.to_path_buf());
             Ok(())
         }
     }
@@ -218,10 +344,14 @@ mod tests {
             Ok(path.display().to_string())
         }
 
-        fn write(&self, path: &Path, _text: &str) -> Result<(), AppError> {
+        fn write(&self, path: &Path, _text: &str, _base: Option<&str>) -> Result<(), AppError> {
             self.0
                 .borrow_mut()
                 .push((path.to_path_buf(), EntryKind::Note));
+            Ok(())
+        }
+
+        fn trash(&self, _path: &Path) -> Result<(), AppError> {
             Ok(())
         }
     }
@@ -268,7 +398,11 @@ mod tests {
             Ok(format!("текст {}", path.display()))
         }
 
-        fn write(&self, _path: &Path, _text: &str) -> Result<(), AppError> {
+        fn write(&self, _path: &Path, _text: &str, _base: Option<&str>) -> Result<(), AppError> {
+            Ok(())
+        }
+
+        fn trash(&self, _path: &Path) -> Result<(), AppError> {
             Ok(())
         }
     }
@@ -337,13 +471,17 @@ mod tests {
             read(&place, &disk, "Проекты/план.md"),
             Ok("/notes/Проекты/план.md".into())
         );
-        assert_eq!(write(&place, &disk, "план.md", "текст"), Ok(()));
+        assert_eq!(
+            write(&place, &disk, &Memo::default(), &edit("план.md", "текст")),
+            Ok(())
+        );
         assert_eq!(disk.0.borrow()[0].0, PathBuf::from("/notes/план.md"));
     }
 
     #[test]
     fn путь_наружу_и_не_заметка_до_диска_не_доходят() {
         let disk = Recorder::default();
+        let journal = Memo::default();
         let place = chosen("/notes");
 
         assert_eq!(
@@ -351,14 +489,91 @@ mod tests {
             Err(AppError::invalid("path_invalid"))
         );
         assert_eq!(
-            write(&place, &disk, "../соседи/план.md", "текст"),
+            write(&place, &disk, &journal, &edit("../соседи/план.md", "текст")),
             Err(AppError::invalid("path_invalid"))
         );
         assert_eq!(
-            write(&place, &disk, ".obsidian/app.json", "{}"),
+            write(&place, &disk, &journal, &edit(".obsidian/app.json", "{}")),
             Err(AppError::invalid("path_invalid"))
         );
         assert!(disk.0.borrow().is_empty());
+        assert!(journal.0.borrow().is_empty());
+    }
+
+    #[test]
+    fn записанная_правка_уходит_из_журнала_незаписанная_остаётся() {
+        let journal = Memo::default();
+        let place = chosen("/notes");
+
+        write(
+            &place,
+            &Recorder::default(),
+            &journal,
+            &edit("план.md", "раз"),
+        )
+        .unwrap();
+        assert!(journal.0.borrow().is_empty());
+
+        assert_eq!(
+            write(
+                &place,
+                &Changed::default(),
+                &journal,
+                &edit("план.md", "два")
+            ),
+            Err(AppError::conflict("note_conflict"))
+        );
+        assert_eq!(
+            unsaved(&place, &Changed::default(), &journal),
+            Ok(vec![edit("план.md", "два")])
+        );
+    }
+
+    #[test]
+    fn журнал_забывает_правки_старше_недели_и_по_отказу() {
+        let journal = Memo::default();
+        let place = chosen("/notes");
+        let disk = Changed::default();
+        journal.0.borrow_mut().extend([
+            (
+                edit("старое.md", "старое"),
+                JOURNAL_KEEP + Duration::from_secs(1),
+            ),
+            (edit("свежее.md", "свежее"), Duration::from_secs(60)),
+        ]);
+
+        assert_eq!(
+            unsaved(&place, &disk, &journal),
+            Ok(vec![edit("свежее.md", "свежее")])
+        );
+        assert_eq!(journal.0.borrow().len(), 1);
+
+        forget_unsaved(&place, &disk, &journal, "свежее.md").unwrap();
+        assert!(journal.0.borrow().is_empty());
+    }
+
+    #[test]
+    fn в_корзину_уходит_заметка_или_папка_но_не_корень_и_не_путь_наружу() {
+        let disk = Changed::default();
+        let place = chosen("/notes");
+
+        assert_eq!(trash(&place, &disk, "Проекты/план.md"), Ok(()));
+        assert_eq!(trash(&place, &disk, "Проекты"), Ok(()));
+        assert_eq!(
+            trash(&place, &disk, ""),
+            Err(AppError::invalid("path_invalid"))
+        );
+        assert_eq!(
+            trash(&place, &disk, ".."),
+            Err(AppError::invalid("path_invalid"))
+        );
+        assert_eq!(
+            *disk.0.borrow(),
+            vec![
+                PathBuf::from("/notes/Проекты/план.md"),
+                PathBuf::from("/notes/Проекты")
+            ]
+        );
     }
 
     #[test]

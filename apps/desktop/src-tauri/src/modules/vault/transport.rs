@@ -1,6 +1,7 @@
-use super::domain::{Entry, EntryKind};
+use super::domain::{Entry, EntryKind, Unsaved};
 use super::infrastructure::config_file::ConfigFile;
 use super::infrastructure::disk::Disk;
+use super::infrastructure::journal_dir::JournalDir;
 use super::infrastructure::watcher::Watch;
 use super::ports::VaultPlace;
 use super::use_case::{self, NoteText, VaultStatus};
@@ -13,6 +14,13 @@ fn place<R: Runtime>(app: &AppHandle<R>) -> Result<ConfigFile, AppError> {
         .app_config_dir()
         .map(|dir| ConfigFile::new(&dir))
         .map_err(|_| AppError::unavailable("config_dir_unavailable"))
+}
+
+fn journal<R: Runtime>(app: &AppHandle<R>) -> Result<JournalDir, AppError> {
+    app.path()
+        .app_data_dir()
+        .map(|dir| JournalDir::new(&dir))
+        .map_err(|_| AppError::unavailable("data_dir_unavailable"))
 }
 
 /// Слежение идёт за той папкой, что сейчас на месте. Вернули пропавшую
@@ -59,9 +67,34 @@ pub fn vault_read(app: AppHandle, path: String) -> Result<String, AppError> {
     use_case::read(&place(&app)?, &Disk, &path)
 }
 
+/// `base` это текст файла, от которого шла правка. Без него правка пишется
+/// поверх того, что сейчас на диске: так человек выбирает свою версию
+/// в споре с правкой снаружи.
 #[tauri::command]
-pub fn vault_write(app: AppHandle, path: String, text: String) -> Result<(), AppError> {
-    use_case::write(&place(&app)?, &Disk, &path, &text)
+pub fn vault_write(
+    app: AppHandle,
+    path: String,
+    text: String,
+    base: Option<String>,
+) -> Result<(), AppError> {
+    let unsaved = Unsaved { path, base, text };
+
+    use_case::write(&place(&app)?, &Disk, &journal(&app)?, &unsaved)
+}
+
+#[tauri::command]
+pub fn vault_unsaved(app: AppHandle) -> Result<Vec<Unsaved>, AppError> {
+    use_case::unsaved(&place(&app)?, &Disk, &journal(&app)?)
+}
+
+#[tauri::command]
+pub fn vault_forget_unsaved(app: AppHandle, path: String) -> Result<(), AppError> {
+    use_case::forget_unsaved(&place(&app)?, &Disk, &journal(&app)?, &path)
+}
+
+#[tauri::command]
+pub fn vault_trash(app: AppHandle, path: String) -> Result<(), AppError> {
+    use_case::trash(&place(&app)?, &Disk, &path)
 }
 
 /// Асинхронная: чтение всего хранилища не держит главный поток.
