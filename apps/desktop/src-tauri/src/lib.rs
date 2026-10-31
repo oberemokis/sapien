@@ -6,7 +6,7 @@ mod menu;
 mod modules;
 mod secrets;
 
-use modules::vault;
+use modules::{vault, youtrack};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -28,6 +28,7 @@ pub fn run() {
         .manage(vault::Watch::default())
         .manage(vault::Opened::default())
         .manage(secrets::Secrets::default())
+        .manage(youtrack::Http::default())
         .setup(|app| {
             links::main_window(app)?;
             vault::start(app.handle());
@@ -38,6 +39,9 @@ pub fn run() {
             secrets::secret_status,
             secrets::secret_set,
             secrets::secret_delete,
+            youtrack::transport::youtrack_status,
+            youtrack::transport::youtrack_connect,
+            youtrack::transport::youtrack_disconnect,
             vault::transport::vault_opened,
             vault::transport::vault_status,
             vault::transport::vault_tree,

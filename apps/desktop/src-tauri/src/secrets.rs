@@ -20,12 +20,15 @@ const SERVICE: &str = "is.oberemok.sapien";
 pub enum SecretName {
     /// Ключ API провайдера модели для агента.
     ModelKey,
+    /// Постоянный токен YouTrack.
+    YoutrackToken,
 }
 
 impl SecretName {
     fn key(self) -> &'static str {
         match self {
             Self::ModelKey => "model_key",
+            Self::YoutrackToken => "youtrack_token",
         }
     }
 }
@@ -105,11 +108,30 @@ impl Secrets {
         self.memory.lock().ok()?.get(name.key()).cloned()
     }
 
+    /// Секреты только в памяти, как без системного хранилища: для тестов
+    /// модулей, которым нужен секрет.
+    #[cfg(test)]
+    pub fn in_memory() -> Self {
+        struct Missing;
+
+        impl Keychain for Missing {
+            fn read(&self, _key: &str) -> Result<Option<String>, Unavailable> {
+                Err(Unavailable)
+            }
+
+            fn write(&self, _key: &str, _value: &str) -> Result<(), Unavailable> {
+                Err(Unavailable)
+            }
+
+            fn erase(&self, _key: &str) -> Result<(), Unavailable> {
+                Ok(())
+            }
+        }
+
+        Self::new(Missing)
+    }
+
     /// Секрет для запроса. Только для Rust: в окно он не уходит.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "первым ключ в запрос подставит агент, #12")
-    )]
     pub fn get(&self, name: SecretName) -> Option<String> {
         self.remembered(name)
             .or_else(|| self.keychain.read(name.key()).ok().flatten())
