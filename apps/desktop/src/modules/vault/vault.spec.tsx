@@ -25,7 +25,18 @@ import type { EditorProps, Unsaved } from "./model/vault";
 import { templatesStore } from "./store/templates.store";
 import { EMPTY_TREE, treeStore } from "./store/tree.store";
 
-type Entry = { kind: string; name: string; path: string; children?: Entry[] };
+type Entry = { kind: string; name: string; path: string; children?: Entry[]; closed?: boolean };
+
+// Метка папки, закрытой для агента, как её ставит Rust.
+function withClosed(tree: Entry[], folder: string, closed: boolean): Entry[] {
+  return tree.map((item) => {
+    if (item.path === folder) {
+      return { ...item, closed };
+    }
+
+    return item.children === undefined ? item : { ...item, children: withClosed(item.children, folder, closed) };
+  });
+}
 
 type CreateArgs = { parent: string; name: string; kind: "note" | "folder" };
 
@@ -158,6 +169,9 @@ function fakeRust(disk: Disk) {
             }
           }
 
+          return null;
+        case "vault_close_for_agent":
+          disk.tree = withClosed(disk.tree, path, (args as { closed: boolean }).closed);
           return null;
         case "vault_status":
           return disk.status;
@@ -547,6 +561,23 @@ describe("создание в дереве", () => {
     fireEvent.contextMenu(inTree().getByRole("button", { name: "Проекты" }));
     expect(screen.getByRole("menuitem", { name: "Новый файл" })).toBeDefined();
     expect(screen.queryByRole("menuitem", { name: "Сводка" })).toBeNull();
+  });
+
+  it("папку закрывают для агента из её меню, замок виден, открывают так же", async () => {
+    fakeRust({ status: { kind: "ready", path: "/notes" }, tree: [folder("Личное"), note("идеи.md")] });
+    launch();
+
+    fireEvent.contextMenu(await inTree().findByRole("button", { name: "Личное" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Закрыть для агента" }));
+
+    const closed = await inTree().findByRole("button", { name: "Личное закрыта для агента" });
+
+    fireEvent.contextMenu(inTree().getByRole("button", { name: "идеи" }));
+    expect(screen.queryByRole("menuitem", { name: /для агента/ })).toBeNull();
+
+    fireEvent.contextMenu(closed);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Открыть для агента" }));
+    expect(await inTree().findByRole("button", { name: "Личное" })).toBeDefined();
   });
 
   it("заметка с текстом ложится в папку, которой ещё не было, список папки без вложенных", async () => {

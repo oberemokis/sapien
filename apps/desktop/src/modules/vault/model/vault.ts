@@ -5,9 +5,20 @@ export type VaultStatus =
   | { kind: "missing"; path: string }
   | { kind: "ready"; path: string };
 
+// closed: папка закрыта для агента, его не пускает туда Rust.
 export type VaultEntry =
-  | { kind: "folder"; name: string; path: string; children: VaultEntry[] }
+  | { kind: "folder"; name: string; path: string; children: VaultEntry[]; closed: boolean }
   | { kind: "note"; name: string; path: string };
+
+// Заметка внутри папки, закрытой для агента, на любой глубине под ней.
+export function isClosedToAgent(entries: VaultEntry[], path: string): boolean {
+  return entries.some(
+    (entry) =>
+      entry.kind === "folder" &&
+      path.startsWith(`${entry.path}/`) &&
+      (entry.closed || isClosedToAgent(entry.children, path)),
+  );
+}
 
 export type EntryKind = VaultEntry["kind"];
 

@@ -9,6 +9,10 @@ use tauri::{AppHandle, Runtime};
 pub struct VaultNotes<R: Runtime>(pub AppHandle<R>);
 
 impl<R: Runtime> Notes for VaultNotes<R> {
+    fn open(&self, path: &str) -> bool {
+        vault::transport::open_to_agent(&self.0, path)
+    }
+
     fn paths(&self) -> Result<Vec<String>, AppError> {
         vault::transport::note_paths(&self.0)
     }

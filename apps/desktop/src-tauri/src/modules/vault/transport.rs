@@ -1,4 +1,4 @@
-use super::domain::{self, Entry, EntryKind, Unsaved, Version, parse_note_path};
+use super::domain::{Entry, EntryKind, Unsaved, Version, parse_note_path};
 use super::infrastructure::config_file::ConfigFile;
 use super::infrastructure::disk::Disk;
 use super::infrastructure::history_dir::HistoryDir;
@@ -137,6 +137,11 @@ pub fn vault_create(
 }
 
 #[tauri::command]
+pub fn vault_close_for_agent(app: AppHandle, path: String, closed: bool) -> Result<(), AppError> {
+    use_case::close_for_agent(&place(&app)?, &Disk, &path, closed)
+}
+
+#[tauri::command]
 pub fn vault_read(app: AppHandle, path: String) -> Result<String, AppError> {
     use_case::read(&place(&app)?, &Disk, &path)
 }
@@ -231,8 +236,9 @@ pub async fn vault_choose(
     Ok(status)
 }
 
-// Заметки для агента: те же сценарии, что у команд окна, путь заметки
-// проверяется так же. Удаления среди них нет: агент не удаляет вовсе.
+// Заметки для агента: сценарии без папок, закрытых для него, путь заметки
+// проверяется так же, как у команд окна. Удаления среди них нет: агент
+// не удаляет вовсе.
 
 /// Папка хранилища: по ней агент держит свой чат у каждого хранилища.
 pub fn vault_root<R: Runtime>(app: &AppHandle<R>) -> Option<PathBuf> {
@@ -240,19 +246,25 @@ pub fn vault_root<R: Runtime>(app: &AppHandle<R>) -> Option<PathBuf> {
 }
 
 pub fn note_paths<R: Runtime>(app: &AppHandle<R>) -> Result<Vec<String>, AppError> {
-    Ok(domain::note_paths(&use_case::tree(&place(app)?, &Disk)?))
+    use_case::agent_paths(&place(app)?, &Disk)
 }
 
 pub fn note_texts<R: Runtime>(app: &AppHandle<R>) -> Result<Vec<NoteText>, AppError> {
-    use_case::texts(&place(app)?, &Disk)
+    use_case::agent_texts(&place(app)?, &Disk)
 }
 
 pub fn read_note<R: Runtime>(app: &AppHandle<R>, path: &str) -> Result<String, AppError> {
-    use_case::read(&place(app)?, &Disk, path)
+    use_case::agent_read(&place(app)?, &Disk, path)
 }
 
 pub fn put_note<R: Runtime>(app: &AppHandle<R>, path: &str, text: &str) -> Result<(), AppError> {
-    use_case::put(&place(app)?, &Disk, &history(app)?, path, text)
+    use_case::agent_put(&place(app)?, &Disk, &history(app)?, path, text)
+}
+
+/// Можно ли показать агенту путь заметки, например открытой у человека.
+/// Не вышло проверить, значит, нельзя.
+pub fn open_to_agent<R: Runtime>(app: &AppHandle<R>, path: &str) -> bool {
+    place(app).is_ok_and(|place| use_case::open_to_agent(&place, &Disk, path).is_ok())
 }
 
 #[cfg(test)]

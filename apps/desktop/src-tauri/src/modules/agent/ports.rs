@@ -14,8 +14,12 @@ pub trait Model {
     ) -> impl Future<Output = Result<(), ModelError>> + Send;
 }
 
-/// Заметки хранилища. Удаления нет: агент не удаляет вовсе.
+/// Заметки хранилища без папок, закрытых для агента: их заметок нет
+/// в списке и поиске, а чтение и запись по пути отвечают `note_closed`.
+/// Удаления нет: агент не удаляет вовсе.
 pub trait Notes {
+    /// Можно ли показать агенту этот путь.
+    fn open(&self, path: &str) -> bool;
     fn paths(&self) -> Result<Vec<String>, AppError>;
     /// Пути и тексты всех заметок.
     fn texts(&self) -> Result<Vec<(String, String)>, AppError>;

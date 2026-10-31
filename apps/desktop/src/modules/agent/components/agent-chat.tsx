@@ -3,6 +3,7 @@
 // мышь только дублирует их. Родной datalist не показывает клавишу действия
 // и пометку «нет сети».
 /* oxlint-disable jsx-a11y/prefer-tag-over-role, jsx-a11y/click-events-have-key-events */
+import Cancel01Icon from "@hugeicons/core-free-icons/Cancel01Icon";
 import Delete02Icon from "@hugeicons/core-free-icons/Delete02Icon";
 import Key01Icon from "@hugeicons/core-free-icons/Key01Icon";
 import { Link } from "@tanstack/react-router";
@@ -105,6 +106,9 @@ export function AgentChat({ context, actions }: Props) {
   const [draft, setDraft] = useState("");
   const [picked, setPicked] = useState(0);
   const [clearing, setClearing] = useState(false);
+  // Что человек убрал из контекста этого сообщения. Другая заметка или
+  // другое выделение приходят снова целиком.
+  const [dropped, setDropped] = useState({ of: "", path: false, selection: false });
   const logRef = useRef<HTMLDivElement>(null);
   const listId = useId();
   const last = chat.entries.at(-1)?.entry;
@@ -144,6 +148,19 @@ export function AgentChat({ context, actions }: Props) {
   }
 
   const active = Math.min(picked, Math.max(matches.length - 1, 0));
+  const of = `${context.path}\n${context.selection}`;
+  let drop = { of, path: false, selection: false };
+
+  if (dropped.of === of) {
+    drop = dropped;
+  }
+
+  // Что уйдёт модели вместе с сообщением: открытая заметка и выделение,
+  // кроме убранного.
+  const sent: ChatContext = {
+    path: drop.path ? null : context.path,
+    selection: drop.selection ? "" : context.selection,
+  };
 
   function send() {
     if (!canSend) {
@@ -151,7 +168,7 @@ export function AgentChat({ context, actions }: Props) {
     }
 
     setDraft("");
-    void chat.send(model, draft, context);
+    void chat.send(model, draft, sent);
   }
 
   function run(action: Action | undefined) {
@@ -161,17 +178,23 @@ export function AgentChat({ context, actions }: Props) {
 
     setDraft("");
     setPicked(0);
-    void actions.run(action, context);
+    void actions.run(action, sent);
   }
 
-  let seen = "";
+  const chips: { label: string; title: string; remove: () => void }[] = [];
 
-  if (context.path !== null) {
-    seen = context.path.split("/").at(-1)?.replace(/\.md$/, "") ?? "";
+  if (sent.path !== null) {
+    const name = sent.path.split("/").at(-1)?.replace(/\.md$/, "") ?? sent.path;
+
+    chips.push({ label: name, title: sent.path, remove: () => setDropped({ ...drop, path: true }) });
   }
 
-  if (seen !== "" && context.selection.trim() !== "") {
-    seen = t("agent.chat.withSelection", { name: seen });
+  if (sent.selection.trim() !== "") {
+    chips.push({
+      label: t("agent.chat.selection"),
+      title: sent.selection,
+      remove: () => setDropped({ ...drop, selection: true }),
+    });
   }
 
   let header = (
@@ -203,7 +226,7 @@ export function AgentChat({ context, actions }: Props) {
   // Действию не хватило интеграции: вместо повтора ссылка туда, где её
   // подключают.
   let fix = (
-    <button type="button" className={LINK} onClick={() => void chat.send(model, "", context)}>
+    <button type="button" className={LINK} onClick={() => void chat.send(model, "", sent)}>
       {t("agent.chat.retry")}
     </button>
   );
@@ -307,9 +330,29 @@ export function AgentChat({ context, actions }: Props) {
             }}
           />
           <div className="flex items-center gap-2 px-2 pb-2">
-            <p className="flex-1 truncate pl-1 text-[12px] text-content/50" title={context.path ?? undefined}>
-              {seen}
-            </p>
+            <div className="min-w-0 flex-1">
+              {chips.length > 0 && (
+                <ul aria-label={t("agent.chat.context")} className="flex flex-wrap gap-1">
+                  {chips.map((chip) => (
+                    <li
+                      key={chip.label}
+                      title={chip.title}
+                      className="flex h-6 max-w-40 items-center gap-1 rounded-md bg-selection pr-0.5 pl-2 text-[12px] text-content/70"
+                    >
+                      <span className="truncate">{chip.label}</span>
+                      <button
+                        type="button"
+                        aria-label={t("agent.chat.drop", { what: chip.label })}
+                        className="grid size-5 shrink-0 place-items-center rounded text-content/50 transition-colors duration-120 hover:bg-selection-hover hover:text-content"
+                        onClick={chip.remove}
+                      >
+                        <Icon icon={Cancel01Icon} size={12} />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
             {chat.running && <Button onClick={() => void chat.stop()}>{t("agent.chat.stop")}</Button>}
             {!chat.running && (
               <Button disabled={!canSend} onClick={send}>

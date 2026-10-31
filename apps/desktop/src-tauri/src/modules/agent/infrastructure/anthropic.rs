@@ -1,3 +1,4 @@
+use crate::egress;
 use crate::modules::agent::domain::ModelError;
 use crate::modules::agent::ports::Model;
 use reqwest::Client;
@@ -13,7 +14,8 @@ const FALLBACK_BETA: &str = "server-side-fallback-2026-07-01";
 /// Клиент Messages API. Ключ подставляется в заголовок здесь и больше
 /// никуда не уходит. Общего срока на запрос нет: ответ с размышлениями
 /// идёт минутами. Зато поток, который молчит дольше двух минут, считается
-/// оборванным: сервер шлёт пинг куда чаще.
+/// оборванным: сервер шлёт пинг куда чаще. Адрес задан в коде, ни модель,
+/// ни настройки его не меняют, а перенаправление с него не выполняется.
 pub struct Anthropic {
     client: Client,
     url: String,
@@ -30,6 +32,7 @@ impl Anthropic {
         let client = Client::builder()
             .connect_timeout(Duration::from_secs(15))
             .read_timeout(Duration::from_secs(120))
+            .redirect(egress::no_redirects())
             .build()
             .unwrap_or_default();
 
