@@ -3,7 +3,7 @@ import { emit } from "@tauri-apps/api/event";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useEffect, useRef } from "react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   FileSearch,
   NoteTabs,
@@ -16,7 +16,9 @@ import {
 } from "@/modules/vault";
 import { forgetNotes } from "./interactions/note";
 import { closeSearch } from "./interactions/search";
+import { DEFAULT_TEMPLATES } from "./model/templates";
 import type { EditorProps } from "./model/vault";
+import { templatesStore } from "./store/templates.store";
 import { EMPTY_TREE, treeStore } from "./store/tree.store";
 
 type Entry = { kind: string; name: string; path: string; children?: Entry[] };
@@ -111,8 +113,9 @@ function fakeRust(disk: Disk) {
 
 // Редактор здесь простое поле: хранилище отдаёт ему текст и принимает
 // правку, а CodeMirror проверяется в своём модуле. Теги в тексте он
-// показывает кнопками, а подсказку тегов строкой.
-function TextEditor({ value, onChange, readOnly, focusRequest, label, tags, onTagClick }: EditorProps) {
+// показывает кнопками, подсказку тегов строкой, а вставку кладёт
+// на место курсора поля.
+function TextEditor({ value, onChange, readOnly, focusRequest, insert, label, tags, onTagClick }: EditorProps) {
   const ref = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -120,6 +123,14 @@ function TextEditor({ value, onChange, readOnly, focusRequest, label, tags, onTa
       ref.current?.focus();
     }
   }, [focusRequest]);
+
+  useEffect(() => {
+    const area = ref.current;
+
+    if (area !== null && insert !== null) {
+      onChange(area.value.slice(0, area.selectionStart) + insert + area.value.slice(area.selectionStart));
+    }
+  }, [insert, onChange]);
 
   return (
     <>
@@ -197,7 +208,9 @@ afterEach(async () => {
   treeStore.setState(() => EMPTY_TREE);
   forgetNotes();
   closeSearch();
+  templatesStore.setState(() => DEFAULT_TEMPLATES);
   localStorage.clear();
+  vi.useRealTimers();
 });
 
 describe("хранилище", () => {
@@ -885,5 +898,76 @@ describe("теги", () => {
     // Тег ушёл из последней заметки и пропал из списка.
     type("идеи", "идеи");
     await waitFor(() => expect(tagButtons()).not.toContain("#отпуск, заметок: 1"), SAVED);
+  });
+});
+
+function templated() {
+  return fakeRust({
+    status: { kind: "ready", path: "/notes" },
+    tree: [folder("Встречи"), folder("Шаблоны", [note("Шаблоны/Встреча.md")]), note("план.md")],
+    files: {
+      "Шаблоны/Встреча.md": "# {{title}}\n{{date}} {{time}} {{foo}} #встреча",
+      "план.md": "начало\nконец",
+    },
+  });
+}
+
+function picker() {
+  return screen.getByRole("combobox", { name: "Выбор шаблона" });
+}
+
+// Минуты не меняются посреди теста.
+function freezeClock() {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date(2026, 9, 29, 14, 5));
+}
+
+describe("шаблоны", () => {
+  it("новый файл из шаблона: меню папки, шаблон, имя, файл с подстановками", async () => {
+    const disk = templated();
+    freezeClock();
+    launch();
+
+    fireEvent.contextMenu(await inTree().findByRole("button", { name: "Встречи" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Новый файл из шаблона" }));
+    expect(options()).toEqual(["ВстречаШаблоны"]);
+    fireEvent.keyDown(picker(), { key: "Enter" });
+
+    rename("Ретро");
+    pressEnter();
+
+    expect(await screen.findByRole("textbox", { name: "Ретро" })).toBeDefined();
+    expect(disk.files?.["Встречи/Ретро.md"]).toBe("# Ретро\n2026-10-29 14:05 {{foo}} #встреча");
+    // Тег шаблона у новой заметки есть, у самого шаблона нет.
+    await waitFor(() => expect(tagButtons()).toEqual(["#встреча, заметок: 1"]));
+  });
+
+  it("вставка шаблона идёт на место курсора и ничего не затирает, формат даты из настроек", async () => {
+    const disk = templated();
+    freezeClock();
+    localStorage.setItem("sapien.templates", JSON.stringify({ dateFormat: "DD.MM.YYYY" }));
+    restoreSession();
+    launch();
+
+    fireEvent.click(await inTree().findByRole("button", { name: "план" }));
+    const editor = await screen.findByRole<HTMLTextAreaElement>("textbox", { name: "план" });
+    editor.setSelectionRange(7, 7);
+
+    fireEvent.click(screen.getByRole("button", { name: "Вставить шаблон" }));
+    fireEvent.keyDown(picker(), { key: "Enter" });
+
+    await waitFor(() => expect(editorText("план")).toBe("начало\n# план\n29.10.2026 14:05 {{foo}} #встречаконец"));
+    await waitFor(() => expect(disk.files?.["план.md"]).toBe(editorText("план")), SAVED);
+  });
+
+  it("шаблонов нет: вместо списка подсказка, как завести первый", async () => {
+    notes({ "идеи.md": "" });
+    launch();
+
+    fireEvent.contextMenu(await inTree().findByRole("navigation"));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Новый файл из шаблона" }));
+
+    expect(options()).toEqual([]);
+    expect(screen.getByText("Шаблонов пока нет. Создайте заметку в папке «Шаблоны», и она появится здесь.")).toBeDefined();
   });
 });

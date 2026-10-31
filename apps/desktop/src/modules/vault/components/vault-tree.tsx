@@ -17,7 +17,7 @@ import {
   toggleFolder,
   useTreeState,
 } from "../interactions/tree";
-import { openSearch } from "../interactions/search";
+import { openSearch, pickTemplate } from "../interactions/search";
 import { useCreateEntry, useVaultStatus, useVaultTree } from "../interactions/vault";
 import {
   checkName,
@@ -71,7 +71,7 @@ function DraftRow({ draft, siblings, depth }: { draft: Draft; siblings: VaultEnt
 
   function submit() {
     if (problem === null && !create.isPending) {
-      create.mutate({ parent: draft.parent, name: name.trim(), kind: draft.kind });
+      create.mutate({ parent: draft.parent, name: name.trim(), kind: draft.kind, template: draft.template });
     }
   }
 
@@ -344,6 +344,10 @@ export function VaultTree({ onCreateStart }: Props) {
           y={menu.y}
           items={[
             { label: t("vault.create.note"), onSelect: () => create("note", menu.parent) },
+            {
+              label: t("vault.templates.newFile"),
+              onSelect: () => pickTemplate({ kind: "newFromTemplate", parent: menu.parent }),
+            },
             { label: t("vault.create.folder"), onSelect: () => create("folder", menu.parent) },
           ]}
           onClose={closeMenu}

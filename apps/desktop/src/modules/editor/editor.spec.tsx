@@ -64,6 +64,18 @@ describe("редактор markdown", () => {
     expect(view().state.facet(EditorView.editable)).toBe(false);
   });
 
+  it("вставка встаёт у курсора, выделенное остаётся, правка уходит наружу", () => {
+    const onChange = vi.fn();
+    const { rerender } = render(<MarkdownEditor value="раз три" onChange={onChange} label="план" />);
+    act(() => view().dispatch({ selection: { anchor: 0, head: 4 } }));
+
+    rerender(<MarkdownEditor value="раз три" onChange={onChange} insert="два " label="план" />);
+
+    expect(view().state.doc.toString()).toBe("раз два три");
+    expect(view().state.selection.main.head).toBe(8);
+    expect(onChange).toHaveBeenLastCalledWith("раз два три");
+  });
+
   it("тег выделен, клик по нему зовёт поиск, тег в коде не выделен", async () => {
     const onTagClick = vi.fn();
     render(<MarkdownEditor value={"созвон #работа\n`#код`"} onChange={vi.fn()} label="план" onTagClick={onTagClick} />);
