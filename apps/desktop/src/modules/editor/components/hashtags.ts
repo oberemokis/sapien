@@ -4,9 +4,10 @@ import { EditorView } from "@codemirror/view";
 
 type SyntaxNode = ReturnType<ReturnType<typeof syntaxTree>["resolveInner"]>;
 
-// То, что набрано после решётки, и узлы кода, где тегов не бывает.
+// То, что набрано после решётки, и узлы, где тегов с решёткой не бывает:
+// код и шапка, в которой «#» начинает комментарий YAML.
 const TYPED = /#[\p{L}\p{M}\p{N}_\-/]*/u;
-const CODE = new Set(["FencedCode", "CodeBlock", "InlineCode", "CodeText", "URL"]);
+const CODE = new Set(["FencedCode", "CodeBlock", "InlineCode", "CodeText", "URL", "Frontmatter"]);
 
 function inCode(context: CompletionContext) {
   let node: SyntaxNode | null = syntaxTree(context.state).resolveInner(context.pos, -1);
@@ -68,8 +69,9 @@ export function tagClick(onTagClick: (tag: string) => void) {
         return false;
       }
 
+      // Тег из шапки пишется без решётки.
       event.preventDefault();
-      onTagClick(tag.textContent?.slice(1) ?? "");
+      onTagClick(tag.textContent?.replace(/^#/, "") ?? "");
 
       return true;
     },
