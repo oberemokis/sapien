@@ -33,7 +33,9 @@ function showChat() {
 function Home() {
   const { t } = useTranslation();
   // Агент видит, что открыто и выделено: хранилище это знает, чат спрашивает.
-  const note = useActiveNote();
+  // Заметку из папки, закрытой для агента, чат не видит вовсе.
+  const active = useActiveNote();
+  const note = active.closed ? { path: null, selection: "" } : active;
   // Действия это заметки хранилища, а нужна ли им интеграция, знает её модуль.
   const youtrack = useYoutrackCheck();
   const check = useMemo(() => ({ youtrack }), [youtrack]);

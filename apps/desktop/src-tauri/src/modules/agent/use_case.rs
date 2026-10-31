@@ -100,9 +100,20 @@ pub async fn send(
         .get(SecretName::ModelKey)
         .ok_or(AppError::not_found("agent_key_missing"))?;
     let mut messages = chat.load()?;
+    let mut context = turn.context;
+
+    // Заметка из закрытой папки не уходит модели ни путём, ни выделением,
+    // что бы ни прислало окно.
+    if context
+        .path
+        .as_deref()
+        .is_some_and(|path| !notes.open(path))
+    {
+        context = Context::default();
+    }
 
     if !turn.text.trim().is_empty() {
-        push_user(&mut messages, user_blocks(turn.text, &turn.context));
+        push_user(&mut messages, user_blocks(turn.text, &context));
         chat.save(&messages)?;
     }
 
@@ -262,7 +273,12 @@ mod tests {
         }
     }
 
+    /// Папка «Личное» закрыта для агента.
     impl Notes for FakeNotes {
+        fn open(&self, path: &str) -> bool {
+            !path.starts_with("Личное/")
+        }
+
         fn paths(&self) -> Result<Vec<String>, AppError> {
             Ok(self.0.lock().unwrap().keys().cloned().collect())
         }
@@ -613,5 +629,36 @@ mod tests {
         assert_eq!(no_key.result, Err(AppError::not_found("agent_key_missing")));
         assert_eq!(unknown, Err(AppError::invalid("agent_model_unknown")));
         assert!(model.bodies.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn заметка_из_закрытой_папки_не_уходит_модели_ни_путём_ни_выделением() {
+        let model = FakeModel::with(vec![Script::Answer(text("Не вижу заметки."))]);
+        let chat = FakeChat::default();
+        let result = block_on(send(
+            &model,
+            &FakeNotes::default(),
+            &NoTracker,
+            &chat,
+            &keyed(),
+            &Notify::new(),
+            Turn {
+                model: "claude-sonnet-5-5",
+                text: "Что тут?",
+                context: Context {
+                    path: Some("Личное/дневник.md".into()),
+                    selection: Some("сокровенное".into()),
+                },
+            },
+            &mut |_| {},
+        ));
+
+        assert_eq!(result, Ok(()));
+
+        let sent = model.bodies.lock().unwrap()[0].1["messages"].to_string();
+
+        assert!(!sent.contains("Личное"));
+        assert!(!sent.contains("сокровенное"));
+        assert!(sent.contains("Что тут?"));
     }
 }

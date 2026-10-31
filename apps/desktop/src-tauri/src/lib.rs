@@ -1,4 +1,5 @@
 mod durable;
+mod egress;
 mod error;
 mod links;
 #[cfg(target_os = "macos")]
@@ -16,6 +17,13 @@ pub fn run() {
     let builder = builder.menu(menu::build);
 
     builder
+        // Лог в папке логов приложения и в терминале: туда пишутся отказы
+        // запросов из egress.rs. Ниже предупреждения не пишется ничего.
+        .plugin(
+            tauri_plugin_log::Builder::new()
+                .level(log::LevelFilter::Warn)
+                .build(),
+        )
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_deep_link::init())
         // Ссылки окна открывает только links.rs: скрипт плагина, который
@@ -53,6 +61,7 @@ pub fn run() {
             vault::transport::vault_tree,
             vault::transport::vault_choose,
             vault::transport::vault_create,
+            vault::transport::vault_close_for_agent,
             vault::transport::vault_read,
             vault::transport::vault_write,
             vault::transport::vault_texts,

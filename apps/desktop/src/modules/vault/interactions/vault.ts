@@ -4,6 +4,7 @@ import {
   onVaultChanged,
   onVaultOpen,
   vaultChoose,
+  vaultCloseForAgent,
   vaultCreate,
   vaultOpened,
   vaultStatus,
@@ -135,6 +136,17 @@ export function useTrashEntry() {
 
       return queryClient.invalidateQueries({ queryKey: VAULT_KEY });
     },
+  });
+}
+
+// Папка закрыта для агента или открыта снова: дерево перечитывается
+// и показывает замок.
+export function useCloseForAgent() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ path, closed }: { path: string; closed: boolean }) => vaultCloseForAgent(path, closed),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: VAULT_KEY }),
   });
 }
 

@@ -3,6 +3,7 @@ import FileAddIcon from "@hugeicons/core-free-icons/FileAddIcon";
 import FolderAddIcon from "@hugeicons/core-free-icons/FolderAddIcon";
 import RestoreBinIcon from "@hugeicons/core-free-icons/RestoreBinIcon";
 import Search01Icon from "@hugeicons/core-free-icons/Search01Icon";
+import SquareLock02Icon from "@hugeicons/core-free-icons/SquareLock02Icon";
 import {
   useCallback,
   useEffect,
@@ -28,7 +29,13 @@ import {
   useTreeState,
 } from "../interactions/tree";
 import { openSearch, pickTemplate, showDeleted } from "../interactions/search";
-import { useCreateEntry, useTrashEntry, useVaultStatus, useVaultTree } from "../interactions/vault";
+import {
+  useCloseForAgent,
+  useCreateEntry,
+  useTrashEntry,
+  useVaultStatus,
+  useVaultTree,
+} from "../interactions/vault";
 import {
   checkName,
   nameProblemOf,
@@ -169,6 +176,7 @@ function Row({
       type="button"
       data-entry={entry.path}
       data-folder={entry.kind === "folder" || undefined}
+      data-closed={(entry.kind === "folder" && entry.closed) || undefined}
       aria-expanded={expanded}
       aria-current={selected || undefined}
       className={`${ROW} text-content/80 transition-colors duration-120 hover:bg-selection-hover aria-current:bg-selection aria-current:text-content`}
@@ -182,6 +190,18 @@ function Row({
     >
       {children}
     </button>
+  );
+}
+
+// Замок у папки, закрытой для агента. Подпись входит в имя строки.
+function ClosedMark() {
+  const { t } = useTranslation();
+
+  return (
+    <span title={t("vault.agent.closed")} className="ml-auto">
+      <Icon icon={SquareLock02Icon} size={12} className="text-content/40" />
+      <span className="sr-only"> {t("vault.agent.closed")}</span>
+    </span>
   );
 }
 
@@ -238,6 +258,7 @@ function Entries({
               <Icon icon={ArrowRight01Icon} size={12} className={`shrink-0 text-content/50 ${open ? "rotate-90" : ""}`} />
               <FileTypeIcon name={entry.name} isFolder isOpen={open} />
               <span className="truncate">{entry.name}</span>
+              {entry.closed && <ClosedMark />}
             </Row>
             {open && <Entries entries={entry.children} depth={depth + 1} parent={entry.path} state={state} />}
           </li>
@@ -278,7 +299,14 @@ type Props = {
   noteMenu?: (path: string) => MenuItem[];
 };
 
-type Menu = { x: number; y: number; parent: string; entry: string | null; note: string | null };
+type Menu = {
+  x: number;
+  y: number;
+  parent: string;
+  entry: string | null;
+  note: string | null;
+  folder: { path: string; closed: boolean } | null;
+};
 
 // Дерево хранилища в левой панели. Пока хранилище не открыто, панель пуста:
 // что делать, объясняет середина окна.
@@ -290,6 +318,7 @@ export function VaultTree({ onCreateStart, noteMenu }: Props) {
   const [menu, setMenu] = useState<Menu | null>(null);
   const closeMenu = useCallback(() => setMenu(null), []);
   const trash = useTrashEntry();
+  const closeForAgent = useCloseForAgent();
 
   const create = useCallback(
     (kind: EntryKind, parent?: string) => {
@@ -315,6 +344,7 @@ export function VaultTree({ onCreateStart, noteMenu }: Props) {
     let parent = "";
     let entry: string | null = null;
     let note: string | null = null;
+    let folder: Menu["folder"] = null;
 
     if (row?.dataset.entry !== undefined) {
       const path = row.dataset.entry;
@@ -324,9 +354,10 @@ export function VaultTree({ onCreateStart, noteMenu }: Props) {
       parent = isFolder ? path : parentOf(path);
       entry = path;
       note = isFolder ? null : path;
+      folder = isFolder ? { path, closed: row.dataset.closed !== undefined } : null;
     }
 
-    setMenu({ x: event.clientX, y: event.clientY, parent, entry, note });
+    setMenu({ x: event.clientX, y: event.clientY, parent, entry, note, folder });
   }
 
   // ⌘⌫ или Delete на строке дерева, как в Finder и Проводнике.
@@ -345,6 +376,18 @@ export function VaultTree({ onCreateStart, noteMenu }: Props) {
   // Пункты соседей отделены чертой от своих.
   if (menu?.note != null && noteMenu !== undefined) {
     extra = noteMenu(menu.note).map((item, index) => ({ ...item, separated: index === 0 }));
+  }
+
+  const folder = menu?.folder ?? null;
+
+  if (folder !== null) {
+    extra = [
+      {
+        label: t(folder.closed ? "vault.agent.open" : "vault.agent.close"),
+        separated: true,
+        onSelect: () => closeForAgent.mutate({ path: folder.path, closed: !folder.closed }),
+      },
+    ];
   }
 
   return (
@@ -375,6 +418,11 @@ export function VaultTree({ onCreateStart, noteMenu }: Props) {
       {trash.isError && (
         <p role="alert" className="px-3 pb-1 text-[12px] text-diff-del-fg">
           {t("vault.trash.failed")}
+        </p>
+      )}
+      {closeForAgent.isError && (
+        <p role="alert" className="px-3 pb-1 text-[12px] text-diff-del-fg">
+          {t("vault.agent.failed")}
         </p>
       )}
       {/* Меню по правой кнопке повторяет кнопки над деревом и ⌘⌫ на строке,

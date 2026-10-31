@@ -1,6 +1,7 @@
 use super::domain::{
     Entry, EntryKind, HISTORY_EVERY, HISTORY_KEEP, JOURNAL_KEEP, Source, Unsaved, Version,
-    check_name, is_within, note_file_name, note_paths, parse_folder_path, parse_note_path,
+    check_name, closed_folders, is_closed, is_within, note_file_name, note_paths,
+    parse_folder_path, parse_note_path,
 };
 use super::ports::{History, Journal, VaultDisk, VaultPlace};
 use crate::error::AppError;
@@ -80,6 +81,95 @@ pub fn create(
     disk.create(&root.join(&path), kind)?;
 
     Ok(path)
+}
+
+/// Закрывает папку для агента или открывает снова. Корень не закрывается:
+/// агенту без единой заметки делать нечего.
+pub fn close_for_agent(
+    place: &impl VaultPlace,
+    disk: &impl VaultDisk,
+    folder: &str,
+    closed: bool,
+) -> Result<(), AppError> {
+    let root = open_root(place, disk)?;
+    let folder = parse_folder_path(folder)
+        .filter(|folder| !folder.is_empty())
+        .ok_or(AppError::invalid("path_invalid"))?;
+    let path = root.join(folder);
+
+    if !disk.is_dir(&path) {
+        return Err(AppError::not_found("folder_missing"));
+    }
+
+    disk.mark(&path, closed)
+}
+
+// Заметки глазами агента: всё, кроме папок, закрытых для него. Закрытое
+// агент не получает ни списком, ни поиском, ни по пути.
+
+/// Заметку из закрытой папки агент не читает и не пишет, новую в ней
+/// не создаёт. Метку ищет диск по каждой папке над заметкой: путь
+/// в другом регистре или в другой нормализации Unicode ведёт в ту же папку.
+pub fn open_to_agent(
+    place: &impl VaultPlace,
+    disk: &impl VaultDisk,
+    path: &str,
+) -> Result<(), AppError> {
+    let mut folder = open_root(place, disk)?;
+    let path = parse_note_path(path).ok_or(AppError::invalid("path_invalid"))?;
+    let folders = path.rsplit_once('/').map_or("", |(folders, _)| folders);
+
+    for part in folders.split('/').filter(|part| !part.is_empty()) {
+        folder.push(part);
+
+        if disk.marked(&folder) {
+            return Err(AppError::invalid("note_closed"));
+        }
+    }
+
+    Ok(())
+}
+
+pub fn agent_paths(
+    place: &impl VaultPlace,
+    disk: &impl VaultDisk,
+) -> Result<Vec<String>, AppError> {
+    let entries = tree(place, disk)?;
+    let closed = closed_folders(&entries);
+
+    Ok(note_paths(&entries)
+        .into_iter()
+        .filter(|path| !is_closed(path, &closed))
+        .collect())
+}
+
+pub fn agent_texts(
+    place: &impl VaultPlace,
+    disk: &impl VaultDisk,
+) -> Result<Vec<NoteText>, AppError> {
+    let root = open_root(place, disk)?;
+
+    Ok(read_all(disk, &root, agent_paths(place, disk)?))
+}
+
+pub fn agent_read(
+    place: &impl VaultPlace,
+    disk: &impl VaultDisk,
+    path: &str,
+) -> Result<String, AppError> {
+    open_to_agent(place, disk, path)?;
+    read(place, disk, path)
+}
+
+pub fn agent_put(
+    place: &impl VaultPlace,
+    disk: &impl VaultDisk,
+    history: &impl History,
+    path: &str,
+    text: &str,
+) -> Result<(), AppError> {
+    open_to_agent(place, disk, path)?;
+    put(place, disk, history, path, text)
 }
 
 fn note_at(
@@ -368,14 +458,19 @@ pub struct NoteText {
 pub fn texts(place: &impl VaultPlace, disk: &impl VaultDisk) -> Result<Vec<NoteText>, AppError> {
     let root = open_root(place, disk)?;
 
-    Ok(note_paths(&disk.list(&root)?)
+    Ok(read_all(disk, &root, note_paths(&disk.list(&root)?)))
+}
+
+/// Тексты заметок по путям. Нечитаемую заметку пропускает.
+fn read_all(disk: &impl VaultDisk, root: &Path, paths: Vec<String>) -> Vec<NoteText> {
+    paths
         .into_iter()
         .filter_map(|path| {
             let text = disk.read(&root.join(&path)).ok()?;
 
             Some(NoteText { path, text })
         })
-        .collect())
+        .collect()
 }
 
 /// Папку дал системный диалог, то есть её выбрал человек. Путь из интерфейса
@@ -445,6 +540,14 @@ mod tests {
         fn trash(&self, _path: &Path) -> Result<(), AppError> {
             Ok(())
         }
+
+        fn mark(&self, _folder: &Path, _closed: bool) -> Result<(), AppError> {
+            Ok(())
+        }
+
+        fn marked(&self, _folder: &Path) -> bool {
+            false
+        }
     }
 
     /// Журнал в памяти: запись по пути заметки и её возраст.
@@ -507,6 +610,14 @@ mod tests {
             self.0.borrow_mut().push(path.to_path_buf());
             Ok(())
         }
+
+        fn mark(&self, _folder: &Path, _closed: bool) -> Result<(), AppError> {
+            Ok(())
+        }
+
+        fn marked(&self, _folder: &Path) -> bool {
+            false
+        }
     }
 
     /// Диск, на котором хранилище `/notes` на месте, а созданное записывается.
@@ -541,6 +652,14 @@ mod tests {
 
         fn trash(&self, _path: &Path) -> Result<(), AppError> {
             Ok(())
+        }
+
+        fn mark(&self, _folder: &Path, _closed: bool) -> Result<(), AppError> {
+            Ok(())
+        }
+
+        fn marked(&self, _folder: &Path) -> bool {
+            false
         }
     }
 
@@ -627,6 +746,14 @@ mod tests {
                 .borrow_mut()
                 .retain(|path, _| !is_within(path, &entry));
             Ok(())
+        }
+
+        fn mark(&self, _folder: &Path, _closed: bool) -> Result<(), AppError> {
+            Ok(())
+        }
+
+        fn marked(&self, _folder: &Path) -> bool {
+            false
         }
     }
 
@@ -920,6 +1047,7 @@ mod tests {
                 Entry::Folder {
                     name: "Проекты".into(),
                     path: "Проекты".into(),
+                    closed: false,
                     children: vec![Entry::Note {
                         name: "план.md".into(),
                         path: "Проекты/план.md".into(),
@@ -951,6 +1079,14 @@ mod tests {
         fn trash(&self, _path: &Path) -> Result<(), AppError> {
             Ok(())
         }
+
+        fn mark(&self, _folder: &Path, _closed: bool) -> Result<(), AppError> {
+            Ok(())
+        }
+
+        fn marked(&self, _folder: &Path) -> bool {
+            false
+        }
     }
 
     #[test]
@@ -961,6 +1097,128 @@ mod tests {
                 path: "Проекты/план.md".into(),
                 text: "текст /notes/Проекты/план.md".into(),
             }])
+        );
+    }
+
+    /// Хранилище `/notes` с папкой «Личное», закрытой для агента. Диск
+    /// не различает регистр, как на macOS. Метки ставятся в память.
+    #[derive(Default)]
+    struct Private(RefCell<Vec<(PathBuf, bool)>>);
+
+    impl VaultDisk for Private {
+        fn is_dir(&self, path: &Path) -> bool {
+            path == Path::new("/notes") || path == Path::new("/notes/Личное")
+        }
+
+        fn list(&self, _root: &Path) -> Result<Vec<Entry>, AppError> {
+            Ok(vec![
+                Entry::Folder {
+                    name: "Личное".into(),
+                    path: "Личное".into(),
+                    closed: true,
+                    children: vec![Entry::Note {
+                        name: "дневник.md".into(),
+                        path: "Личное/дневник.md".into(),
+                    }],
+                },
+                Entry::Note {
+                    name: "план.md".into(),
+                    path: "план.md".into(),
+                },
+            ])
+        }
+
+        fn create(&self, _path: &Path, _kind: EntryKind) -> Result<(), AppError> {
+            Ok(())
+        }
+
+        fn read(&self, path: &Path) -> Result<String, AppError> {
+            Ok(format!("текст {}", path.display()))
+        }
+
+        fn write(&self, _path: &Path, _text: &str, _base: Option<&str>) -> Result<(), AppError> {
+            Ok(())
+        }
+
+        fn trash(&self, _path: &Path) -> Result<(), AppError> {
+            Ok(())
+        }
+
+        fn mark(&self, folder: &Path, closed: bool) -> Result<(), AppError> {
+            self.0.borrow_mut().push((folder.to_path_buf(), closed));
+            Ok(())
+        }
+
+        fn marked(&self, folder: &Path) -> bool {
+            folder.to_string_lossy().to_lowercase() == "/notes/личное"
+        }
+    }
+
+    #[test]
+    fn закрытую_папку_агент_не_получает_ни_списком_ни_поиском_ни_по_пути() {
+        let place = chosen("/notes");
+        let history = Album::default();
+
+        assert_eq!(
+            agent_paths(&place, &Private::default()),
+            Ok(vec!["план.md".into()])
+        );
+        assert_eq!(
+            agent_texts(&place, &Private::default()).map(|texts| texts.len()),
+            Ok(1)
+        );
+
+        for path in ["Личное/дневник.md", "личное/дневник.md", "Личное/новая.md"]
+        {
+            assert_eq!(
+                agent_read(&place, &Private::default(), path),
+                Err(AppError::invalid("note_closed")),
+                "{path}"
+            );
+            assert_eq!(
+                agent_put(&place, &Private::default(), &history, path, "текст"),
+                Err(AppError::invalid("note_closed")),
+                "{path}"
+            );
+        }
+
+        assert_eq!(
+            agent_read(&place, &Private::default(), "план.md"),
+            Ok("текст /notes/план.md".into())
+        );
+        // Окну закрытая папка видна как обычно.
+        assert_eq!(
+            texts(&place, &Private::default()).map(|texts| texts.len()),
+            Ok(2)
+        );
+    }
+
+    #[test]
+    fn папку_закрывают_и_открывают_меткой_но_не_корень() {
+        let place = chosen("/notes");
+        let disk = Private::default();
+
+        close_for_agent(&place, &disk, "Личное", true).unwrap();
+        close_for_agent(&place, &disk, "Личное", false).unwrap();
+
+        assert_eq!(
+            *disk.0.borrow(),
+            [
+                (PathBuf::from("/notes/Личное"), true),
+                (PathBuf::from("/notes/Личное"), false)
+            ]
+        );
+        assert_eq!(
+            close_for_agent(&place, &disk, "", true),
+            Err(AppError::invalid("path_invalid"))
+        );
+        assert_eq!(
+            close_for_agent(&place, &disk, "../Личное", true),
+            Err(AppError::invalid("path_invalid"))
+        );
+        assert_eq!(
+            close_for_agent(&place, &disk, "Нет", true),
+            Err(AppError::not_found("folder_missing"))
         );
     }
 

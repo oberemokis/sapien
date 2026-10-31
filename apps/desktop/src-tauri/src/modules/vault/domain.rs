@@ -151,6 +151,8 @@ pub enum Entry {
         name: String,
         path: String,
         children: Vec<Entry>,
+        /// Закрыта для агента: в ней лежит `CLOSED_MARK`.
+        closed: bool,
     },
     Note {
         name: String,
@@ -179,6 +181,40 @@ pub fn note_paths(entries: &[Entry]) -> Vec<String> {
             Entry::Note { path, .. } => vec![path.clone()],
         })
         .collect()
+}
+
+/// Метка папки, закрытой для агента: пустой скрытый файл в ней самой.
+/// Переезжает вместе с папкой, когда её переименуют или перенесут,
+/// и вместе с хранилищем на другое устройство.
+pub const CLOSED_MARK: &str = ".noagent";
+
+/// Пути папок, закрытых для агента, на любой глубине.
+pub fn closed_folders(entries: &[Entry]) -> Vec<String> {
+    entries
+        .iter()
+        .flat_map(|entry| match entry {
+            Entry::Folder {
+                path,
+                children,
+                closed,
+                ..
+            } => {
+                let mut found = closed_folders(children);
+
+                if *closed {
+                    found.push(path.clone());
+                }
+
+                found
+            }
+            Entry::Note { .. } => vec![],
+        })
+        .collect()
+}
+
+/// Путь внутри закрытой папки, на любой глубине под ней.
+pub fn is_closed(path: &str, closed: &[String]) -> bool {
+    closed.iter().any(|folder| is_within(path, folder))
 }
 
 /// Скрытое не показывается, как в Obsidian: `.obsidian`, `.git`, `.DS_Store`.
@@ -221,7 +257,33 @@ mod tests {
             name: name.into(),
             path: name.into(),
             children: vec![],
+            closed: false,
         }
+    }
+
+    #[test]
+    fn закрытая_папка_закрывает_всё_под_собой() {
+        let tree = vec![
+            Entry::Folder {
+                name: "Личное".into(),
+                path: "Личное".into(),
+                closed: true,
+                children: vec![Entry::Folder {
+                    name: "Здоровье".into(),
+                    path: "Личное/Здоровье".into(),
+                    closed: false,
+                    children: vec![],
+                }],
+            },
+            folder("Личное 2"),
+        ];
+        let closed = closed_folders(&tree);
+
+        assert_eq!(closed, ["Личное"]);
+        assert!(is_closed("Личное/дневник.md", &closed));
+        assert!(is_closed("Личное/Здоровье/анализы.md", &closed));
+        assert!(!is_closed("Личное 2/план.md", &closed));
+        assert!(!is_closed("план.md", &closed));
     }
 
     #[test]

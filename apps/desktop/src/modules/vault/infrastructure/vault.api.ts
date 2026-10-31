@@ -15,6 +15,12 @@ export function vaultChoose() {
   return invoke<VaultStatus>("vault_choose");
 }
 
+// Закрывает папку для агента или открывает снова: Rust ставит или снимает
+// в ней метку .noagent.
+export function vaultCloseForAgent(path: string, closed: boolean) {
+  return invoke<null>("vault_close_for_agent", { path, closed });
+}
+
 // Отдаёт путь созданного элемента в том же виде, что в дереве.
 export function vaultCreate(input: { parent: string; name: string; kind: EntryKind }) {
   return invoke<string>("vault_create", input);

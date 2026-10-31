@@ -1,6 +1,8 @@
 use crate::durable;
 use crate::error::AppError;
-use crate::modules::vault::domain::{Entry, EntryKind, is_hidden, is_note, sort_entries};
+use crate::modules::vault::domain::{
+    CLOSED_MARK, Entry, EntryKind, is_hidden, is_note, sort_entries,
+};
 use crate::modules::vault::ports::VaultDisk;
 use std::fs::{self, OpenOptions};
 use std::io::ErrorKind;
@@ -83,6 +85,30 @@ impl VaultDisk for Disk {
         bin.delete(path)
             .map_err(|_| AppError::unavailable("trash_failed"))
     }
+
+    fn mark(&self, folder: &Path, closed: bool) -> Result<(), AppError> {
+        let mark = folder.join(CLOSED_MARK);
+        let done = if closed {
+            OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(false)
+                .open(&mark)
+                .map(drop)
+        } else {
+            // Метки уже нет, значит, папка и так открыта.
+            fs::remove_file(&mark).or_else(|error| match error.kind() {
+                ErrorKind::NotFound => Ok(()),
+                _ => Err(error),
+            })
+        };
+
+        done.map_err(|_| AppError::unavailable("vault_unwritable"))
+    }
+
+    fn marked(&self, folder: &Path) -> bool {
+        folder.join(CLOSED_MARK).is_file()
+    }
 }
 
 // ponytail: обход целиком на каждый запрос, на хранилищах в десятки тысяч
@@ -119,6 +145,7 @@ fn walk(items: fs::ReadDir, prefix: &str) -> Vec<Entry> {
                 .unwrap_or_default();
 
             entries.push(Entry::Folder {
+                closed: Disk.marked(&item.path()),
                 name,
                 path,
                 children,
@@ -143,6 +170,7 @@ mod tests {
 
         fs::create_dir_all(at("Проекты/sapien")).unwrap();
         fs::create_dir_all(at(".obsidian")).unwrap();
+        Disk.mark(&at("Проекты/sapien"), true).unwrap();
         fs::write(at("Проекты/sapien/план.md"), "").unwrap();
         fs::write(at("входящие.md"), "").unwrap();
         fs::write(at("схема.png"), "").unwrap();
@@ -156,9 +184,11 @@ mod tests {
                 Entry::Folder {
                     name: "Проекты".into(),
                     path: "Проекты".into(),
+                    closed: false,
                     children: vec![Entry::Folder {
                         name: "sapien".into(),
                         path: "Проекты/sapien".into(),
+                        closed: true,
                         children: vec![Entry::Note {
                             name: "план.md".into(),
                             path: "Проекты/sapien/план.md".into(),
@@ -171,6 +201,20 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn метка_ставится_и_снимается_сколько_угодно_раз() {
+        let root = tempfile::tempdir().unwrap();
+        let mark = root.path().join(CLOSED_MARK);
+
+        Disk.mark(root.path(), true).unwrap();
+        Disk.mark(root.path(), true).unwrap();
+        assert!(mark.is_file());
+
+        Disk.mark(root.path(), false).unwrap();
+        Disk.mark(root.path(), false).unwrap();
+        assert!(!mark.exists());
     }
 
     #[test]

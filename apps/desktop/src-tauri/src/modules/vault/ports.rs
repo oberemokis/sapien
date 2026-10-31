@@ -23,6 +23,11 @@ pub trait VaultDisk {
     fn write(&self, path: &Path, text: &str, base: Option<&str>) -> Result<(), AppError>;
     /// Убирает заметку или папку в системную корзину, откуда её можно вернуть.
     fn trash(&self, path: &Path) -> Result<(), AppError>;
+    /// Ставит или снимает метку папки, закрытой для агента.
+    fn mark(&self, folder: &Path, closed: bool) -> Result<(), AppError>;
+    /// Есть ли в папке метка. Папку ищет сама система, поэтому путь
+    /// в другом регистре находит ту же папку, что и в дереве.
+    fn marked(&self, folder: &Path) -> bool;
 }
 
 /// Журнал восстановления: правки, которые не дошли до файла, по хранилищам.

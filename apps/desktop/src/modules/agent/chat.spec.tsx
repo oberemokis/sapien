@@ -1,8 +1,9 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider, createMemoryHistory, createRootRoute, createRouter } from "@tanstack/react-router";
+import { createStore, useSelector } from "@tanstack/react-store";
 import type { Channel } from "@tauri-apps/api/core";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AgentChat } from "@/modules/agent";
 import type { ChatContext, ChatEntry, ChatEvent } from "./model/chat";
@@ -66,8 +67,15 @@ function fakeRust({ key = true } = {}) {
 
 const CONTEXT: ChatContext = { path: "Проекты/план.md", selection: "пункт про релиз" };
 
+// Чат на странице. show открывает другую заметку, как сделал бы человек.
 function open() {
-  const root = createRootRoute({ component: () => <AgentChat context={CONTEXT} /> });
+  const shown = createStore(CONTEXT);
+
+  function Page() {
+    return <AgentChat context={useSelector(shown)} />;
+  }
+
+  const root = createRootRoute({ component: Page });
   const router = createRouter({ routeTree: root, history: createMemoryHistory({ initialEntries: ["/"] }) });
 
   render(
@@ -75,6 +83,8 @@ function open() {
       <RouterProvider router={router} />
     </QueryClientProvider>,
   );
+
+  return { show: (context: ChatContext) => act(() => shown.setState(() => context)) };
 }
 
 function field() {
@@ -96,7 +106,8 @@ describe("чат с агентом", () => {
   it("сообщение уходит с тем, что открыто, ответ идёт потоком и остаётся в истории", async () => {
     const rust = fakeRust();
     open();
-    expect(await screen.findByText("план, выделенное")).toBeDefined();
+    const context = await screen.findByRole("list", { name: "Уйдёт агенту вместе с сообщением" });
+    expect(within(context).getAllByRole("listitem").map((item) => item.textContent)).toEqual(["план", "выделенное"]);
 
     await ask("Отметь релиз");
 
@@ -118,6 +129,27 @@ describe("чат с агентом", () => {
     expect(await screen.findByRole("button", { name: "Отправить" })).toBeDefined();
     expect(screen.getAllByText("Отметь релиз")).toHaveLength(1);
     expect(screen.getAllByText("Отметил релиз.")).toHaveLength(1);
+  });
+
+  it("заметку и выделение можно убрать до отправки, следующая заметка приходит целиком", async () => {
+    const rust = fakeRust();
+    const view = open();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Не отправлять: выделенное" }));
+    await ask("Вопрос без выделения");
+    await waitFor(() => expect(rust.sent).toHaveLength(1));
+    expect(rust.sent[0]?.context).toEqual({ path: "Проекты/план.md", selection: "" });
+    rust.finish([]);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Не отправлять: план" }));
+    expect(screen.queryAllByRole("listitem")).toHaveLength(0);
+    await ask("Вопрос без заметки");
+    await waitFor(() => expect(rust.sent).toHaveLength(2));
+    expect(rust.sent[1]?.context).toEqual({ path: null, selection: "" });
+    rust.finish([]);
+
+    view.show({ path: "Идеи.md", selection: "" });
+    expect(await screen.findByText("Идеи")).toBeDefined();
   });
 
   it("«Стоп» останавливает ответ, пришедшее остаётся", async () => {

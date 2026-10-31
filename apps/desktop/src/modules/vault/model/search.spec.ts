@@ -65,7 +65,13 @@ describe("поиск по заметкам", () => {
 
   it("заметки собираются из всего дерева", () => {
     const tree = [
-      { kind: "folder" as const, name: "Проекты", path: "Проекты", children: [{ kind: "note" as const, name: "план.md", path: "Проекты/план.md" }] },
+      {
+        kind: "folder" as const,
+        name: "Проекты",
+        path: "Проекты",
+        closed: false,
+        children: [{ kind: "note" as const, name: "план.md", path: "Проекты/план.md" }],
+      },
       { kind: "note" as const, name: "Идеи.md", path: "Идеи.md" },
     ];
 

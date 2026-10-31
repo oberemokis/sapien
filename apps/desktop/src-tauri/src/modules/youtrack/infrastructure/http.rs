@@ -1,7 +1,7 @@
+use crate::egress;
 use crate::modules::youtrack::domain::ApiError;
 use crate::modules::youtrack::ports::YoutrackApi;
 use reqwest::header::ACCEPT;
-use reqwest::redirect::Policy;
 use reqwest::{Client, StatusCode};
 use serde::Deserialize;
 use std::time::Duration;
@@ -17,7 +17,7 @@ impl Default for Http {
     fn default() -> Self {
         let client = Client::builder()
             .timeout(Duration::from_secs(15))
-            .redirect(Policy::none())
+            .redirect(egress::no_redirects())
             .build()
             .unwrap_or_default();
 
@@ -58,9 +58,15 @@ impl YoutrackApi for Http {
         path: &str,
         query: &[(&str, &str)],
     ) -> Result<String, ApiError> {
+        let origin = Url::parse(host).map_err(|_| ApiError::NotYoutrack)?;
         let mut url = Url::parse(&format!("{host}{path}")).map_err(|_| ApiError::NotYoutrack)?;
 
         url.query_pairs_mut().extend_pairs(query);
+
+        // Путь с «//» или «@» увёл бы запрос с токеном на другой хост.
+        if !egress::allowed(&url, &origin) {
+            return Err(ApiError::NotYoutrack);
+        }
 
         let response = self
             .0
@@ -213,6 +219,19 @@ mod tests {
 
             assert_eq!(me(&host), Err(error), "{status}");
         }
+    }
+
+    #[test]
+    fn перенаправление_на_чужой_адрес_не_выполняется() {
+        let elsewhere = TcpListener::bind("127.0.0.1:0").unwrap();
+        let target = format!("http://{}/steal", elsewhere.local_addr().unwrap());
+        // Заголовок Location едет в ответе следом за типом содержимого.
+        let (host, _) = serve("302 Found", &format!("text/html\r\nLocation: {target}"), "");
+
+        assert_eq!(me(&host), Err(ApiError::NotYoutrack));
+
+        elsewhere.set_nonblocking(true).unwrap();
+        assert!(elsewhere.accept().is_err(), "токен ушёл по перенаправлению");
     }
 
     #[test]

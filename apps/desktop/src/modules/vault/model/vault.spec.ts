@@ -3,6 +3,7 @@ import {
   checkName,
   childrenOf,
   foldersDownTo,
+  isClosedToAgent,
   isWithin,
   movedPath,
   parentOf,
@@ -11,11 +12,29 @@ import {
 } from "./vault";
 
 const note = (path: string): VaultEntry => ({ kind: "note", name: path.split("/").at(-1) ?? path, path });
-const folder = (path: string, children: VaultEntry[] = []): VaultEntry => ({
+const folder = (path: string, children: VaultEntry[] = [], closed = false): VaultEntry => ({
   kind: "folder",
   name: path.split("/").at(-1) ?? path,
   path,
   children,
+  closed,
+});
+
+describe("папка, закрытая для агента", () => {
+  const tree = [
+    folder("Личное", [folder("Личное/Здоровье", [note("Личное/Здоровье/анализы.md")])], true),
+    folder("Личное 2", [note("Личное 2/план.md")]),
+    note("план.md"),
+  ];
+
+  it.each([
+    ["Личное/дневник.md", true],
+    ["Личное/Здоровье/анализы.md", true],
+    ["Личное 2/план.md", false],
+    ["план.md", false],
+  ])("%s", (path, closed) => {
+    expect(isClosedToAgent(tree, path)).toBe(closed);
+  });
 });
 
 describe("имя нового элемента", () => {
