@@ -1,8 +1,8 @@
-use super::domain::Entry;
+use super::domain::{Entry, EntryKind, check_name, note_file_name, parse_folder_path};
 use super::ports::{VaultDisk, VaultPlace};
 use crate::error::AppError;
 use serde::Serialize;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Что с хранилищем. Путь уходит в интерфейс строкой: он только
 /// показывается человеку, обратно в Rust его никто не присылает.
@@ -34,7 +34,7 @@ pub fn status(place: &impl VaultPlace, disk: &impl VaultDisk) -> VaultStatus {
     }
 }
 
-pub fn tree(place: &impl VaultPlace, disk: &impl VaultDisk) -> Result<Vec<Entry>, AppError> {
+fn open_root(place: &impl VaultPlace, disk: &impl VaultDisk) -> Result<PathBuf, AppError> {
     let root = place
         .load()
         .ok_or(AppError::not_found("vault_not_chosen"))?;
@@ -43,7 +43,40 @@ pub fn tree(place: &impl VaultPlace, disk: &impl VaultDisk) -> Result<Vec<Entry>
         return Err(AppError::not_found("vault_missing"));
     }
 
-    disk.list(&root)
+    Ok(root)
+}
+
+pub fn tree(place: &impl VaultPlace, disk: &impl VaultDisk) -> Result<Vec<Entry>, AppError> {
+    disk.list(&open_root(place, disk)?)
+}
+
+/// Создаёт заметку или папку в папке `parent` и отдаёт путь нового элемента
+/// в виде, как в дереве. Занятое имя не перезаписывается.
+pub fn create(
+    place: &impl VaultPlace,
+    disk: &impl VaultDisk,
+    parent: &str,
+    name: &str,
+    kind: EntryKind,
+) -> Result<String, AppError> {
+    let root = open_root(place, disk)?;
+    let parent = parse_folder_path(parent).ok_or(AppError::invalid("path_invalid"))?;
+    let name = name.trim();
+
+    check_name(name).map_err(AppError::invalid)?;
+
+    let file_name = match kind {
+        EntryKind::Note => note_file_name(name),
+        EntryKind::Folder => name.to_owned(),
+    };
+    let path = match parent {
+        "" => file_name,
+        _ => format!("{parent}/{file_name}"),
+    };
+
+    disk.create(&root.join(&path), kind)?;
+
+    Ok(path)
 }
 
 /// Папку дал системный диалог, то есть её выбрал человек. Путь из интерфейса
@@ -95,10 +128,77 @@ mod tests {
                 path: "план.md".into(),
             }])
         }
+
+        fn create(&self, _path: &Path, _kind: EntryKind) -> Result<(), AppError> {
+            Ok(())
+        }
+    }
+
+    /// Диск, на котором хранилище `/notes` на месте, а созданное записывается.
+    #[derive(Default)]
+    struct Recorder(RefCell<Vec<(PathBuf, EntryKind)>>);
+
+    impl VaultDisk for Recorder {
+        fn is_dir(&self, path: &Path) -> bool {
+            path == Path::new("/notes")
+        }
+
+        fn list(&self, _root: &Path) -> Result<Vec<Entry>, AppError> {
+            Ok(vec![])
+        }
+
+        fn create(&self, path: &Path, kind: EntryKind) -> Result<(), AppError> {
+            self.0.borrow_mut().push((path.to_path_buf(), kind));
+            Ok(())
+        }
     }
 
     fn chosen(path: &str) -> Place {
         Place(RefCell::new(Some(path.into())))
+    }
+
+    #[test]
+    fn заметка_получает_md_и_путь_как_в_дереве() {
+        let disk = Recorder::default();
+
+        let path = create(
+            &chosen("/notes"),
+            &disk,
+            "Проекты",
+            "  план  ",
+            EntryKind::Note,
+        );
+
+        assert_eq!(path, Ok("Проекты/план.md".into()));
+        assert_eq!(
+            disk.0.borrow()[0],
+            (PathBuf::from("/notes/Проекты/план.md"), EntryKind::Note)
+        );
+    }
+
+    #[test]
+    fn папка_в_корне_без_расширения() {
+        let disk = Recorder::default();
+
+        let path = create(&chosen("/notes"), &disk, "", "Встречи", EntryKind::Folder);
+
+        assert_eq!(path, Ok("Встречи".into()));
+    }
+
+    #[test]
+    fn плохое_имя_и_путь_наружу_до_диска_не_доходят() {
+        let disk = Recorder::default();
+        let place = chosen("/notes");
+
+        assert_eq!(
+            create(&place, &disk, "", "а/б", EntryKind::Note),
+            Err(AppError::invalid("name_forbidden"))
+        );
+        assert_eq!(
+            create(&place, &disk, "..", "план", EntryKind::Note),
+            Err(AppError::invalid("path_invalid"))
+        );
+        assert!(disk.0.borrow().is_empty());
     }
 
     #[test]

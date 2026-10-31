@@ -15,9 +15,27 @@ pub enum ErrorKind {
     NotFound,
     /// Диск или система отказали: нет прав, файл занят.
     Unavailable,
+    /// Вход не прошёл проверку: имя с запрещённым символом, путь наружу.
+    Invalid,
+    /// Место занято: файл или папка с таким именем уже есть.
+    Conflict,
 }
 
 impl AppError {
+    pub fn invalid(code: &'static str) -> Self {
+        Self {
+            kind: ErrorKind::Invalid,
+            code,
+        }
+    }
+
+    pub fn conflict(code: &'static str) -> Self {
+        Self {
+            kind: ErrorKind::Conflict,
+            code,
+        }
+    }
+
     pub fn not_found(code: &'static str) -> Self {
         Self {
             kind: ErrorKind::NotFound,

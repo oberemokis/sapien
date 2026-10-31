@@ -1,4 +1,4 @@
-use super::domain::Entry;
+use super::domain::{Entry, EntryKind};
 use super::infrastructure::config_file::ConfigFile;
 use super::infrastructure::disk::Disk;
 use super::infrastructure::watcher::Watch;
@@ -41,6 +41,17 @@ pub fn vault_status(app: AppHandle, watch: State<'_, Watch>) -> Result<VaultStat
 #[tauri::command]
 pub fn vault_tree(app: AppHandle) -> Result<Vec<Entry>, AppError> {
     use_case::tree(&place(&app)?, &Disk)
+}
+
+/// Путь папки и имя приходят из окна: их проверяет сценарий, а не команда.
+#[tauri::command]
+pub fn vault_create(
+    app: AppHandle,
+    parent: String,
+    name: String,
+    kind: EntryKind,
+) -> Result<String, AppError> {
+    use_case::create(&place(&app)?, &Disk, &parent, &name, kind)
 }
 
 /// Асинхронная, потому что диалог ждёт человека: синхронная команда держала

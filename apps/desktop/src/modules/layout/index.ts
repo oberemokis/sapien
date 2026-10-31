@@ -1,2 +1,2 @@
 export { Workspace } from "./components/workspace";
-export { restoreLayout } from "./interactions/layout";
+export { restoreLayout, showPanel } from "./interactions/layout";

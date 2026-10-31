@@ -1,4 +1,4 @@
-use super::domain::Entry;
+use super::domain::{Entry, EntryKind};
 use crate::error::AppError;
 use std::path::{Path, PathBuf};
 
@@ -12,4 +12,7 @@ pub trait VaultPlace {
 pub trait VaultDisk {
     fn is_dir(&self, path: &Path) -> bool;
     fn list(&self, root: &Path) -> Result<Vec<Entry>, AppError>;
+    /// Создаёт пустую заметку или папку. Занятое место не трогает, а отвечает
+    /// конфликтом.
+    fn create(&self, path: &Path, kind: EntryKind) -> Result<(), AppError>;
 }

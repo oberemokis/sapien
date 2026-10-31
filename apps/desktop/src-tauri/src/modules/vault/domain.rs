@@ -1,5 +1,57 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
+
+/// Что создают в дереве.
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum EntryKind {
+    Folder,
+    Note,
+}
+
+/// Символы, которые запрещает хоть одна система. Хранилище переезжает между
+/// macOS и Windows облачным диском, и имя должно пережить обе.
+const FORBIDDEN: &[char] = &['/', '\\', ':', '*', '?', '"', '<', '>', '|'];
+
+/// Проверка имени нового элемента. Код ошибки тот же, что у проверки в окне:
+/// окно подсказывает заранее, а здесь последнее слово.
+pub fn check_name(name: &str) -> Result<(), &'static str> {
+    if name.trim().is_empty() {
+        return Err("name_empty");
+    }
+
+    if name
+        .chars()
+        .any(|c| FORBIDDEN.contains(&c) || c.is_control())
+    {
+        return Err("name_forbidden");
+    }
+
+    // Имя с точки дерево прячет, и созданный элемент тут же бы пропал.
+    if is_hidden(name) {
+        return Err("name_hidden");
+    }
+
+    Ok(())
+}
+
+/// Имя файла заметки: `.md` дописывается, если человек его не написал.
+pub fn note_file_name(name: &str) -> String {
+    if is_note(name) {
+        name.to_owned()
+    } else {
+        format!("{name}.md")
+    }
+}
+
+/// Путь папки из окна. Только части с допустимыми именами через `/`, без
+/// `..` и без корня диска: путь не может выйти за пределы хранилища.
+/// Пустая строка это корень хранилища.
+pub fn parse_folder_path(path: &str) -> Option<&str> {
+    let valid = path.is_empty() || path.split('/').all(|part| check_name(part).is_ok());
+
+    valid.then_some(path)
+}
 
 /// Строка дерева хранилища. Путь относительный от корня хранилища и всегда
 /// через `/`: по нему интерфейс узнаёт файл и на macOS, и на Windows.
@@ -95,5 +147,33 @@ mod tests {
 
         let names: Vec<_> = entries.iter().map(Entry::name).collect();
         assert_eq!(names, ["архив", "Яблоки", "А.md", "б.md"]);
+    }
+
+    #[test]
+    fn имя_проверяется_так_же_как_в_окне() {
+        assert_eq!(check_name("Встреча 31.10"), Ok(()));
+        assert_eq!(check_name("   "), Err("name_empty"));
+        assert_eq!(check_name("a/b"), Err("name_forbidden"));
+        assert_eq!(check_name("итоги: октябрь"), Err("name_forbidden"));
+        assert_eq!(check_name("строка\nвторая"), Err("name_forbidden"));
+        assert_eq!(check_name(".скрытое"), Err("name_hidden"));
+    }
+
+    #[test]
+    fn md_дописывается_один_раз() {
+        assert_eq!(note_file_name("план"), "план.md");
+        assert_eq!(note_file_name("план.md"), "план.md");
+        assert_eq!(note_file_name("v1.2"), "v1.2.md");
+    }
+
+    #[test]
+    fn путь_папки_не_выходит_за_хранилище() {
+        assert_eq!(parse_folder_path(""), Some(""));
+        assert_eq!(parse_folder_path("Проекты/sapien"), Some("Проекты/sapien"));
+        assert_eq!(parse_folder_path("../соседи"), None);
+        assert_eq!(parse_folder_path("Проекты/../.."), None);
+        assert_eq!(parse_folder_path("/etc"), None);
+        assert_eq!(parse_folder_path("C:\\Windows"), None);
+        assert_eq!(parse_folder_path("Проекты//sapien"), None);
     }
 }
