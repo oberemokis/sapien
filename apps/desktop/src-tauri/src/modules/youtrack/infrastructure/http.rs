@@ -222,6 +222,19 @@ mod tests {
     }
 
     #[test]
+    fn перенаправление_на_чужой_адрес_не_выполняется() {
+        let elsewhere = TcpListener::bind("127.0.0.1:0").unwrap();
+        let target = format!("http://{}/steal", elsewhere.local_addr().unwrap());
+        // Заголовок Location едет в ответе следом за типом содержимого.
+        let (host, _) = serve("302 Found", &format!("text/html\r\nLocation: {target}"), "");
+
+        assert_eq!(me(&host), Err(ApiError::NotYoutrack));
+
+        elsewhere.set_nonblocking(true).unwrap();
+        assert!(elsewhere.accept().is_err(), "токен ушёл по перенаправлению");
+    }
+
+    #[test]
     fn молчащий_адрес_это_недоступный_сервер() {
         let free = TcpListener::bind("127.0.0.1:0")
             .unwrap()
