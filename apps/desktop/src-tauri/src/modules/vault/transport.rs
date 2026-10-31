@@ -1,4 +1,4 @@
-use super::domain::{Entry, EntryKind, Unsaved, Version};
+use super::domain::{Entry, EntryKind, Unsaved, Version, parse_note_path};
 use super::infrastructure::config_file::ConfigFile;
 use super::infrastructure::disk::Disk;
 use super::infrastructure::history_dir::HistoryDir;
@@ -7,7 +7,9 @@ use super::infrastructure::watcher::Watch;
 use super::ports::VaultPlace;
 use super::use_case::{self, NoteText, VaultStatus};
 use crate::error::AppError;
-use tauri::{AppHandle, Manager, Runtime, State};
+use std::sync::Mutex;
+use tauri::{AppHandle, Emitter, Manager, Runtime, State, Url};
+use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_dialog::DialogExt;
 
 fn place<R: Runtime>(app: &AppHandle<R>) -> Result<ConfigFile, AppError> {
@@ -39,6 +41,42 @@ fn follow<R: Runtime>(app: &AppHandle<R>, watch: &Watch, place: &ConfigFile) {
     watch.follow(app, root.as_deref());
 }
 
+/// Событие для интерфейса: система открыла приложение ссылкой на заметку.
+const OPEN: &str = "vault://open";
+
+/// Заметки, которые система попросила открыть ссылкой, пока окно их не
+/// забрало. Ссылка, которой приложение запустили, приходит раньше, чем окно
+/// начинает слушать события, поэтому окно забирает их само при запуске
+/// и по событию.
+#[derive(Default)]
+pub struct Opened(Mutex<Vec<String>>);
+
+/// Ссылка `sapien://open?path=<путь заметки>` только открывает заметку
+/// внутри хранилища. Другая ссылка и путь наружу молча пропускаются.
+fn linked_note(url: &Url) -> Option<String> {
+    if url.scheme() != "sapien" || url.host_str() != Some("open") {
+        return None;
+    }
+
+    let (_, path) = url.query_pairs().find(|(key, _)| key == "path")?;
+
+    parse_note_path(&path).map(String::from)
+}
+
+fn open_links<R: Runtime>(app: &AppHandle<R>, urls: &[Url]) {
+    let notes: Vec<_> = urls.iter().filter_map(linked_note).collect();
+
+    if notes.is_empty() {
+        return;
+    }
+
+    if let Ok(mut opened) = app.state::<Opened>().0.lock() {
+        opened.extend(notes);
+    }
+
+    let _ = app.emit(OPEN, ());
+}
+
 pub fn start<R: Runtime>(app: &AppHandle<R>) {
     if let Ok(place) = place(app) {
         follow(app, &app.state::<Watch>(), &place);
@@ -47,6 +85,29 @@ pub fn start<R: Runtime>(app: &AppHandle<R>) {
             use_case::prune_history(&place, &Disk, &history);
         }
     }
+
+    let links = app.clone();
+    app.deep_link()
+        .on_open_url(move |event| open_links(&links, &event.urls()));
+
+    if let Ok(Some(urls)) = app.deep_link().get_current() {
+        open_links(app, &urls);
+    }
+
+    // macOS знает схему из бандла, Windows и Linux записывают её
+    // в систему при запуске.
+    #[cfg(any(windows, target_os = "linux"))]
+    let _ = app.deep_link().register_all();
+}
+
+/// Заметки из ссылок, которые ещё не открыты. Забранные уходят из очереди.
+#[tauri::command]
+pub fn vault_opened(opened: State<'_, Opened>) -> Vec<String> {
+    opened
+        .0
+        .lock()
+        .map(|mut paths| std::mem::take(&mut *paths))
+        .unwrap_or_default()
 }
 
 #[tauri::command]
@@ -167,4 +228,29 @@ pub async fn vault_choose(
     follow(&app, &watch, &place);
 
     Ok(status)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn note(link: &str) -> Option<String> {
+        linked_note(&Url::parse(link).unwrap())
+    }
+
+    #[test]
+    fn ссылка_открывает_только_заметку_внутри_хранилища() {
+        assert_eq!(
+            note(
+                "sapien://open?path=%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/%D0%BF%D0%BB%D0%B0%D0%BD.md"
+            ),
+            Some("Проекты/план.md".into())
+        );
+        assert_eq!(note("sapien://open?path=../../.ssh/id_rsa"), None);
+        assert_eq!(note("sapien://open?path=/etc/hosts.md"), None);
+        assert_eq!(note("sapien://open?path=.obsidian/app.md"), None);
+        assert_eq!(note("sapien://delete?path=план.md"), None);
+        assert_eq!(note("sapien://open"), None);
+        assert_eq!(note("https://open?path=план.md"), None);
+    }
 }

@@ -45,6 +45,8 @@ type Disk = {
   trashed?: string[];
   // Версии заметок по пути, свежие первыми.
   history?: Record<string, Snapshot[]>;
+  // Заметки из ссылок sapien://, которые Rust ещё не отдал окну.
+  opened?: string[];
 };
 
 type Snapshot = { id: number; source: string; text: string };
@@ -163,6 +165,8 @@ function fakeRust(disk: Disk) {
         case "vault_choose":
           disk.status = disk.picked ?? disk.status;
           return disk.status;
+        case "vault_opened":
+          return disk.opened?.splice(0) ?? [];
         case "vault_create":
           if (disk.refuse !== undefined) {
             throw disk.refuse;
@@ -328,6 +332,24 @@ describe("хранилище", () => {
     await act(() => emit("vault://changed"));
 
     expect(await screen.findByText("встреча")).toBeDefined();
+  });
+
+  it("ссылка sapien:// открывает заметку и при запуске, и в открытом окне", async () => {
+    const disk = fakeRust({
+      status: { kind: "ready", path: "/notes" },
+      tree: [note("план.md"), folder("Проекты", [note("Проекты/sapien.md")])],
+      files: { "план.md": "раз", "Проекты/sapien.md": "два" },
+      opened: ["план.md"],
+    });
+    launch();
+
+    expect(await screen.findByRole("textbox", { name: "план" })).toHaveProperty("value", "раз");
+
+    disk.opened = ["Проекты/sapien.md"];
+    await act(() => emit("vault://open"));
+
+    expect(await screen.findByRole("textbox", { name: "sapien" })).toHaveProperty("value", "два");
+    expect(screen.getAllByRole("tab")).toHaveLength(2);
   });
 
   it("папка раскрывается и показывает вложенное", async () => {

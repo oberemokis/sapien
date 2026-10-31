@@ -34,7 +34,62 @@ function typeWithCursor(position: number, text: string) {
   });
 }
 
+const mod = /Mac/.test(navigator.userAgent) ? { metaKey: true } : { ctrlKey: true };
+
+// Кусок строки редактора с этим текстом: подсветка разбивает строку
+// на такие куски, когда разобрала разметку.
+async function piece(text: string) {
+  return vi.waitFor(() => {
+    const found = [...document.querySelectorAll(".cm-line span")].find((span) => span.textContent === text);
+
+    if (found === undefined) {
+      throw new Error(`нет куска «${text}»`);
+    }
+
+    return found;
+  });
+}
+
 describe("редактор markdown", () => {
+  it("⌘клик по ссылке отдаёт её адрес, простой клик ставит курсор", async () => {
+    const onLinkClick = vi.fn();
+    render(
+      <MarkdownEditor
+        value="[доки](https://tauri.app/#start) и https://example.com"
+        onChange={vi.fn()}
+        label="план"
+        onLinkClick={onLinkClick}
+      />,
+    );
+
+    fireEvent.mouseDown(await piece("https://example.com"));
+    expect(onLinkClick).not.toHaveBeenCalled();
+
+    fireEvent.mouseDown(await piece("доки"), mod);
+    fireEvent.mouseDown(await piece("https://example.com"), mod);
+    expect(onLinkClick.mock.calls).toEqual([["https://tauri.app/#start"], ["https://example.com"]]);
+  });
+
+  it("HTML и javascript: из заметки остаются текстом и ничего не выполняют", async () => {
+    const onLinkClick = vi.fn();
+    const { container } = render(
+      <MarkdownEditor
+        value={'<script>window.hacked = 1</script>\n\n<img src=x onerror="window.hacked = 2">\n\n[жми](javascript:window.hacked=3)'}
+        onChange={vi.fn()}
+        label="план"
+        onLinkClick={onLinkClick}
+      />,
+    );
+
+    fireEvent.mouseDown(await piece("жми"), mod);
+
+    expect(container.querySelector("script, img, iframe")).toBeNull();
+    expect(view().state.doc.line(3).text).toBe('<img src=x onerror="window.hacked = 2">');
+    expect("hacked" in window).toBe(false);
+    // Адрес уходит наружу как есть: в браузер его не пустит Rust.
+    expect(onLinkClick).toHaveBeenCalledWith("javascript:window.hacked=3");
+  });
+
   it("правка человека уходит наружу", () => {
     const onChange = vi.fn();
     render(<MarkdownEditor value="# План" onChange={onChange} label="план" />);

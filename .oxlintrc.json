@@ -23,6 +23,7 @@
     "eslint/no-ternary": "error",
     "react/rules-of-hooks": "error",
     "react/react-in-jsx-scope": "off",
+    "react/no-danger": "error",
     "eslint/no-restricted-imports": [
       "error",
       {

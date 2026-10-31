@@ -7,6 +7,7 @@ import { Hashtags } from "@/core/markdown/tags";
 import { textChange } from "../model/text-change";
 import { markdownTheme } from "../ui/markdown-theme";
 import { tagClick, tagCompletion } from "./hashtags";
+import { linkClick } from "./links";
 
 // Пометка правки, пришедшей снаружи: её не возвращают обратно через onChange.
 const external = Annotation.define<boolean>();
@@ -23,17 +24,21 @@ type Props = {
   // Теги для подсказки после «#».
   tags?: string[];
   onTagClick?: (tag: string) => void;
+  // ⌘клик по ссылке в тексте.
+  onLinkClick?: (url: string) => void;
 };
 
 const NO_TAGS: string[] = [];
 
-function ignoreTag() {
-  // Без обработчика клик по тегу просто ничего не делает.
+function ignore() {
+  // Без обработчика клик по тегу или ссылке просто ничего не делает.
 }
 
 // Исходный текст markdown с подсветкой разметки, GFM: таблицы, чекбоксы,
-// зачёркивание, теги. Редактор живёт, пока открыт один файл: страница меняет
-// его ключом при смене файла, а value дальше приходит только как правка снаружи.
+// зачёркивание, теги. HTML в тексте остаётся текстом: редактор ничего
+// не рисует из заметки и ничего из неё не выполняет. Редактор живёт, пока
+// открыт один файл: страница меняет его ключом при смене файла, а value
+// дальше приходит только как правка снаружи.
 export function MarkdownEditor({
   value,
   onChange,
@@ -42,13 +47,15 @@ export function MarkdownEditor({
   insert = null,
   label,
   tags = NO_TAGS,
-  onTagClick = ignoreTag,
+  onTagClick = ignore,
+  onLinkClick = ignore,
 }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const onChangeRef = useRef(onChange);
   const tagsRef = useRef(tags);
   const onTagClickRef = useRef(onTagClick);
+  const onLinkClickRef = useRef(onLinkClick);
   const editableRef = useRef(new Compartment());
   const initialRef = useRef({ value, readOnly, label });
 
@@ -56,7 +63,8 @@ export function MarkdownEditor({
     onChangeRef.current = onChange;
     tagsRef.current = tags;
     onTagClickRef.current = onTagClick;
-  }, [onChange, tags, onTagClick]);
+    onLinkClickRef.current = onLinkClick;
+  }, [onChange, tags, onTagClick, onLinkClick]);
 
   useEffect(() => {
     const initial = initialRef.current;
@@ -70,6 +78,7 @@ export function MarkdownEditor({
           markdown({ base: markdownLanguage, extensions: Hashtags }),
           tagCompletion(() => tagsRef.current),
           tagClick((tag) => onTagClickRef.current(tag)),
+          linkClick((url) => onLinkClickRef.current(url)),
           EditorView.lineWrapping,
           EditorView.contentAttributes.of({ "aria-label": initial.label }),
           editableRef.current.of(EditorView.editable.of(!initial.readOnly)),

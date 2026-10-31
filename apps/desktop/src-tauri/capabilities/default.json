@@ -1,7 +1,11 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Права главного окна",
+  "description": "Права главного окна: события Rust, перетаскивание и разворот окна за шапку. Оболочки, файлов и команд плагинов у окна нет: файлы оно получает только своими командами Rust, а те не выходят за хранилище и папку данных приложения.",
   "windows": ["main"],
-  "permissions": ["core:default", "core:window:allow-start-dragging"]
+  "permissions": [
+    "core:event:default",
+    "core:window:allow-start-dragging",
+    "core:window:allow-internal-toggle-maximize"
+  ]
 }
