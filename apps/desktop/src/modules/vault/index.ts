@@ -2,6 +2,7 @@ export { FileSearch } from "./components/file-search";
 export { NoteTabs } from "./components/note-tabs";
 export { NoteView } from "./components/note-view";
 export { TagList } from "./components/tag-list";
+export { TagPanelSetting } from "./components/tag-panel-setting";
 export { VaultGate } from "./components/vault-gate";
 export { VaultSettings } from "./components/vault-settings";
 export { VaultTree } from "./components/vault-tree";

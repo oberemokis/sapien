@@ -56,6 +56,16 @@ export function notesWithTags(notes: NoteTags[], wanted: string[]): Set<string> 
   );
 }
 
+// Панель тегов под деревом: развёрнута, свёрнута до заголовка или убрана.
+export const TAG_PANEL_STATES = ["open", "collapsed", "hidden"] as const;
+
+export type TagPanel = (typeof TAG_PANEL_STATES)[number];
+
+// Сохранённое могло побиться: тогда панель развёрнута, как до настройки.
+export function parseTagPanel(raw: unknown): TagPanel {
+  return TAG_PANEL_STATES.find((state) => state === raw) ?? "open";
+}
+
 // Запрос поиска на теги и имя: «#работа план» это тег «работа» и имя «план».
 // Одинокая решётка ещё не тег и не имя.
 export function splitQuery(query: string) {

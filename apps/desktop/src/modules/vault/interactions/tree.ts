@@ -5,6 +5,7 @@ import { parseRecent, pushRecent } from "../model/search";
 import { closeTab, cycleTab, keepTabs, moveTab, openTab, parseTabs, renameTabs, type Tabs } from "../model/tabs";
 import { foldersDownTo, isWithin, movedPath, notePlace, parentOf, type EntryKind, type Moved } from "../model/vault";
 import { EMPTY_TREE, treeStore } from "../store/tree.store";
+import { restoreTagPanel } from "./tag-panel";
 import { readTemplate, restoreTemplateSettings } from "./templates";
 
 export function useTreeState() {
@@ -24,8 +25,9 @@ export function useNoteShown() {
   });
 }
 
-// Вкладки, недавние и настройки шаблонов с прошлого запуска. Вкладки,
-// чьих файлов уже нет, уберёт keepExistingTabs, когда придёт дерево.
+// Вкладки, недавние, настройки шаблонов и вид панели тегов с прошлого
+// запуска. Вкладки, чьих файлов уже нет, уберёт keepExistingTabs, когда
+// придёт дерево.
 let checkedOnStart = false;
 
 export function restoreSession() {
@@ -36,6 +38,7 @@ export function restoreSession() {
     recent: parseRecent(readRecent()),
   }));
   restoreTemplateSettings();
+  restoreTagPanel();
 }
 
 function updateTabs(update: (tabs: Tabs) => Tabs) {

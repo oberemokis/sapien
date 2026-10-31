@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Segmented } from "@/core/ui/segmented";
 import { SettingsGroup, SettingsRow, SettingsSection } from "@/core/ui/settings";
@@ -5,7 +6,8 @@ import { setThemePreference, useThemePreference } from "../interactions/theme";
 import { THEME_PREFERENCES } from "../model/theme";
 
 // Раздел «Внешний вид». Выбор применяется сразу, кнопки «Сохранить» нет.
-export function AppearanceSettings() {
+// Строки других модулей, например панели тегов, страница ставит в children.
+export function AppearanceSettings({ children }: { children?: ReactNode }) {
   const { t } = useTranslation();
   const preference = useThemePreference();
 
@@ -20,6 +22,7 @@ export function AppearanceSettings() {
             onChange={setThemePreference}
           />
         </SettingsRow>
+        {children}
       </SettingsGroup>
     </SettingsSection>
   );
