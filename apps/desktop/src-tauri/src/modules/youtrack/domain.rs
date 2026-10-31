@@ -189,13 +189,78 @@ pub enum Published {
     },
 }
 
-/// Состояние опубликованной задачи для плашки над черновиком.
+/// Состояние задачи для плашки над черновиком и карточки номера в тексте.
 #[derive(Debug, PartialEq, Serialize)]
 pub struct IssueState {
     pub id: String,
+    pub summary: String,
     pub state: Option<String>,
+    pub resolved: bool,
     pub assignee: Option<String>,
+    /// Срок в миллисекундах от начала эпохи, как его хранит YouTrack.
+    pub due: Option<i64>,
+    pub links: Vec<IssueLinks>,
     pub url: String,
+}
+
+/// Связи задачи одного вида словами YouTrack: «depends on» и номера.
+#[derive(Debug, PartialEq, Serialize)]
+pub struct IssueLinks {
+    pub kind: String,
+    pub ids: Vec<String>,
+}
+
+impl IssueState {
+    pub fn of(id: &str, url: String, issue: &Value) -> Self {
+        let due = issue["customFields"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|field| field["name"] == "Due Date")
+            .and_then(|field| field["value"].as_i64());
+
+        Self {
+            id: id.to_owned(),
+            summary: issue["summary"].as_str().unwrap_or_default().to_owned(),
+            state: field_value(issue, "State"),
+            resolved: !issue["resolved"].is_null(),
+            assignee: field_value(issue, "Assignee"),
+            due,
+            links: issue_links(issue),
+            url,
+        }
+    }
+}
+
+/// Связи с задачами. Направленная связь называется со стороны этой задачи:
+/// исходящая «depends on», входящая «is required for».
+fn issue_links(issue: &Value) -> Vec<IssueLinks> {
+    issue["links"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|link| {
+            let side = match link["direction"].as_str() {
+                Some("INWARD") => "targetToSource",
+                _ => "sourceToTarget",
+            };
+            let kind = [side, "name"].into_iter().find_map(|key| {
+                link["linkType"][key]
+                    .as_str()
+                    .filter(|name| !name.is_empty())
+            })?;
+            let ids: Vec<String> = link["issues"]
+                .as_array()?
+                .iter()
+                .filter_map(|issue| issue["idReadable"].as_str().map(str::to_owned))
+                .collect();
+
+            (!ids.is_empty()).then(|| IssueLinks {
+                kind: kind.to_owned(),
+                ids,
+            })
+        })
+        .collect()
 }
 
 /// Значение поля задачи из ответа YouTrack: имя у значений справочников
@@ -344,6 +409,7 @@ pub enum YoutrackStatus {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
     fn адрес_дописывается_и_обрезается_сам() {
@@ -374,5 +440,58 @@ mod tests {
             "youtrack_host_invalid"
         );
         assert_eq!(code("https://"), "youtrack_host_invalid");
+    }
+
+    #[test]
+    fn связи_задачи_называются_с_её_стороны() {
+        let issue = json!({
+            "summary": "Вход по ссылке",
+            "resolved": null,
+            "customFields": [{ "name": "Due Date", "value": 1_798_675_200_000_i64 }],
+            "links": [
+                {
+                    "direction": "OUTWARD",
+                    "linkType": { "name": "Depend", "sourceToTarget": "depends on", "targetToSource": "is required for" },
+                    "issues": [{ "idReadable": "SAP-2" }, { "idReadable": "SAP-3" }]
+                },
+                {
+                    "direction": "INWARD",
+                    "linkType": { "name": "Depend", "sourceToTarget": "depends on", "targetToSource": "is required for" },
+                    "issues": [{ "idReadable": "SAP-9" }]
+                },
+                {
+                    "direction": "BOTH",
+                    "linkType": { "name": "Relates", "sourceToTarget": "", "targetToSource": "" },
+                    "issues": [{ "idReadable": "SAP-4" }]
+                },
+                {
+                    "direction": "OUTWARD",
+                    "linkType": { "name": "Duplicate", "sourceToTarget": "duplicates" },
+                    "issues": []
+                }
+            ]
+        });
+        let state = IssueState::of("SAP-1", "https://yt/issue/SAP-1".into(), &issue);
+
+        assert_eq!(state.summary, "Вход по ссылке");
+        assert!(!state.resolved);
+        assert_eq!(state.due, Some(1_798_675_200_000));
+        assert_eq!(
+            state.links,
+            vec![
+                IssueLinks {
+                    kind: "depends on".into(),
+                    ids: vec!["SAP-2".into(), "SAP-3".into()]
+                },
+                IssueLinks {
+                    kind: "is required for".into(),
+                    ids: vec!["SAP-9".into()]
+                },
+                IssueLinks {
+                    kind: "Relates".into(),
+                    ids: vec!["SAP-4".into()]
+                },
+            ]
+        );
     }
 }

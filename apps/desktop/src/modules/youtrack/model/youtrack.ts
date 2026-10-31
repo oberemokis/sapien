@@ -15,8 +15,18 @@ export type Published =
   // Название или описание поменяли в YouTrack: ничего не отправлено.
   | { kind: "diverged"; summary: string; description: string };
 
-// Плашка опубликованной задачи.
-export type IssueState = { id: string; state: string | null; assignee: string | null; url: string };
+// Задача для плашки над черновиком и карточки номера в тексте, как IssueState
+// в domain.rs. due это срок в миллисекундах, kind связи словами YouTrack.
+export type IssueState = {
+  id: string;
+  summary: string;
+  state: string | null;
+  resolved: boolean;
+  assignee: string | null;
+  due: number | null;
+  links: { kind: string; ids: string[] }[];
+  url: string;
+};
 
 // Что проверка узнала у YouTrack, как Checked и IssueFacts в domain.rs.
 // due это срок в миллисекундах.

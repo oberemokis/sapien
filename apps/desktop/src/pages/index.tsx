@@ -28,6 +28,7 @@ import {
   TASK_TEMPLATES,
   TaskDraftForm,
   useDefaultProject,
+  useIssueMentions,
   useYoutrackCheck,
 } from "@/modules/youtrack";
 
@@ -46,6 +47,11 @@ function showChat() {
 
 function openDraft(path: string) {
   openNote(path, { focus: true });
+}
+
+// Редактор заметки, в котором номера задач YouTrack показывают статус.
+function NoteEditor(props: ComponentProps<typeof MarkdownEditor>) {
+  return <MarkdownEditor {...props} issues={useIssueMentions(props.value)} />;
 }
 
 // Над текстом заметки форма черновика задачи или разбивки. Связь на другой
@@ -197,7 +203,7 @@ function Home() {
         title={<NoteTabs onCreateStart={showFiles} />}
         main={
           <VaultGate>
-            <NoteView editor={MarkdownEditor} showFiles={showFiles} above={DraftAbove} />
+            <NoteView editor={NoteEditor} showFiles={showFiles} above={DraftAbove} />
           </VaultGate>
         }
         chat={<AgentChat context={note} actions={actions} />}
