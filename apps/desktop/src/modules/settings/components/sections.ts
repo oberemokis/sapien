@@ -1,6 +1,7 @@
 import AiChat02Icon from "@hugeicons/core-free-icons/AiChat02Icon";
 import FlashIcon from "@hugeicons/core-free-icons/FlashIcon";
 import Folder01Icon from "@hugeicons/core-free-icons/Folder01Icon";
+import InformationCircleIcon from "@hugeicons/core-free-icons/InformationCircleIcon";
 import PaintBoardIcon from "@hugeicons/core-free-icons/PaintBoardIcon";
 import Plug01Icon from "@hugeicons/core-free-icons/Plug01Icon";
 
@@ -15,6 +16,7 @@ export const SETTINGS_GROUPS = [
       { to: "/settings/agent", label: "agent.settings.title", icon: AiChat02Icon },
       { to: "/settings/actions", label: "agent.actions.title", icon: FlashIcon },
       { to: "/settings/integrations", label: "youtrack.settings.title", icon: Plug01Icon },
+      { to: "/settings/about", label: "updates.title", icon: InformationCircleIcon },
     ],
   },
 ] as const;

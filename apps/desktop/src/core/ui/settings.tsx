@@ -52,7 +52,7 @@ export function SettingsRow({
   description,
   children,
 }: {
-  title: string;
+  title: ReactNode;
   description: string;
   children: ReactNode;
 }) {

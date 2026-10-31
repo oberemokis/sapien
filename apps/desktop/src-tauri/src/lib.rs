@@ -1,3 +1,4 @@
+mod data_format;
 mod durable;
 mod egress;
 mod error;
@@ -6,8 +7,10 @@ mod links;
 mod menu;
 mod modules;
 mod secrets;
+mod updates;
 
 use modules::{agent, vault, youtrack};
+use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -33,6 +36,8 @@ pub fn run() {
                 .open_js_links_on_click(false)
                 .build(),
         )
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .manage(updates::Pending::default())
         .manage(vault::Watch::default())
         .manage(vault::Opened::default())
         .manage(secrets::Secrets::default())
@@ -40,12 +45,21 @@ pub fn run() {
         .manage(agent::Anthropic::default())
         .manage(agent::Running::default())
         .setup(|app| {
+            // До окна и слежения за хранилищем: никто не должен прочитать
+            // файлы приложения в прежнем формате. Отказ не держит запуск,
+            // шаг повторится при следующем.
+            if let Err(error) = data_format::migrate(&app.path().app_data_dir()?) {
+                log::error!("перенос данных приложения не закончен: {error}");
+            }
             links::main_window(app)?;
             vault::start(app.handle());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             links::open_link,
+            updates::app_version,
+            updates::app_update_check,
+            updates::app_update_install,
             secrets::secret_status,
             secrets::secret_set,
             secrets::secret_delete,
