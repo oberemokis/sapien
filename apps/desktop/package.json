@@ -13,6 +13,7 @@
     "typecheck": "tsc --noEmit && cargo check --quiet --manifest-path src-tauri/Cargo.toml"
   },
   "dependencies": {
+    "@codemirror/autocomplete": "^6.20.4",
     "@codemirror/commands": "^6.11.1",
     "@codemirror/lang-markdown": "^6.5.2",
     "@codemirror/language": "^6.13.1",
@@ -21,6 +22,7 @@
     "@hugeicons/core-free-icons": "^4.4.0",
     "@hugeicons/react": "^1.1.10",
     "@lezer/highlight": "^1.2.5",
+    "@lezer/markdown": "^1.8.1",
     "@tanstack/react-query": "catalog:",
     "@tanstack/react-router": "^1.170.46",
     "@tanstack/react-store": "^0.11.2",

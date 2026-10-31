@@ -6,7 +6,7 @@ import { Icon } from "@/core/ui/icon";
 import { MarkdownEditor } from "@/modules/editor";
 import { showPanel, Workspace } from "@/modules/layout";
 import { SettingsButton } from "@/modules/settings";
-import { FileSearch, NoteTabs, NoteView, VaultGate, VaultTree } from "@/modules/vault";
+import { FileSearch, NoteTabs, NoteView, TagList, VaultGate, VaultTree } from "@/modules/vault";
 
 export const Route = createFileRoute("/")({ component: Home });
 
@@ -35,7 +35,12 @@ function Home() {
   return (
     <>
       <Workspace
-        files={<VaultTree onCreateStart={showFiles} />}
+        files={
+          <>
+            <VaultTree onCreateStart={showFiles} />
+            <TagList />
+          </>
+        }
         title={<NoteTabs onCreateStart={showFiles} />}
         main={
           <VaultGate>

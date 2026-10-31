@@ -10,10 +10,12 @@ import { useTranslation } from "react-i18next";
 import { FileTypeIcon } from "@/core/ui/file-type-icon";
 import { Icon } from "@/core/ui/icon";
 import { hasModKey } from "@/core/ui/keys";
-import { closeSearch, openSearch, useSearchOpen } from "../interactions/search";
+import { closeSearch, openSearch, useSearchOpen, useSearchStartQuery } from "../interactions/search";
+import { useNoteTags } from "../interactions/tags";
 import { openNote, useTreeState } from "../interactions/tree";
 import { useCreateEntry, useVaultStatus, useVaultTree } from "../interactions/vault";
 import { highlight, notesOf, recentNotes, searchNotes, type Found } from "../model/search";
+import { splitQuery } from "../model/tags";
 import { checkName } from "../model/vault";
 
 // ⌘K открывает поиск, где бы ни стоял фокус. Код клавиши, а не символ:
@@ -64,7 +66,8 @@ function SearchDialog() {
   const tree = useVaultTree();
   const { recent } = useTreeState();
   const create = useCreateEntry();
-  const [query, setQuery] = useState("");
+  const noteTags = useNoteTags();
+  const [query, setQuery] = useState(useSearchStartQuery());
   const [active, setActive] = useState(0);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -72,10 +75,12 @@ function SearchDialog() {
   const listId = useId();
 
   const notes = useMemo(() => notesOf(tree.data ?? []), [tree.data]);
-  const name = query.trim();
-  const found = name === "" ? recentNotes(notes, recent) : searchNotes(notes, query);
-  // Ничего не нашлось: файл с таким именем создаётся в корне.
-  const offerCreate = found.length === 0 && name !== "";
+  const { tags, name } = splitQuery(query);
+  const empty = tags.length === 0 && name === "";
+  const found = empty ? recentNotes(notes, recent) : searchNotes(notes, query, noteTags.data ?? []);
+  // Ничего не нашлось по имени: файл с таким именем создаётся в корне.
+  // По тегу создавать нечего.
+  const offerCreate = found.length === 0 && name !== "" && tags.length === 0;
   const problem = offerCreate ? checkName(name, "note", tree.data ?? []) : null;
   const count = found.length + (offerCreate ? 1 : 0);
 
@@ -189,10 +194,12 @@ function SearchDialog() {
         />
       </div>
       <div className="max-h-[360px] overflow-y-auto p-1">
-        {name === "" && found.length > 0 && (
+        {empty && found.length > 0 && (
           <p className="px-2 pt-1 pb-1.5 text-[12px] text-content/50">{t("vault.search.recent")}</p>
         )}
-        {offerCreate && <p className="px-2 pt-1 pb-1.5 text-[13px] text-content/50">{t("vault.search.nothing")}</p>}
+        {!empty && found.length === 0 && (
+          <p className="px-2 pt-1 pb-1.5 text-[13px] text-content/50">{t("vault.search.nothing")}</p>
+        )}
         <div id={listId} role="listbox" aria-label={t("vault.search.title")}>
           {found.map((note, index) => (
             <div

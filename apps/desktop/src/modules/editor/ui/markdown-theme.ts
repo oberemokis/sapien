@@ -1,6 +1,7 @@
 import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import { EditorView } from "@codemirror/view";
 import { tags } from "@lezer/highlight";
+import { hashtag } from "@/core/markdown/tags";
 
 // Разметка видна всегда, но тише текста: заголовок крупный, а решётки
 // перед ним бледные. Цвета только токенами темы, поэтому светлая и тёмная
@@ -20,6 +21,8 @@ const highlight = HighlightStyle.define([
   { tag: tags.monospace, fontFamily: "var(--font-mono)", fontSize: "var(--text-code)" },
   { tag: tags.quote, fontStyle: "italic" },
   { tag: [tags.processingInstruction, tags.meta, tags.labelName, tags.contentSeparator], color: faint },
+  // Класс, а не стиль: по нему клик находит тег.
+  { tag: hashtag, class: "cm-hashtag" },
 ]);
 
 export const markdownTheme = [
@@ -38,6 +41,28 @@ export const markdownTheme = [
       caretColor: "var(--color-accent)",
     },
     ".cm-line": { padding: "0" },
+    // Тег плашкой, как упоминание в MonoCode.
+    ".cm-hashtag": {
+      color: "var(--color-mention)",
+      backgroundColor: "color-mix(in srgb, var(--color-mention) 14%, transparent)",
+      borderRadius: "4px",
+      padding: "1px 3px",
+      cursor: "pointer",
+    },
+    ".cm-tooltip": {
+      border: "1px solid var(--color-stroke)",
+      borderRadius: "8px",
+      backgroundColor: "var(--color-shell)",
+      boxShadow: "var(--shadow-float)",
+      overflow: "hidden",
+    },
+    ".cm-tooltip.cm-tooltip-autocomplete > ul": { fontFamily: "var(--font-sans)", fontSize: "13px", padding: "4px" },
+    ".cm-tooltip.cm-tooltip-autocomplete > ul > li": { padding: "3px 8px", borderRadius: "6px" },
+    ".cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected]": {
+      backgroundColor: "var(--color-selection)",
+      color: "var(--color-content)",
+    },
+    ".cm-completionMatchedText": { textDecoration: "none", fontWeight: "600" },
   }),
   syntaxHighlighting(highlight),
 ];

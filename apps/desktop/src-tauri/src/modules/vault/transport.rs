@@ -3,7 +3,7 @@ use super::infrastructure::config_file::ConfigFile;
 use super::infrastructure::disk::Disk;
 use super::infrastructure::watcher::Watch;
 use super::ports::VaultPlace;
-use super::use_case::{self, VaultStatus};
+use super::use_case::{self, NoteText, VaultStatus};
 use crate::error::AppError;
 use tauri::{AppHandle, Manager, Runtime, State};
 use tauri_plugin_dialog::DialogExt;
@@ -62,6 +62,12 @@ pub fn vault_read(app: AppHandle, path: String) -> Result<String, AppError> {
 #[tauri::command]
 pub fn vault_write(app: AppHandle, path: String, text: String) -> Result<(), AppError> {
     use_case::write(&place(&app)?, &Disk, &path, &text)
+}
+
+/// Асинхронная: чтение всего хранилища не держит главный поток.
+#[tauri::command]
+pub async fn vault_texts(app: AppHandle) -> Result<Vec<NoteText>, AppError> {
+    use_case::texts(&place(&app)?, &Disk)
 }
 
 /// Асинхронная, потому что диалог ждёт человека: синхронная команда держала

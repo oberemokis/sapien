@@ -1,5 +1,5 @@
 use super::domain::{
-    Entry, EntryKind, check_name, note_file_name, parse_folder_path, parse_note_path,
+    Entry, EntryKind, check_name, note_file_name, note_paths, parse_folder_path, parse_note_path,
 };
 use super::ports::{VaultDisk, VaultPlace};
 use crate::error::AppError;
@@ -109,6 +109,29 @@ pub fn write(
     disk.write(&note_at(place, disk, path)?, text)
 }
 
+/// Текст заметки для разбора в интерфейсе: теги и всё, что ищется по тексту.
+#[derive(Debug, PartialEq, Serialize)]
+pub struct NoteText {
+    path: String,
+    text: String,
+}
+
+/// Тексты всех заметок хранилища разом. Заметку, которую не прочитать
+/// (её удалили между списком и чтением, на неё нет прав), пропускаем:
+/// список без неё полезнее ошибки на всё хранилище.
+pub fn texts(place: &impl VaultPlace, disk: &impl VaultDisk) -> Result<Vec<NoteText>, AppError> {
+    let root = open_root(place, disk)?;
+
+    Ok(note_paths(&disk.list(&root)?)
+        .into_iter()
+        .filter_map(|path| {
+            let text = disk.read(&root.join(&path)).ok()?;
+
+            Some(NoteText { path, text })
+        })
+        .collect())
+}
+
 /// Папку дал системный диалог, то есть её выбрал человек. Путь из интерфейса
 /// сюда не попадает: окно не может подсунуть хранилищем чужую папку.
 pub fn choose(
@@ -205,6 +228,60 @@ mod tests {
 
     fn chosen(path: &str) -> Place {
         Place(RefCell::new(Some(path.into())))
+    }
+
+    /// Хранилище `/notes`: заметка в папке и заметка в корне, которую
+    /// не прочитать.
+    struct Shelf;
+
+    impl VaultDisk for Shelf {
+        fn is_dir(&self, path: &Path) -> bool {
+            path == Path::new("/notes")
+        }
+
+        fn list(&self, _root: &Path) -> Result<Vec<Entry>, AppError> {
+            Ok(vec![
+                Entry::Folder {
+                    name: "Проекты".into(),
+                    path: "Проекты".into(),
+                    children: vec![Entry::Note {
+                        name: "план.md".into(),
+                        path: "Проекты/план.md".into(),
+                    }],
+                },
+                Entry::Note {
+                    name: "сломан.md".into(),
+                    path: "сломан.md".into(),
+                },
+            ])
+        }
+
+        fn create(&self, _path: &Path, _kind: EntryKind) -> Result<(), AppError> {
+            Ok(())
+        }
+
+        fn read(&self, path: &Path) -> Result<String, AppError> {
+            if path == Path::new("/notes/сломан.md") {
+                return Err(AppError::not_found("note_missing"));
+            }
+
+            Ok(format!("текст {}", path.display()))
+        }
+
+        fn write(&self, _path: &Path, _text: &str) -> Result<(), AppError> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn тексты_всех_заметок_кроме_непрочитанных() {
+        assert_eq!(
+            texts(&chosen("/notes"), &Shelf),
+            Ok(vec![NoteText {
+                path: "Проекты/план.md".into(),
+                text: "текст /notes/Проекты/план.md".into(),
+            }])
+        );
     }
 
     #[test]

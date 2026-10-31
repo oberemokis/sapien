@@ -311,7 +311,7 @@ export function VaultTree({ onCreateStart }: Props) {
       <button
         type="button"
         className="mx-1.5 mt-0.5 flex h-8 shrink-0 items-center gap-2 rounded-md border border-stroke px-2 text-[13px] text-content/50 transition-colors duration-120 hover:bg-selection-hover"
-        onClick={openSearch}
+        onClick={() => openSearch()}
       >
         <Icon icon={Search01Icon} size={14} className="shrink-0" />
         <span className="flex-1 text-left">{t("vault.search.open")}</span>

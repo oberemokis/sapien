@@ -1,3 +1,4 @@
+import { notesWithTags, splitQuery, type NoteTags } from "./tags";
 import { noteTitle, parentOf, type VaultEntry } from "./vault";
 
 export type NoteItem = { path: string; title: string; folder: string };
@@ -87,9 +88,20 @@ export function fuzzyMatch(query: string, text: string): { score: number; hits: 
 }
 
 // Лучшие совпадения сверху, при равенстве короткое имя, потом путь.
-export function searchNotes(notes: NoteItem[], query: string): Found[] {
-  const found = notes.flatMap((note) => {
-    const match = fuzzyMatch(query, note.title);
+// «#тег» в запросе оставляет заметки со всеми такими тегами, и без имени
+// в запросе они идут по алфавиту.
+export function searchNotes(notes: NoteItem[], query: string, noteTags: NoteTags[] = []): Found[] {
+  const { tags, name } = splitQuery(query);
+  let pool = notes;
+
+  if (tags.length > 0) {
+    const tagged = notesWithTags(noteTags, tags);
+
+    pool = notes.filter((note) => tagged.has(note.path));
+  }
+
+  const found = pool.flatMap((note) => {
+    const match = fuzzyMatch(name, note.title);
 
     if (match === null) {
       return [];
@@ -98,9 +110,13 @@ export function searchNotes(notes: NoteItem[], query: string): Found[] {
     return [{ ...note, ...match }];
   });
 
-  found.sort(
-    (a, b) => b.score - a.score || a.title.length - b.title.length || a.path.localeCompare(b.path, "ru"),
-  );
+  if (name === "") {
+    found.sort((a, b) => a.title.localeCompare(b.title, "ru") || a.path.localeCompare(b.path, "ru"));
+  } else {
+    found.sort(
+      (a, b) => b.score - a.score || a.title.length - b.title.length || a.path.localeCompare(b.path, "ru"),
+    );
+  }
 
   return found.slice(0, SEARCH_LIMIT).map(({ score: _score, ...note }) => note);
 }

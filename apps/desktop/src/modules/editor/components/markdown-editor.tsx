@@ -3,8 +3,10 @@ import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { Annotation, Compartment, EditorState, Transaction } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { useEffect, useRef } from "react";
+import { Hashtags } from "@/core/markdown/tags";
 import { textChange } from "../model/text-change";
 import { markdownTheme } from "../ui/markdown-theme";
+import { tagClick, tagCompletion } from "./hashtags";
 
 // Пометка правки, пришедшей снаружи: её не возвращают обратно через onChange.
 const external = Annotation.define<boolean>();
@@ -16,21 +18,42 @@ type Props = {
   // Каждый новый номер больше нуля ставит курсор в текст.
   focusRequest?: number;
   label: string;
+  // Теги для подсказки после «#».
+  tags?: string[];
+  onTagClick?: (tag: string) => void;
 };
 
+const NO_TAGS: string[] = [];
+
+function ignoreTag() {
+  // Без обработчика клик по тегу просто ничего не делает.
+}
+
 // Исходный текст markdown с подсветкой разметки, GFM: таблицы, чекбоксы,
-// зачёркивание. Редактор живёт, пока открыт один файл: страница меняет его
-// ключом при смене файла, а value дальше приходит только как правка снаружи.
-export function MarkdownEditor({ value, onChange, readOnly = false, focusRequest = 0, label }: Props) {
+// зачёркивание, теги. Редактор живёт, пока открыт один файл: страница меняет
+// его ключом при смене файла, а value дальше приходит только как правка снаружи.
+export function MarkdownEditor({
+  value,
+  onChange,
+  readOnly = false,
+  focusRequest = 0,
+  label,
+  tags = NO_TAGS,
+  onTagClick = ignoreTag,
+}: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const onChangeRef = useRef(onChange);
+  const tagsRef = useRef(tags);
+  const onTagClickRef = useRef(onTagClick);
   const editableRef = useRef(new Compartment());
   const initialRef = useRef({ value, readOnly, label });
 
   useEffect(() => {
     onChangeRef.current = onChange;
-  }, [onChange]);
+    tagsRef.current = tags;
+    onTagClickRef.current = onTagClick;
+  }, [onChange, tags, onTagClick]);
 
   useEffect(() => {
     const initial = initialRef.current;
@@ -41,7 +64,9 @@ export function MarkdownEditor({ value, onChange, readOnly = false, focusRequest
         extensions: [
           history(),
           keymap.of([...defaultKeymap, ...historyKeymap]),
-          markdown({ base: markdownLanguage }),
+          markdown({ base: markdownLanguage, extensions: Hashtags }),
+          tagCompletion(() => tagsRef.current),
+          tagClick((tag) => onTagClickRef.current(tag)),
           EditorView.lineWrapping,
           EditorView.contentAttributes.of({ "aria-label": initial.label }),
           editableRef.current.of(EditorView.editable.of(!initial.readOnly)),
