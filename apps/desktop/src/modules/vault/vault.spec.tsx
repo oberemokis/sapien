@@ -15,6 +15,7 @@ import {
   useVaultSync,
 } from "@/modules/vault";
 import { forgetNotes } from "./interactions/note";
+import { closeHistory } from "./interactions/history";
 import { closeSearch } from "./interactions/search";
 import { DEFAULT_TEMPLATES } from "./model/templates";
 import type { EditorProps, Unsaved } from "./model/vault";
@@ -42,9 +43,31 @@ type Disk = {
   journal?: Record<string, Unsaved>;
   // Что ушло в корзину, по порядку.
   trashed?: string[];
+  // Версии заметок по пути, свежие первыми.
+  history?: Record<string, Snapshot[]>;
 };
 
+type Snapshot = { id: number; source: string; text: string };
+
 const missing = { kind: "not_found", code: "note_missing" };
+
+// Восстановление как в Rust: текущий текст уходит версией, удалённая
+// заметка появляется снова.
+function restoreVersion(files: Record<string, string>, history: Record<string, Snapshot[]>, path: string, id: number) {
+  const versions = history[path] ?? [];
+  const version = versions.find((item) => item.id === id);
+
+  if (version === undefined) {
+    throw { kind: "not_found", code: "version_missing" };
+  }
+
+  if (path in files) {
+    versions.unshift({ id: Date.now(), source: "restore", text: files[path] ?? "" });
+  }
+
+  files[path] = version.text;
+  return null;
+}
 
 function withoutEntry(tree: Entry[], entry: string): Entry[] {
   return tree
@@ -78,8 +101,19 @@ function fakeRust(disk: Disk) {
   mockIPC(
     (command, args) => {
       const { path, text, base } = args as Unsaved;
+      const { id } = args as { id: number };
+      // Историю тест задаёт после запуска подмены.
+      const history = (disk.history ??= {});
 
       switch (command) {
+        case "vault_versions":
+          return (history[path] ?? []).map((version) => ({ id: version.id, source: version.source }));
+        case "vault_version":
+          return history[path]?.find((version) => version.id === id)?.text;
+        case "vault_restore":
+          return restoreVersion(files, history, path, id);
+        case "vault_deleted":
+          return Object.keys(history).filter((note) => !(note in files));
         case "vault_read":
           if (!(path in files)) {
             throw missing;
@@ -243,6 +277,7 @@ afterEach(async () => {
   treeStore.setState(() => EMPTY_TREE);
   forgetNotes();
   closeSearch();
+  closeHistory();
   templatesStore.setState(() => DEFAULT_TEMPLATES);
   localStorage.clear();
   vi.useRealTimers();
@@ -641,6 +676,62 @@ describe("открытая заметка", () => {
     const editor = await screen.findByRole("textbox", { name: "Встреча" });
     expect(document.activeElement).toBe(editor);
     expect(screen.getByRole("heading", { name: "Встреча" })).toBeDefined();
+  });
+});
+
+function ideasHistory() {
+  return within(screen.getByRole("dialog", { name: "История версий «идеи»" }));
+}
+
+describe("история версий", () => {
+  const halloween = Date.UTC(2026, 9, 31, 9, 0);
+
+  it("кнопка над заметкой показывает версии и разницу, восстановление берёт и несохранённую правку", async () => {
+    const { files, disk } = notes({ "идеи.md": "а\nб" });
+    disk.history = { "идеи.md": [{ id: halloween, source: "edit", text: "а\nстарое" }] };
+    launch();
+
+    fireEvent.click(await inTree().findByRole("button", { name: "идеи" }));
+    await screen.findByRole("textbox", { name: "идеи" });
+    type("идеи", "а\nб\nв");
+    fireEvent.click(screen.getByRole("button", { name: "История версий" }));
+
+    expect(await ideasHistory().findByText("До правки")).toBeDefined();
+    const compare = ideasHistory().getByRole("region", { name: "Версия против текущего текста" });
+    expect(await within(compare).findByText("старое")).toBeDefined();
+    expect(within(compare).getByText("в")).toBeDefined();
+
+    fireEvent.click(ideasHistory().getByRole("button", { name: "Восстановить" }));
+
+    await waitFor(() => expect(files["идеи.md"]).toBe("а\nстарое"));
+    expect(disk.history["идеи.md"]?.[0]).toMatchObject({ source: "restore", text: "а\nб\nв" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    await waitFor(() => expect(editorText("идеи")).toBe("а\nстарое"));
+  });
+
+  it("удалённая заметка находится среди удалённых и возвращается", async () => {
+    const { files, disk } = notes({ "идеи.md": "идеи" });
+    disk.history = { "Архив/старое.md": [{ id: halloween, source: "trash", text: "вернись" }] };
+    launch();
+
+    fireEvent.click(await inTree().findByRole("button", { name: "Удалённые заметки" }));
+    fireEvent.click(await screen.findByRole("option", { name: /старое/ }));
+
+    const dialog = await screen.findByRole("dialog", { name: "История версий «старое»" });
+    expect(await within(dialog).findByText("До удаления")).toBeDefined();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Восстановить" }));
+
+    await waitFor(() => expect(files["Архив/старое.md"]).toBe("вернись"));
+    expect(await screen.findByRole("heading", { name: "старое" })).toBeDefined();
+  });
+
+  it("удалённых с историей нет: так и сказано", async () => {
+    notes({ "идеи.md": "идеи" });
+    launch();
+
+    fireEvent.click(await inTree().findByRole("button", { name: "Удалённые заметки" }));
+
+    expect(await screen.findByText("Удалённых заметок с историей нет")).toBeDefined();
   });
 });
 

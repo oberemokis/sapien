@@ -1,4 +1,4 @@
-use super::domain::{Entry, EntryKind, Unsaved};
+use super::domain::{Entry, EntryKind, Source, Unsaved, Version};
 use crate::error::AppError;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -33,4 +33,17 @@ pub trait Journal {
     fn remove(&self, vault: &Path, path: &str);
     /// Записи хранилища и сколько им лет.
     fn list(&self, vault: &Path) -> Vec<(Unsaved, Duration)>;
+}
+
+/// История версий заметок, по хранилищам. Живёт вне хранилища: версии
+/// не попадают ни в дерево, ни в поиск, ни в теги.
+pub trait History {
+    fn put(&self, vault: &Path, path: &str, source: Source, text: &str) -> Result<(), AppError>;
+    /// Версии заметки, свежие первыми, и сколько им лет.
+    fn list(&self, vault: &Path, path: &str) -> Vec<(Version, Duration)>;
+    fn read(&self, vault: &Path, path: &str, id: u64) -> Result<String, AppError>;
+    /// Пути заметок, у которых есть версии, и удалённых тоже.
+    fn notes(&self, vault: &Path) -> Vec<String>;
+    /// Забывает версии старше срока.
+    fn prune(&self, vault: &Path, keep: Duration);
 }
