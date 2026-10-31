@@ -2,8 +2,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import {
   onVaultChanged,
+  onVaultOpen,
   vaultChoose,
   vaultCreate,
+  vaultOpened,
   vaultStatus,
   vaultTrash,
   vaultTree,
@@ -12,7 +14,7 @@ import {
 import type { EntryKind, VaultStatus } from "../model/vault";
 import { dropNotesWithin, forgetNotes } from "./note";
 import { readTemplate } from "./templates";
-import { closeNotesWithin, finishCreate, resetTree } from "./tree";
+import { closeNotesWithin, finishCreate, openNote, resetTree } from "./tree";
 
 type CreateInput = { parent: string; name: string; kind: EntryKind; template?: string };
 
@@ -109,7 +111,8 @@ export function useTrashEntry() {
 
 // Перечитывает хранилище, когда Rust сообщает о правке снаружи, и когда окно
 // снова в фокусе: папку могли переименовать, пока окно было в фоне, а слежение
-// за переименованием самой папки есть не на всех системах.
+// за переименованием самой папки есть не на всех системах. Открывает
+// заметки, на которые вела ссылка sapien://.
 export function useVaultSync() {
   const queryClient = useQueryClient();
 
@@ -126,4 +129,24 @@ export function useVaultSync() {
       window.removeEventListener("focus", refresh);
     };
   }, [queryClient]);
+
+  // Ссылка sapien://, которой приложение запустили, приходит раньше этой
+  // подписки, поэтому заметки из ссылок забираются и сразу, и по событию.
+  // Ссылка пришла снаружи и не знает, что открыто сейчас: заметка встаёт
+  // новой вкладкой, а не на место той, с которой работают.
+  useEffect(() => {
+    function openLinked() {
+      void vaultOpened()
+        .then((paths) => {
+          for (const path of paths) {
+            openNote(path, { focus: true, newTab: true });
+          }
+        })
+        .catch(() => undefined);
+    }
+
+    openLinked();
+
+    return onVaultOpen(openLinked);
+  }, []);
 }

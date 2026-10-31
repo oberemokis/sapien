@@ -1,5 +1,6 @@
 mod durable;
 mod error;
+mod links;
 #[cfg(target_os = "macos")]
 mod menu;
 mod modules;
@@ -15,12 +16,24 @@ pub fn run() {
 
     builder
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_deep_link::init())
+        // Ссылки окна открывает только links.rs: скрипт плагина, который
+        // перехватывает клики по ссылкам, окну не нужен.
+        .plugin(
+            tauri_plugin_opener::Builder::new()
+                .open_js_links_on_click(false)
+                .build(),
+        )
         .manage(vault::Watch::default())
+        .manage(vault::Opened::default())
         .setup(|app| {
+            links::main_window(app)?;
             vault::start(app.handle());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            links::open_link,
+            vault::transport::vault_opened,
             vault::transport::vault_status,
             vault::transport::vault_tree,
             vault::transport::vault_choose,

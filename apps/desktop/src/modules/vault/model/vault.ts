@@ -40,6 +40,8 @@ export type EditorProps = {
   tags: string[];
   // Клик по тегу в тексте: показать заметки с ним.
   onTagClick: (tag: string) => void;
+  // ⌘клик по ссылке в тексте: открыть адрес в браузере системы.
+  onLinkClick: (url: string) => void;
 };
 
 // Коды те же, что у check_name в domain.rs: окно подсказывает заранее,

@@ -3,6 +3,7 @@ import HistoryIcon from "@hugeicons/core-free-icons/HistoryIcon";
 import Note01Icon from "@hugeicons/core-free-icons/Note01Icon";
 import { Fragment, useEffect, useMemo, type ComponentType, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
+import { openLink } from "@/core/links/open-link";
 import { Button } from "@/core/ui/button";
 import { Icon } from "@/core/ui/icon";
 import { IconButton } from "@/core/ui/icon-button";
@@ -193,6 +194,7 @@ function OpenNote({ path, hidden, focusRequest, insert, tags, editor: Editor }: 
           label={title}
           tags={tags}
           onTagClick={showTag}
+          onLinkClick={openLink}
         />
       )}
     </div>

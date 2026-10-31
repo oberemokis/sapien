@@ -16,7 +16,8 @@
         "width": 1200,
         "height": 800,
         "titleBarStyle": "Overlay",
-        "hiddenTitle": true
+        "hiddenTitle": true,
+        "create": false
       }
     ],
     "security": {
@@ -24,9 +25,20 @@
         "default-src": "'self'",
         "connect-src": "ipc: http://ipc.localhost http://localhost:3400",
         "img-src": "'self' asset: http://asset.localhost blob: data:",
-        "style-src": "'self' 'unsafe-inline'"
+        "style-src": "'self' 'unsafe-inline'",
+        "object-src": "'none'",
+        "frame-src": "'none'",
+        "base-uri": "'self'",
+        "form-action": "'none'"
       },
       "devCsp": null
+    }
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["sapien"]
+      }
     }
   },
   "bundle": {

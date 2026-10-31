@@ -77,7 +77,22 @@ export function vaultTexts() {
 // Без Rust, в браузере и тестах, подписаться не на что: окно тогда просто
 // не узнает о правках снаружи, а ошибку открытия покажет статус.
 export function onVaultChanged(onChange: () => void) {
-  const stop = listen("vault://changed", onChange).catch(() => undefined);
+  return subscribe("vault://changed", onChange);
+}
+
+// Заметки, которые система попросила открыть ссылкой sapien://. Путь Rust
+// уже проверил: он внутри хранилища и ведёт к заметке.
+export function vaultOpened() {
+  return invoke<string[]>("vault_opened");
+}
+
+// Система открыла приложение ссылкой на заметку: её пора забрать.
+export function onVaultOpen(onOpen: () => void) {
+  return subscribe("vault://open", onOpen);
+}
+
+function subscribe(event: string, handler: () => void) {
+  const stop = listen(event, handler).catch(() => undefined);
 
   return () => {
     void stop.then((unlisten) => unlisten?.());

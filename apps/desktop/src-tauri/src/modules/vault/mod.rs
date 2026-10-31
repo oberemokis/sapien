@@ -10,4 +10,4 @@ mod use_case;
 pub mod transport;
 
 pub use infrastructure::watcher::Watch;
-pub use transport::start;
+pub use transport::{Opened, start};
