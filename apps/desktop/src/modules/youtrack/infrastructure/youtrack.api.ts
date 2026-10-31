@@ -1,6 +1,15 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { DraftRequest } from "../model/draft";
-import type { Checked, IssueState, Person, Published, Similar, YoutrackStatus } from "../model/youtrack";
+import type {
+  Checked,
+  FeedEvent,
+  IssueDetail,
+  IssueState,
+  Person,
+  Published,
+  Similar,
+  YoutrackStatus,
+} from "../model/youtrack";
 
 // Rust спрашивает сервер, кто владелец токена: ответ говорит, работает ли
 // подключение прямо сейчас.
@@ -51,4 +60,15 @@ export function youtrackProjectIssues(project: string) {
 // Кого можно назначить исполнителем в проекте.
 export function youtrackAssignees(project: string) {
   return invoke<Person[]>("youtrack_assignees", { project });
+}
+
+// События отслеживаемых задач с момента since: задачи по запросу и по
+// номерам черновиков. Свои правки в ленту не попадают.
+export function youtrackFeed(query: string, ids: string[], since: number) {
+  return invoke<FeedEvent[]>("youtrack_feed", { query, ids, since });
+}
+
+// Задача с описанием и комментариями для карточки ленты.
+export function youtrackIssueDetail(id: string) {
+  return invoke<IssueDetail>("youtrack_issue_detail", { id });
 }

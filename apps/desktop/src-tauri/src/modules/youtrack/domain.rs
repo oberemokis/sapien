@@ -593,6 +593,247 @@ pub fn search_words(summary: &str) -> Vec<String> {
         .collect()
 }
 
+/// Что случилось с отслеживаемой задачей.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FeedKind {
+    State,
+    Comment,
+    Assigned,
+    Mentioned,
+    /// Закрылась задача, от которой эта зависела.
+    Unblocked,
+    /// До срока меньше суток.
+    DueSoon,
+    Overdue,
+}
+
+/// Событие ленты. Номер события постоянный: тот же ответ YouTrack при
+/// следующем опросе даёт тот же номер, и лента не покажет событие дважды.
+#[derive(Debug, PartialEq, Serialize)]
+pub struct FeedEvent {
+    pub id: String,
+    pub kind: FeedKind,
+    pub issue: String,
+    pub summary: String,
+    pub project: String,
+    /// Когда случилось, миллисекунды от начала эпохи.
+    pub at: i64,
+    pub author: Option<String>,
+    /// Статус «было → стало», текст комментария, номер закрывшейся задачи.
+    pub detail: Option<String>,
+}
+
+const DAY_MS: i64 = 86_400_000;
+
+fn event(issue: &Value, id: String, kind: FeedKind, at: i64) -> FeedEvent {
+    let brief = Similar::of(issue);
+
+    FeedEvent {
+        id,
+        kind,
+        issue: brief.id,
+        summary: brief.summary,
+        project: issue["project"]["shortName"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned(),
+        at,
+        author: None,
+        detail: None,
+    }
+}
+
+/// Событие из записи истории задачи. Своё человек и так знает: его правки
+/// в ленту не идут.
+fn activity_event(me: &str, issue: &Value, item: &Value) -> Option<FeedEvent> {
+    if item["author"]["login"] == me {
+        return None;
+    }
+
+    let field = ["name", "presentation"]
+        .iter()
+        .find_map(|key| item["field"][key].as_str())
+        .unwrap_or_default();
+    let added = &item["added"][0];
+    let (kind, detail) = match item["category"]["id"].as_str()? {
+        "CommentsCategory" => {
+            let text = added["text"].as_str()?;
+            let mentioned = text.contains(&format!("@{me}"));
+            let kind = if mentioned {
+                FeedKind::Mentioned
+            } else {
+                FeedKind::Comment
+            };
+
+            (kind, Some(text.chars().take(300).collect()))
+        }
+        "CustomFieldCategory" if field == "State" => {
+            let name = |value: &Value| value[0]["name"].as_str().unwrap_or("—").to_owned();
+
+            (
+                FeedKind::State,
+                Some(format!(
+                    "{} → {}",
+                    name(&item["removed"]),
+                    name(&item["added"])
+                )),
+            )
+        }
+        "CustomFieldCategory"
+            if field == "Assignee"
+                && item["added"]
+                    .as_array()
+                    .is_some_and(|people| people.iter().any(|person| person["login"] == me)) =>
+        {
+            (FeedKind::Assigned, None)
+        }
+        _ => return None,
+    };
+
+    let mut found = event(
+        issue,
+        item["id"].as_str()?.to_owned(),
+        kind,
+        item["timestamp"].as_i64()?,
+    );
+
+    found.author = ["fullName", "login"]
+        .iter()
+        .find_map(|key| item["author"][key].as_str())
+        .map(str::to_owned);
+    found.detail = detail;
+
+    Some(found)
+}
+
+/// События отслеживаемых задач с `since`: смена статуса, комментарий,
+/// назначение и упоминание из истории задач, разблокировка по связям
+/// и срок по полю Due Date. `me` это логин владельца токена.
+pub fn feed_events(
+    me: &str,
+    since: i64,
+    now: i64,
+    issues: &Value,
+    activities: &[(String, Value)],
+) -> Vec<FeedEvent> {
+    let mut events = vec![];
+
+    for issue in issues.as_array().into_iter().flatten() {
+        let id = issue["idReadable"].as_str().unwrap_or_default();
+
+        for (_, items) in activities.iter().filter(|(known, _)| known == id) {
+            events.extend(
+                items
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|item| activity_event(me, issue, item)),
+            );
+        }
+
+        if !issue["resolved"].is_null() {
+            continue;
+        }
+
+        for blocker in issue["links"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|link| link["direction"] == "OUTWARD" && link["linkType"]["name"] == "Depend")
+            .flat_map(|link| link["issues"].as_array().into_iter().flatten())
+        {
+            let (Some(other), Some(resolved)) =
+                (blocker["idReadable"].as_str(), blocker["resolved"].as_i64())
+            else {
+                continue;
+            };
+
+            if resolved >= since {
+                let mut found = event(
+                    issue,
+                    format!("unblocked:{id}:{other}"),
+                    FeedKind::Unblocked,
+                    resolved,
+                );
+
+                found.detail = Some(other.to_owned());
+                events.push(found);
+            }
+        }
+
+        if let Some(due) = field_of(issue, "Due Date").as_i64() {
+            if due <= now {
+                events.push(event(
+                    issue,
+                    format!("overdue:{id}:{due}"),
+                    FeedKind::Overdue,
+                    due,
+                ));
+            } else if due - now <= DAY_MS {
+                events.push(event(
+                    issue,
+                    format!("due_soon:{id}:{due}"),
+                    FeedKind::DueSoon,
+                    now,
+                ));
+            }
+        }
+    }
+
+    events.sort_by_key(|event| std::cmp::Reverse(event.at));
+    events
+}
+
+/// Задача целиком для правой части ленты.
+#[derive(Debug, PartialEq, Serialize)]
+pub struct IssueDetail {
+    pub id: String,
+    pub summary: String,
+    pub description: String,
+    pub state: Option<String>,
+    pub reporter: Option<String>,
+    pub project: String,
+    pub url: String,
+    pub comments: Vec<Comment>,
+}
+
+#[derive(Debug, PartialEq, Serialize)]
+pub struct Comment {
+    pub author: Option<String>,
+    pub text: String,
+    pub created: i64,
+}
+
+impl IssueDetail {
+    pub fn of(id: &str, url: String, issue: &Value) -> Self {
+        Self {
+            id: id.to_owned(),
+            summary: issue["summary"].as_str().unwrap_or_default().to_owned(),
+            description: issue["description"].as_str().unwrap_or_default().to_owned(),
+            state: field_value(issue, "State"),
+            reporter: issue["reporter"]["fullName"].as_str().map(str::to_owned),
+            project: issue["project"]["name"]
+                .as_str()
+                .unwrap_or_default()
+                .to_owned(),
+            url,
+            comments: issue["comments"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|comment| {
+                    Some(Comment {
+                        author: comment["author"]["fullName"].as_str().map(str::to_owned),
+                        text: comment["text"].as_str()?.to_owned(),
+                        created: comment["created"].as_i64().unwrap_or_default(),
+                    })
+                })
+                .collect(),
+        }
+    }
+}
+
 /// Подключение к YouTrack, как его видит окно. Токена здесь нет.
 #[derive(Debug, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
@@ -804,5 +1045,102 @@ mod tests {
                 with: "SAP-5".into(),
             }]
         );
+    }
+
+    #[test]
+    fn лента_из_истории_связей_и_срока_без_своих_правок() {
+        let hour = 3_600_000;
+        let since = 1_000 * DAY_MS;
+        let now = since + 2 * hour;
+        let anna = json!({ "login": "anna", "fullName": "Анна" });
+        let me = json!({ "login": "ilya", "fullName": "Илья" });
+        let issues = json!([
+            {
+                "idReadable": "SAP-1", "summary": "Вход", "project": { "shortName": "SAP" }, "resolved": null,
+                "customFields": [{ "name": "Due Date", "value": now + 3 * hour }],
+                "links": [{
+                    "direction": "OUTWARD", "linkType": { "name": "Depend" },
+                    "issues": [{ "idReadable": "SAP-2", "resolved": since + hour }, { "idReadable": "SAP-3", "resolved": since - hour }],
+                }],
+            },
+            {
+                "idReadable": "WEB-4", "summary": "Тема", "project": { "shortName": "WEB" }, "resolved": null,
+                "customFields": [{ "name": "Due Date", "value": now - DAY_MS }],
+            },
+            { "idReadable": "SAP-5", "summary": "Закрыта", "project": { "shortName": "SAP" }, "resolved": since, "customFields": [{ "name": "Due Date", "value": 1 }] },
+        ]);
+        let activities = vec![(
+            "SAP-1".to_owned(),
+            json!([
+                { "id": "a1", "timestamp": since + 10, "author": anna, "category": { "id": "CustomFieldCategory" },
+                  "field": { "name": "State" }, "removed": [{ "name": "Open" }], "added": [{ "name": "In Progress" }] },
+                { "id": "a2", "timestamp": since + 20, "author": anna, "category": { "id": "CommentsCategory" },
+                  "added": [{ "text": "@ilya посмотри письмо" }] },
+                { "id": "a3", "timestamp": since + 30, "author": anna, "category": { "id": "CommentsCategory" },
+                  "added": [{ "text": "Готово" }] },
+                { "id": "a4", "timestamp": since + 40, "author": anna, "category": { "id": "CustomFieldCategory" },
+                  "field": { "presentation": "Assignee" }, "added": [{ "login": "ilya" }] },
+                { "id": "a5", "timestamp": since + 50, "author": me, "category": { "id": "CommentsCategory" },
+                  "added": [{ "text": "свой комментарий" }] },
+                { "id": "a6", "timestamp": since + 60, "author": anna, "category": { "id": "CustomFieldCategory" },
+                  "field": { "name": "Priority" }, "added": [{ "name": "Major" }] },
+            ]),
+        )];
+
+        let events = feed_events("ilya", since, now, &issues, &activities);
+        let brief: Vec<(&str, FeedKind, &str, Option<&str>)> = events
+            .iter()
+            .map(|event| {
+                (
+                    event.id.as_str(),
+                    event.kind,
+                    event.issue.as_str(),
+                    event.detail.as_deref(),
+                )
+            })
+            .collect();
+
+        assert_eq!(
+            brief,
+            [
+                (
+                    "due_soon:SAP-1:".to_owned() + &(now + 3 * hour).to_string(),
+                    FeedKind::DueSoon,
+                    "SAP-1",
+                    None
+                ),
+                (
+                    "unblocked:SAP-1:SAP-2".to_owned(),
+                    FeedKind::Unblocked,
+                    "SAP-1",
+                    Some("SAP-2")
+                ),
+                ("a4".to_owned(), FeedKind::Assigned, "SAP-1", None),
+                ("a3".to_owned(), FeedKind::Comment, "SAP-1", Some("Готово")),
+                (
+                    "a2".to_owned(),
+                    FeedKind::Mentioned,
+                    "SAP-1",
+                    Some("@ilya посмотри письмо")
+                ),
+                (
+                    "a1".to_owned(),
+                    FeedKind::State,
+                    "SAP-1",
+                    Some("Open → In Progress")
+                ),
+                (
+                    "overdue:WEB-4:".to_owned() + &(now - DAY_MS).to_string(),
+                    FeedKind::Overdue,
+                    "WEB-4",
+                    None
+                ),
+            ]
+            .iter()
+            .map(|(id, kind, issue, detail)| (id.as_str(), *kind, *issue, *detail))
+            .collect::<Vec<_>>()
+        );
+        assert_eq!(events[2].author.as_deref(), Some("Анна"));
+        assert_eq!(events[6].project, "WEB");
     }
 }

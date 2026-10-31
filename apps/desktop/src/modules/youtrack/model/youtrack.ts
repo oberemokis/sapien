@@ -40,6 +40,33 @@ export type Similar = { id: string; summary: string };
 // Кого можно назначить исполнителем в проекте, как Person в domain.rs.
 export type Person = { login: string; name: string };
 
+export const FEED_KINDS = ["state", "comment", "assigned", "mentioned", "unblocked", "due_soon", "overdue"] as const;
+
+// Событие ленты, как FeedEvent в domain.rs. at в миллисекундах, detail это
+// статус «было → стало», текст комментария или номер закрывшейся задачи.
+export type FeedEvent = {
+  id: string;
+  kind: (typeof FEED_KINDS)[number];
+  issue: string;
+  summary: string;
+  project: string;
+  at: number;
+  author: string | null;
+  detail: string | null;
+};
+
+// Задача целиком для ленты, как IssueDetail в domain.rs.
+export type IssueDetail = {
+  id: string;
+  summary: string;
+  description: string;
+  state: string | null;
+  reporter: string | null;
+  project: string;
+  url: string;
+  comments: { author: string | null; text: string; created: number }[];
+};
+
 // Коды отказов из domain.rs и use_case.rs, у каждого своя подсказка.
 const PROBLEMS = [
   "youtrack_host_empty",

@@ -16,6 +16,7 @@ import {
   useCreateNote,
   useFolderNotes,
   useNewFromTemplateSet,
+  useNoteShown,
   useNoteTexts,
   useWriteNote,
   VaultGate,
@@ -23,16 +24,21 @@ import {
 } from "@/modules/vault";
 import {
   BreakdownForm,
+  Inbox,
+  InboxLink,
   MEETING_FOLDER,
   MeetingDrafts,
   TASK_TEMPLATES,
   TaskDraftForm,
   useDefaultProject,
+  useInbox,
   useIssueMentions,
   useYoutrackCheck,
 } from "@/modules/youtrack";
 
 export const Route = createFileRoute("/")({ component: Home });
+
+const NO_NOTES: { text: string }[] = [];
 
 // Поле имени нового файла и выбор файла живут в дереве: спрятанное дерево
 // показывается.
@@ -146,6 +152,18 @@ function Home() {
   const project = useDefaultProject();
   const meeting = useMeetingTasks();
   const [meetingPath, setMeetingPath] = useState<string | null>(null);
+  // Лента по задачам из запроса и черновиков. «Входящие» открыты, пока
+  // человек не откроет заметку: тогда дерево отдаёт новую открытую.
+  const inbox = useInbox(useNoteTexts() ?? NO_NOTES);
+  const shown = useNoteShown();
+  const [inboxOver, setInboxOver] = useState<typeof shown | undefined>(undefined);
+  const inboxOpen = inboxOver === shown;
+  const ask = useAsk();
+
+  function askAbout(prompt: string) {
+    showChat();
+    ask(prompt, { path: null, selection: "" });
+  }
 
   useEffect(() => {
     setTemplateValues({ project });
@@ -196,14 +214,25 @@ function Home() {
       <Workspace
         files={
           <>
-            <VaultTree onCreateStart={showFiles} noteMenu={noteMenu} createMenu={createMenu} />
+            <VaultTree
+              onCreateStart={showFiles}
+              noteMenu={noteMenu}
+              createMenu={createMenu}
+              nav={
+                inbox.connected && <InboxLink inbox={inbox} active={inboxOpen} onOpen={() => setInboxOver(shown)} />
+              }
+            />
             <TagList />
           </>
         }
         title={<NoteTabs onCreateStart={showFiles} />}
         main={
           <VaultGate>
-            <NoteView editor={NoteEditor} showFiles={showFiles} above={DraftAbove} />
+            {inboxOpen ? (
+              <Inbox inbox={inbox} onAsk={askAbout} />
+            ) : (
+              <NoteView editor={NoteEditor} showFiles={showFiles} above={DraftAbove} />
+            )}
           </VaultGate>
         }
         chat={<AgentChat context={note} actions={actions} />}

@@ -1,7 +1,8 @@
 use super::domain::{
-    ApiError, Checked, Draft, EpicChanges, IssueFacts, IssueState, Person, Published, Sent,
-    Similar, YoutrackStatus, date_ms, epic_changes as domain_epic_changes, field_command,
-    link_command, missing_fields, parse_host, parse_issue_id, project_assignees, search_words,
+    ApiError, Checked, Draft, EpicChanges, FeedEvent, IssueDetail, IssueFacts, IssueState, Person,
+    Published, Sent, Similar, YoutrackStatus, date_ms, epic_changes as domain_epic_changes,
+    feed_events, field_command, link_command, missing_fields, parse_host, parse_issue_id,
+    project_assignees, search_words,
 };
 use super::ports::{HostPlace, Ledger, YoutrackApi};
 use crate::error::AppError;
@@ -454,6 +455,119 @@ added(name,idReadable),removed(name,idReadable)",
     ))
 }
 
+/// Подзадач, у которых за один опрос спрашивается история: первый опрос
+/// после недели без приложения не должен слать сотни запросов.
+const FEED_HISTORY_LIMIT: usize = 50;
+
+/// События ленты с `since`: задачи по запросу `query` и по номерам `ids`
+/// из черновиков хранилища, история тех, что менялись, связи и сроки.
+/// Запрос и номера пустые: событий нет, YouTrack не спрашивается.
+pub async fn feed(
+    api: &impl YoutrackApi,
+    place: &impl HostPlace,
+    secrets: &Secrets,
+    query: &str,
+    ids: &[String],
+    since: i64,
+    now: i64,
+) -> Result<Vec<FeedEvent>, AppError> {
+    let ids: Vec<&str> = ids.iter().filter_map(|id| parse_issue_id(id)).collect();
+    let mut parts = vec![];
+
+    if !query.trim().is_empty() {
+        parts.push(format!("({})", query.trim()));
+    }
+
+    if !ids.is_empty() {
+        parts.push(format!("(issue id: {})", ids.join(", ")));
+    }
+
+    if parts.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let (host, token) = connection(place, secrets)?;
+    let me = json_of(
+        &api.get(&host, &token, "/api/users/me", &[("fields", "login")])
+            .await?,
+    )?;
+    let me = me["login"].as_str().unwrap_or_default();
+    let query = format!("{} sort by: updated desc", parts.join(" or "));
+    let issues = json_of(
+        &api.get(
+            &host,
+            &token,
+            "/api/issues",
+            &[
+                ("query", query.as_str()),
+                (
+                    "fields",
+                    "idReadable,summary,updated,resolved,project(shortName),\
+customFields(name,value(name,login,fullName)),\
+links(direction,linkType(name),issues(idReadable,resolved))",
+                ),
+                ("$top", "200"),
+            ],
+        )
+        .await?,
+    )?;
+    let start = since.to_string();
+    let mut activities = vec![];
+
+    for id in issues
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|issue| issue["updated"].as_i64().is_some_and(|at| at >= since))
+        .filter_map(|issue| issue["idReadable"].as_str().and_then(parse_issue_id))
+        .take(FEED_HISTORY_LIMIT)
+    {
+        let items = api
+            .get(
+                &host,
+                &token,
+                &format!("/api/issues/{id}/activities"),
+                &[
+                    ("categories", "CustomFieldCategory,CommentsCategory"),
+                    ("start", start.as_str()),
+                    (
+                        "fields",
+                        "id,timestamp,author(login,fullName),category(id),field(name,presentation),\
+added(name,login,text),removed(name,login)",
+                    ),
+                    ("$top", "100"),
+                ],
+            )
+            .await?;
+
+        activities.push((id.to_owned(), json_of(&items)?));
+    }
+
+    Ok(feed_events(me, since, now, &issues, &activities))
+}
+
+/// Задача целиком для ленты: описание, статус, автор и комментарии.
+pub async fn issue_detail(
+    api: &impl YoutrackApi,
+    place: &impl HostPlace,
+    secrets: &Secrets,
+    id: &str,
+) -> Result<IssueDetail, AppError> {
+    let (host, token) = connection(place, secrets)?;
+    let id = parse_issue_id(id).ok_or(AppError::invalid("youtrack_issue_invalid"))?;
+    let query = [(
+        "fields",
+        "summary,description,project(name),reporter(fullName),\
+customFields(name,value(name,login,fullName)),comments(text,author(fullName),created)",
+    )];
+    let issue = json_of(
+        &api.get(&host, &token, &format!("/api/issues/{id}"), &query)
+            .await?,
+    )?;
+
+    Ok(IssueDetail::of(id, format!("{host}/issue/{id}"), &issue))
+}
+
 /// Последние сто задач проекта, свежие первыми: подсказка после «SAP-».
 pub async fn project_issues(
     api: &impl YoutrackApi,
@@ -726,6 +840,7 @@ mod tests {
                     json!(found)
                 }
                 "/api/admin/projects" => json!([{ "id": "0-1", "shortName": "SAP" }]),
+                "/api/users/me" => json!({ "login": "ilya" }),
                 "/api/admin/projects/0-1/customFields" => json!([
                     { "field": { "name": "Priority" }, "canBeEmpty": false, "defaultValues": [{ "name": "Normal" }] },
                     { "field": { "name": "Subsystem" }, "canBeEmpty": false, "defaultValues": [] },
@@ -1397,6 +1512,42 @@ mod tests {
         assert_eq!(
             changes("SAP-1 or x", "2026-10-26"),
             Err(AppError::invalid("youtrack_issue_invalid"))
+        );
+    }
+
+    #[test]
+    fn лента_спрашивает_задачи_по_запросу_и_номерам_черновиков() {
+        let board = with_issues(&["SAP-1"], vec![]);
+        let (place, secrets) = connected();
+        let feed = |query: &str, ids: &[&str]| {
+            let ids: Vec<String> = ids.iter().map(|id| (*id).to_owned()).collect();
+
+            block_on(super::feed(&board, &place, &secrets, query, &ids, 0, 0))
+        };
+
+        assert_eq!(feed(" ", &[]), Ok(vec![]));
+        assert!(board.searches.lock().unwrap().is_empty());
+
+        assert_eq!(feed("for: me", &["SAP-1", "SAP-2 or x"]), Ok(vec![]));
+        assert_eq!(
+            *board.searches.lock().unwrap(),
+            ["(for: me) or (issue id: SAP-1) sort by: updated desc"]
+        );
+    }
+
+    #[test]
+    fn задача_для_ленты_с_описанием_и_адресом() {
+        let board = with_issues(&["SAP-1"], vec![]);
+        let (place, secrets) = connected();
+
+        let detail = block_on(issue_detail(&board, &place, &secrets, "SAP-1")).unwrap();
+
+        assert_eq!(detail.summary, "Задача SAP-1");
+        assert_eq!(detail.state.as_deref(), Some("Open"));
+        assert_eq!(detail.url, "https://acme.youtrack.cloud/issue/SAP-1");
+        assert_eq!(
+            block_on(issue_detail(&board, &place, &secrets, "SAP-404")),
+            Err(AppError::not_found("youtrack_missing"))
         );
     }
 

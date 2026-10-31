@@ -11,6 +11,19 @@ export function useTreeState() {
   return useSelector(treeStore);
 }
 
+// Заметка, которую человек только что открыл в дереве, вкладках или поиске.
+// Каждое открытие даёт новый объект, даже той же заметки: по нему страница
+// возвращается к заметкам из другого раздела.
+export function useNoteShown() {
+  return useSelector(treeStore, (tree) => {
+    if (tree.selected?.kind !== "note") {
+      return null;
+    }
+
+    return tree.selected;
+  });
+}
+
 // Вкладки, недавние и настройки шаблонов с прошлого запуска. Вкладки,
 // чьих файлов уже нет, уберёт keepExistingTabs, когда придёт дерево.
 let checkedOnStart = false;

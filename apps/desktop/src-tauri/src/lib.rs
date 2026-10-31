@@ -59,6 +59,8 @@ pub fn run() {
             youtrack::transport::youtrack_assignees,
             youtrack::transport::youtrack_projects,
             youtrack::transport::youtrack_project_issues,
+            youtrack::transport::youtrack_feed,
+            youtrack::transport::youtrack_issue_detail,
             agent::transport::agent_history,
             agent::transport::agent_send,
             agent::transport::agent_stop,
