@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { parseDraft } from "./draft";
-import { assigneeOf, draftNames, meetingDraftOf, meetingDraftText } from "./meeting";
+import { draftNames, parseDraft } from "./draft";
+import { assigneeOf, meetingDraftOf, meetingDraftText } from "./meeting";
 
 const PEOPLE = [
   { login: "ilya", name: "Илья Оберемок" },
@@ -59,7 +59,12 @@ describe("черновики из встречи", () => {
 
   it("имена файлов без запрещённых знаков и без повторов", () => {
     expect(
-      draftNames(["Вход: по ссылке?", "Вход  по ссылке", "#[]", "Обновить план"], ["Задачи/Обновить план.md"]),
+      draftNames(
+        ["Вход: по ссылке?", "Вход  по ссылке", "#[]", "Обновить план"],
+        ["Задачи/Обновить план.md"],
+        "Задачи",
+      ),
     ).toEqual(["Вход по ссылке", "Вход по ссылке 2", "Задача", "Обновить план 2"]);
+    expect(draftNames(["План"], ["План.md"], "")).toEqual(["План 2"]);
   });
 });

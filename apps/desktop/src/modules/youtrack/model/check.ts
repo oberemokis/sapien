@@ -2,6 +2,7 @@ import {
   CUSTOM_KEY,
   DRAFT_FIELDS,
   DRAFT_LINKS,
+  isChildOf,
   isDraftPath,
   noteTitle,
   parseDraft,
@@ -128,6 +129,31 @@ function cycleThrough(path: string, edges: Map<string, string[]>) {
   }
 
   return [];
+}
+
+// Эпик и черновики, у которых он в parent, в порядке публикации: эпик
+// первым, задача после тех, от кого зависит, чтобы связь вставала номером.
+// Задачи в цикле идут в конце: публикацию их всё равно держит находка.
+export function familyOf(epic: string, draft: TaskDraft, notes: LinkedNote[]) {
+  const nodes = nodesOf(epic, draft, notes);
+  const edges = dependencies(nodes);
+  const order: Node[] = [];
+  let left = nodes.filter((node) => node.path !== epic && isChildOf(node.draft, epic, draft.id));
+
+  while (left.length > 0) {
+    const waiting = new Set(left.map((node) => node.path));
+    const ready = new Set(left.filter((node) => (edges.get(node.path) ?? []).every((to) => !waiting.has(to))));
+
+    if (ready.size === 0) {
+      order.push(...left);
+      break;
+    }
+
+    order.push(...ready);
+    left = left.filter((node) => !ready.has(node));
+  }
+
+  return [{ path: epic, draft }, ...order];
 }
 
 // Номер спринта: последнее число в имени, как в «Sprint 12».

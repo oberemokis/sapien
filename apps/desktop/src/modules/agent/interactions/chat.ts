@@ -4,6 +4,7 @@ import { useCallback } from "react";
 import { agentClear, agentHistory, agentSend, agentStop, agentUndo } from "../infrastructure/agent.api";
 import { applyEvent, chatProblemOf, type ChatContext, type ChatEntry, type ChatProblem } from "../model/chat";
 import { chatStore } from "../store/chat.store";
+import { modelStore } from "../store/model.store";
 
 const HISTORY_KEY = ["agent", "history"] as const;
 
@@ -58,6 +59,20 @@ export function useSend() {
       chatStore.setState((state) => ({ ...state, live: null }));
     },
     [queryClient],
+  );
+}
+
+// Задание агенту от кнопки соседнего модуля, например «Разбить на задачи».
+// Уходит обычным сообщением выбранной модели, ход виден в чате.
+export function useAsk() {
+  const send = useSend();
+
+  return useCallback(
+    (text: string, context: ChatContext) => {
+      reportProblem(null);
+      void send(modelStore.get(), text, context);
+    },
+    [send],
   );
 }
 

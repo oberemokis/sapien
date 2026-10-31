@@ -6,6 +6,7 @@ export { VaultGate } from "./components/vault-gate";
 export { VaultSettings } from "./components/vault-settings";
 export { VaultTree } from "./components/vault-tree";
 export { useActiveNote } from "./interactions/active-note";
+export { useWriteNote } from "./interactions/note";
 export { useFolderNotes, useNoteTexts } from "./interactions/tags";
 export { useNewFromTemplateSet } from "./interactions/template-set";
 export { setTemplateValues } from "./interactions/templates";

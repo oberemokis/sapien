@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { openLink } from "@/core/links/open-link";
 import { withFrontmatterList, withFrontmatterMap, withFrontmatterValue } from "@/core/markdown/frontmatter";
@@ -6,6 +6,7 @@ import { useOnline } from "@/core/network/online";
 import { Button } from "@/core/ui/button";
 import { useYoutrack } from "../interactions/connection";
 import { useCheck, useIssueState, usePublish, useSimilar } from "../interactions/draft";
+import { breakdownTask } from "../model/breakdown";
 import { duplicateFindings, localFindings, remoteFindings, type Finding } from "../model/check";
 import {
   CUSTOM_KEY,
@@ -28,6 +29,8 @@ import {
   type Similar,
   type YoutrackProblem,
 } from "../model/youtrack";
+import { Alert, AlertAction } from "./alert";
+import { PublishAll } from "./publish-all";
 
 const FIELD =
   "h-7 min-w-0 flex-1 rounded-md border border-stroke bg-transparent px-2 outline-none focus:border-accent aria-invalid:border-diff-del read-only:opacity-60";
@@ -41,6 +44,12 @@ type Props = {
   notes: LinkedNote[];
   // Открывает связанный черновик.
   onOpen: (path: string) => void;
+  // Отдаёт агенту задание разбить черновик на задачи. Без него кнопки нет.
+  onBreakdown?: (task: string) => void;
+  // Пишет текст другой заметки: номера задач после «Опубликовать всё».
+  // from это текст, от которого пошла правка. Ответ, легла ли запись.
+  // Без него кнопки нет.
+  onWrite?: (path: string, text: string, from: string) => Promise<boolean>;
 };
 
 type FieldProps = {
@@ -101,23 +110,6 @@ function HeaderField({ id, label, value, invalid = false, readOnly, hint, onComm
   );
 }
 
-function Alert({ children, action }: { children: ReactNode; action?: ReactNode }) {
-  return (
-    <div role="alert" className="flex items-start gap-3 rounded-md bg-diff-del-bg px-3 py-2">
-      <div className="flex-1">{children}</div>
-      {action}
-    </div>
-  );
-}
-
-function AlertAction({ children, onClick }: { children: ReactNode; onClick: () => void }) {
-  return (
-    <button type="button" className="shrink-0 underline underline-offset-2" onClick={onClick}>
-      {children}
-    </button>
-  );
-}
-
 type FindingProps = {
   finding: Finding;
   path: string;
@@ -171,7 +163,17 @@ function FindingItem({ finding, path, onField, onOpen, onNotDuplicate }: Finding
   );
 }
 
-function DraftForm({ draft, path, text, readOnly, onChange, notes, onOpen }: Props & { draft: TaskDraft }) {
+function DraftForm({
+  draft,
+  path,
+  text,
+  readOnly,
+  onChange,
+  notes,
+  onOpen,
+  onBreakdown,
+  onWrite,
+}: Props & { draft: TaskDraft }) {
   const { t } = useTranslation();
   const online = useOnline();
   const youtrack = useYoutrack();
@@ -360,6 +362,12 @@ function DraftForm({ draft, path, text, readOnly, onChange, notes, onOpen }: Pro
           {issue.data !== undefined && (
             <Button onClick={() => openLink(issue.data.url)}>{t("youtrack.draft.open")}</Button>
           )}
+          {onBreakdown !== undefined && (
+            // Разбивает агент, а ему нужна сеть.
+            <Button disabled={readOnly || !online} onClick={() => onBreakdown(breakdownTask(path, draft.id))}>
+              {t("youtrack.breakdown.run")}
+            </Button>
+          )}
           <Button
             disabled={
               readOnly || !remoteReady || publishing.isPending || checking.isPending || unpublished.length > 0 || blocked
@@ -508,6 +516,17 @@ function DraftForm({ draft, path, text, readOnly, onChange, notes, onOpen }: Pro
             <pre className="font-mono text-[12px] whitespace-pre-wrap">{result.description}</pre>
           </section>
         </Alert>
+      )}
+      {onWrite !== undefined && (
+        <PublishAll
+          path={path}
+          draft={draft}
+          text={text}
+          notes={notes}
+          ready={remoteReady && !readOnly}
+          onWrite={onWrite}
+          onOpen={onOpen}
+        />
       )}
     </section>
   );

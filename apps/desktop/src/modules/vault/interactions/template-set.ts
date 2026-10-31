@@ -1,26 +1,11 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback } from "react";
 import { readSeeded, writeSeeded } from "../infrastructure/templates.device";
-import { vaultCreate, vaultStatus, vaultWrite } from "../infrastructure/vault.api";
+import { vaultStatus, vaultWrite } from "../infrastructure/vault.api";
 import { parseSeeded, seededKey, type TemplateSet } from "../model/templates";
-import { errorCodeOf, type EntryKind } from "../model/vault";
 import { templatesStore } from "../store/templates.store";
 import { pickTemplate } from "./search";
-import { VAULT_KEY } from "./vault";
-
-// Файл или папка, которых может не быть. Занятое имя значит, что они уже
-// есть: существующее не трогается.
-async function createMissing(parent: string, name: string, kind: EntryKind) {
-  try {
-    return await vaultCreate({ parent, name, kind });
-  } catch (error) {
-    if (errorCodeOf(error) !== "name_taken") {
-      throw error;
-    }
-
-    return null;
-  }
-}
+import { createMissing, VAULT_KEY } from "./vault";
 
 // Стандартные шаблоны набора ложатся в папку шаблонов один раз на хранилище
 // этого устройства. Шаблон с тем же именем не перезаписывается, а удалённый

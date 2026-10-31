@@ -5,15 +5,8 @@ import { Button } from "@/core/ui/button";
 import { IconButton } from "@/core/ui/icon-button";
 import { useAssignees } from "../interactions/meeting";
 import { useDefaultProject } from "../interactions/project";
-import { noteTitle } from "../model/draft";
-import {
-  draftNames,
-  MEETING_FOLDER,
-  meetingDraftOf,
-  meetingDraftText,
-  type MeetingDraft,
-  type MeetingTask,
-} from "../model/meeting";
+import { draftNames, noteTitle } from "../model/draft";
+import { MEETING_FOLDER, meetingDraftOf, meetingDraftText, type MeetingDraft, type MeetingTask } from "../model/meeting";
 import type { Person } from "../model/youtrack";
 
 const FIELD =
@@ -146,6 +139,7 @@ function DraftRows({ source, paths, onCreate, tasks, people, project, unchecked 
     const names = draftNames(
       chosen.map((row) => row.summary),
       paths,
+      MEETING_FOLDER,
     );
 
     setCreating(true);
