@@ -12,7 +12,7 @@ import { useLeftUnsaved } from "../interactions/journal";
 import { useNote } from "../interactions/note";
 import { openSearch, pickTemplate, showTag } from "../interactions/search";
 import { useTagList } from "../interactions/tags";
-import { focusDone, insertDone, startCreate, useTreeState } from "../interactions/tree";
+import { focusDone, insertDone, startCreate, tabKey, useTreeState } from "../interactions/tree";
 import { notePlace, type EditorProps } from "../model/vault";
 import { NoteHistory } from "./note-history";
 
@@ -225,7 +225,7 @@ export function NoteView({ editor, showFiles }: Props) {
       <NoteHistory />
       {tabs.map((path) => (
         <OpenNote
-          key={path}
+          key={tabKey(path)}
           path={path}
           hidden={path !== active}
           focusRequest={focus?.path === path ? focus.request : 0}

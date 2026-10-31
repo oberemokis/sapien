@@ -57,6 +57,7 @@ export function MarkdownEditor({
   const onTagClickRef = useRef(onTagClick);
   const onLinkClickRef = useRef(onLinkClick);
   const editableRef = useRef(new Compartment());
+  const labelRef = useRef(new Compartment());
   const initialRef = useRef({ value, readOnly, label });
 
   useEffect(() => {
@@ -80,7 +81,7 @@ export function MarkdownEditor({
           tagClick((tag) => onTagClickRef.current(tag)),
           linkClick((url) => onLinkClickRef.current(url)),
           EditorView.lineWrapping,
-          EditorView.contentAttributes.of({ "aria-label": initial.label }),
+          labelRef.current.of(EditorView.contentAttributes.of({ "aria-label": initial.label })),
           editableRef.current.of(EditorView.editable.of(!initial.readOnly)),
           markdownTheme,
           EditorView.updateListener.of((update) => {
@@ -147,6 +148,13 @@ export function MarkdownEditor({
       effects: editableRef.current.reconfigure(EditorView.editable.of(!readOnly)),
     });
   }, [readOnly]);
+
+  // Файл переименовали снаружи, а редактор с курсором остался прежним.
+  useEffect(() => {
+    viewRef.current?.dispatch({
+      effects: labelRef.current.reconfigure(EditorView.contentAttributes.of({ "aria-label": label })),
+    });
+  }, [label]);
 
   return <div ref={hostRef} className="min-h-0 flex-1" />;
 }

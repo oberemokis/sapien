@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { EntryKind, NoteText, Unsaved, VaultEntry, VaultStatus, Version } from "../model/vault";
+import type { EntryKind, Moved, NoteText, Unsaved, VaultEntry, VaultStatus, Version } from "../model/vault";
 
 export function vaultStatus() {
   return invoke<VaultStatus>("vault_status");
@@ -73,11 +73,12 @@ export function vaultTexts() {
   return invoke<NoteText[]>("vault_texts");
 }
 
-// Rust следит за папкой и шлёт событие, когда в ней что-то поменялось снаружи.
-// Без Rust, в браузере и тестах, подписаться не на что: окно тогда просто
-// не узнает о правках снаружи, а ошибку открытия покажет статус.
-export function onVaultChanged(onChange: () => void) {
-  return subscribe("vault://changed", onChange);
+// Rust следит за папкой и шлёт событие, когда в ней что-то поменялось снаружи,
+// с переименованиями из этой пачки правок. Без Rust, в браузере и тестах,
+// подписаться не на что: окно тогда просто не узнает о правках снаружи,
+// а ошибку открытия покажет статус.
+export function onVaultChanged(onChange: (moved: Moved[]) => void) {
+  return subscribe<Moved[] | undefined>("vault://changed", (moved) => onChange(moved ?? []));
 }
 
 // Заметки, которые система попросила открыть ссылкой sapien://. Путь Rust
@@ -91,8 +92,8 @@ export function onVaultOpen(onOpen: () => void) {
   return subscribe("vault://open", onOpen);
 }
 
-function subscribe(event: string, handler: () => void) {
-  const stop = listen(event, handler).catch(() => undefined);
+function subscribe<T>(event: string, handler: (payload: T) => void) {
+  const stop = listen<T>(event, ({ payload }) => handler(payload)).catch(() => undefined);
 
   return () => {
     void stop.then((unlisten) => unlisten?.());

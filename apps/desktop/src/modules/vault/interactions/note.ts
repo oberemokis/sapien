@@ -2,7 +2,7 @@ import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-quer
 import { useSelector } from "@tanstack/react-store";
 import { useCallback, useEffect } from "react";
 import { vaultForgetUnsaved, vaultRead, vaultWrite } from "../infrastructure/vault.api";
-import { errorCodeOf, isWithin, type NoteText, type Unsaved } from "../model/vault";
+import { errorCodeOf, isWithin, movedPath, type Moved, type NoteText, type Unsaved } from "../model/vault";
 import { EMPTY_NOTES, notesStore } from "../store/notes.store";
 
 // Пауза в наборе, после которой правка уходит на диск. Короткая: окно могут
@@ -123,6 +123,38 @@ export function dropNotesWithin(entry: string) {
     if (isWithin(path, entry)) {
       dropNote(path);
     }
+  }
+}
+
+function moveKeys<T>(record: Record<string, T>, moved: Moved[]) {
+  return Object.fromEntries(Object.entries(record).map(([path, value]) => [movedPath(path, moved), value]));
+}
+
+// Файлы переименовали снаружи. Текст с диска, несохранённая правка и её
+// основа переходят на новый путь, и правка сразу пишется туда: текст файла
+// при переименовании не меняется, и сверка с основой запись пропустит.
+// Запись, начатая по прежнему пути, сначала доходит или падает, а потом
+// прежний путь забывается вместе с журналом.
+export function followNoteMoves(queryClient: QueryClient, moved: Moved[]) {
+  for (const [[, , path], text] of queryClient.getQueriesData<string>({ queryKey: ["vault", "note"] })) {
+    if (typeof path === "string" && text !== undefined && movedPath(path, moved) !== path) {
+      queryClient.setQueryData(noteKey(movedPath(path, moved)), text);
+    }
+  }
+
+  const left = Object.keys(notesStore.get().unsaved).filter((path) => movedPath(path, moved) !== path);
+
+  notesStore.setState((state) => ({
+    unsaved: moveKeys(state.unsaved, moved),
+    bases: moveKeys(state.bases, moved),
+    failed: Object.fromEntries(Object.entries(state.failed).filter(([path]) => movedPath(path, moved) === path)),
+  }));
+
+  for (const path of left) {
+    clearTimeout(timers.get(path));
+    timers.delete(path);
+    void (queue.get(path) ?? Promise.resolve()).then(() => dropNote(path));
+    void saveNote(queryClient, movedPath(path, moved));
   }
 }
 

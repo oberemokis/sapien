@@ -1052,6 +1052,62 @@ describe("вкладки", () => {
     expect(activeTab()).toBe("план");
     expect(await screen.findByRole("textbox", { name: "план" })).toBeDefined();
   });
+
+  it("файл переименовали снаружи во время набора: вкладка на месте, правка в новом файле", async () => {
+    const disk = workspace();
+    const files = disk.files ?? {};
+    launch();
+    await openFromTree("идеи", "Встречи");
+    fireEvent.click(inTree().getByRole("button", { name: "план" }), mod);
+    fireEvent.click(screen.getByRole("tab", { name: "идеи" }));
+    const editor = await screen.findByRole("textbox", { name: "идеи" });
+    // Пауза в наборе ещё не прошла, правка не на диске.
+    fireEvent.change(editor, { target: { value: "идеи и ещё" } });
+
+    disk.tree = [...disk.tree.filter((entry) => entry.path !== "идеи.md"), note("мысли.md")];
+    files["мысли.md"] = files["идеи.md"] ?? "";
+    delete files["идеи.md"];
+    await act(() => emit("vault://changed", [{ from: "идеи.md", to: "мысли.md" }]));
+
+    expect(tabs()).toEqual(["мысли", "план"]);
+    expect(activeTab()).toBe("мысли");
+    // Тот же редактор: курсор и история правок не пропали.
+    expect(screen.getByRole("textbox", { name: "мысли" })).toBe(editor);
+    await waitFor(() => expect(files["мысли.md"]).toBe("идеи и ещё"));
+    expect(files).not.toHaveProperty("идеи.md");
+    expect(disk.journal).toEqual({});
+  });
+
+  it("папку переименовали снаружи: её вкладки, дерево и запомненное на новых путях", async () => {
+    const disk = fakeRust({
+      status: { kind: "ready", path: "/notes" },
+      tree: [folder("Встречи", [note("Встречи/итоги.md"), note("Встречи/план.md")]), note("идеи.md")],
+      files: { "Встречи/итоги.md": "итоги", "Встречи/план.md": "план", "идеи.md": "идеи" },
+    });
+    const first = launch();
+    await openFromTree("Встречи", "план");
+    fireEvent.click(inTree().getByRole("button", { name: "итоги" }), mod);
+
+    disk.tree = [folder("Созвоны", [note("Созвоны/итоги.md"), note("Созвоны/план.md")]), note("идеи.md")];
+    disk.files = Object.assign(disk.files ?? {}, { "Созвоны/итоги.md": "итоги", "Созвоны/план.md": "план" });
+    delete disk.files["Встречи/итоги.md"];
+    delete disk.files["Встречи/план.md"];
+    await act(() => emit("vault://changed", [{ from: "Встречи", to: "Созвоны" }]));
+
+    expect(tabs()).toEqual(["план", "итоги"]);
+    expect(within(screen.getByRole("navigation", { name: "Путь к заметке" })).getByText("Созвоны")).toBeDefined();
+    // Раскрытая папка осталась раскрытой под новым именем.
+    expect(await inTree().findByRole("button", { name: "итоги" })).toBeDefined();
+    expect(screen.queryByRole("alert")).toBeNull();
+
+    first.unmount();
+    treeStore.setState(() => EMPTY_TREE);
+    restoreSession();
+    launch();
+
+    await waitFor(() => expect(tabs()).toEqual(["план", "итоги"]));
+    expect(await screen.findByRole("textbox", { name: "итоги" })).toHaveProperty("value", "итоги");
+  });
 });
 
 function tagged() {
