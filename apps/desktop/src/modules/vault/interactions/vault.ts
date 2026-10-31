@@ -7,15 +7,17 @@ import {
   vaultStatus,
   vaultTree,
 } from "../infrastructure/vault.api";
-import { finishCreate } from "./tree";
+import type { VaultStatus } from "../model/vault";
+import { forgetNotes } from "./note";
+import { finishCreate, resetTree } from "./tree";
 
 // Ключи из имён команд vault_status и vault_tree: общий префикс ["vault"]
 // перечитывает всё хранилище разом.
-const VAULT_KEY = ["vault"] as const;
+export const VAULT_KEY = ["vault"] as const;
 
 // Ошибка локального диска за секунду сама не пройдёт: повтор только оттянул
 // бы её показ. Повторить можно кнопкой.
-const NO_RETRY = { retry: false } as const;
+export const NO_RETRY = { retry: false } as const;
 
 export function useVaultStatus() {
   return useQuery({ queryKey: [...VAULT_KEY, "status"], queryFn: vaultStatus, ...NO_RETRY });
@@ -32,12 +34,24 @@ export function useVaultTree() {
   });
 }
 
+// Пути в дереве и несохранённые правки относятся к прежней папке. В другой
+// папке под тем же путём лежит другой файл, и правка ушла бы не туда.
 export function useChooseVault() {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: vaultChoose,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: VAULT_KEY }),
+    onSuccess: (status) => {
+      const before = queryClient.getQueryData<VaultStatus>([...VAULT_KEY, "status"]);
+      const same = before !== undefined && "path" in before && "path" in status && before.path === status.path;
+
+      if (!same) {
+        resetTree();
+        forgetNotes();
+      }
+
+      return queryClient.invalidateQueries({ queryKey: VAULT_KEY });
+    },
   });
 }
 

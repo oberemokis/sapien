@@ -11,6 +11,18 @@ export type VaultEntry =
 
 export type EntryKind = VaultEntry["kind"];
 
+// Что середина окна отдаёт редактору открытой заметки. Сам редактор
+// ставит страница.
+export type EditorProps = {
+  value: string;
+  onChange: (text: string) => void;
+  // Файл пропал с диска: текст виден, но не правится.
+  readOnly: boolean;
+  // Заметку только что создали, и печатать в ней начнут сразу.
+  focusOnMount: boolean;
+  label: string;
+};
+
 // Коды те же, что у check_name в domain.rs: окно подсказывает заранее,
 // а Rust проверяет ещё раз и отвечает теми же кодами.
 export type NameProblem = "name_empty" | "name_forbidden" | "name_hidden" | "name_taken";
@@ -22,13 +34,32 @@ function isNameProblem(code: unknown): code is NameProblem {
 }
 
 // Отказ команды Rust приходит как AppError из error.rs: { kind, code }.
-// Код проверки имени окно показывает своей подсказкой, остальное общей.
-export function nameProblemOf(error: unknown): NameProblem | null {
-  if (typeof error === "object" && error !== null && "code" in error && isNameProblem(error.code)) {
+export function errorCodeOf(error: unknown): string | null {
+  if (typeof error === "object" && error !== null && "code" in error && typeof error.code === "string") {
     return error.code;
   }
 
   return null;
+}
+
+// Код проверки имени окно показывает своей подсказкой, остальное общей.
+export function nameProblemOf(error: unknown): NameProblem | null {
+  const code = errorCodeOf(error);
+
+  if (isNameProblem(code)) {
+    return code;
+  }
+
+  return null;
+}
+
+// Имя заметки и папки над ней по пути: «Проекты/sapien/план.md» даёт
+// «план» и ["Проекты", "sapien"].
+export function notePlace(path: string) {
+  const folders = path.split("/");
+  const name = folders.pop() ?? path;
+
+  return { title: noteTitle(name), folders };
 }
 
 // Символы, которые запрещает хоть одна система, и управляющие.

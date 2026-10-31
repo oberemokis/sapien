@@ -10,6 +10,7 @@ import { IconButton } from "@/core/ui/icon-button";
 import { hasModKey, shortcutLabel } from "@/core/ui/keys";
 import {
   cancelCreate,
+  openNote,
   selectEntry,
   startCreate,
   toggleFolder,
@@ -179,10 +180,9 @@ function Entries({
         const selected = state.selected?.path === entry.path;
 
         if (entry.kind === "note") {
-          // Открывать заметку по выбору будет редактор (#8).
           return (
             <li key={entry.path}>
-              <Row entry={entry} depth={depth} selected={selected} onClick={() => selectEntry(entry.path, "note")}>
+              <Row entry={entry} depth={depth} selected={selected} onClick={() => openNote(entry.path)}>
                 <FileTypeIcon name={entry.name} />
                 <span className="truncate">{noteTitle(entry.name)}</span>
               </Row>
@@ -306,7 +306,7 @@ export function VaultTree({ onCreateStart }: Props) {
       {/* Меню по правой кнопке повторяет кнопки над деревом, до которых
           доходят с клавиатуры, поэтому своего пути с клавиатуры ему не надо. */}
       {/* oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */}
-      <nav className="min-h-0 flex-1 overflow-y-auto p-1 pt-0" onContextMenu={openMenu}>
+      <nav data-vault-tree className="min-h-0 flex-1 overflow-y-auto p-1 pt-0" onContextMenu={openMenu}>
         {tree.data.length === 0 && state.draft === null && (
           <p className="p-2 text-[13px] text-content/50">{t("files.empty")}</p>
         )}

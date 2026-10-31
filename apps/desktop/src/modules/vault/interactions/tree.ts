@@ -1,6 +1,6 @@
 import { useSelector } from "@tanstack/react-store";
 import { foldersDownTo, parentOf, type EntryKind } from "../model/vault";
-import { treeStore } from "../store/tree.store";
+import { EMPTY_TREE, treeStore } from "../store/tree.store";
 
 export function useTreeState() {
   return useSelector(treeStore);
@@ -8,6 +8,10 @@ export function useTreeState() {
 
 export function selectEntry(path: string, kind: EntryKind) {
   treeStore.setState((state) => ({ ...state, selected: { path, kind } }));
+}
+
+export function openNote(path: string, focus = false) {
+  treeStore.setState((state) => ({ ...state, selected: { path, kind: "note" }, open: { path, focus } }));
 }
 
 export function toggleFolder(path: string) {
@@ -58,16 +62,26 @@ export function cancelCreate() {
 }
 
 // Созданное выделяется: следующее «Новый файл» пойдёт в ту же папку,
-// а для новой папки внутрь неё. Поле закрывается, только если это всё ещё
-// оно: пока шёл ответ, могли открыть новое.
+// а для новой папки внутрь неё. Созданная заметка открывается с курсором
+// в тексте. Поле закрывается, только если это всё ещё оно: пока шёл ответ,
+// могли открыть новое.
 export function finishCreate(draftId: number, path: string, kind: EntryKind) {
-  treeStore.setState((state) => {
-    const selected = { path, kind };
+  if (kind === "note") {
+    openNote(path, true);
+  } else {
+    selectEntry(path, kind);
+  }
 
+  treeStore.setState((state) => {
     if (state.draft?.id !== draftId) {
-      return { ...state, selected };
+      return state;
     }
 
-    return { ...state, draft: null, selected };
+    return { ...state, draft: null };
   });
+}
+
+// Другое хранилище: пути прежнего в нём ничего не значат.
+export function resetTree() {
+  treeStore.setState(() => EMPTY_TREE);
 }

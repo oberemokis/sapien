@@ -15,4 +15,8 @@ pub trait VaultDisk {
     /// Создаёт пустую заметку или папку. Занятое место не трогает, а отвечает
     /// конфликтом.
     fn create(&self, path: &Path, kind: EntryKind) -> Result<(), AppError>;
+    fn read(&self, path: &Path) -> Result<String, AppError>;
+    /// Переписывает существующую заметку. Пропавшую не создаёт заново,
+    /// а отвечает, что её нет.
+    fn write(&self, path: &Path, text: &str) -> Result<(), AppError>;
 }
