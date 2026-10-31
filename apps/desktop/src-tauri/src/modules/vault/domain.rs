@@ -91,6 +91,17 @@ impl Entry {
     }
 }
 
+/// Пути всех заметок дерева, с заметками во всех папках.
+pub fn note_paths(entries: &[Entry]) -> Vec<String> {
+    entries
+        .iter()
+        .flat_map(|entry| match entry {
+            Entry::Folder { children, .. } => note_paths(children),
+            Entry::Note { path, .. } => vec![path.clone()],
+        })
+        .collect()
+}
+
 /// Скрытое не показывается, как в Obsidian: `.obsidian`, `.git`, `.DS_Store`.
 pub fn is_hidden(name: &str) -> bool {
     name.starts_with('.')

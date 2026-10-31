@@ -26,6 +26,7 @@ pub fn run() {
             vault::transport::vault_create,
             vault::transport::vault_read,
             vault::transport::vault_write,
+            vault::transport::vault_texts,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

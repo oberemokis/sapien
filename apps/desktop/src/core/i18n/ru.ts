@@ -46,10 +46,15 @@ export const ru = {
     search: {
       open: "Поиск",
       title: "Поиск файла",
-      placeholder: "Имя файла",
+      placeholder: "Имя файла или #тег",
       recent: "Недавние",
       nothing: "Ничего не найдено",
       create: "Создать файл «{{name}}»",
+    },
+    tags: {
+      title: "Теги",
+      empty: "Напишите #тег в тексте заметки, и он появится здесь",
+      item: "#{{name}}, заметок: {{count}}",
     },
     settings: {
       title: "Хранилище",

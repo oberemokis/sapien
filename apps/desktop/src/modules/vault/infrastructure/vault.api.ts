@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { EntryKind, VaultEntry, VaultStatus } from "../model/vault";
+import type { EntryKind, NoteText, VaultEntry, VaultStatus } from "../model/vault";
 
 export function vaultStatus() {
   return invoke<VaultStatus>("vault_status");
@@ -28,6 +28,11 @@ export function vaultRead(path: string) {
 // а отвечает кодом note_missing.
 export function vaultWrite(path: string, text: string) {
   return invoke<null>("vault_write", { path, text });
+}
+
+// Тексты всех заметок разом. Непрочитанные Rust пропускает.
+export function vaultTexts() {
+  return invoke<NoteText[]>("vault_texts");
 }
 
 // Rust следит за папкой и шлёт событие, когда в ней что-то поменялось снаружи.

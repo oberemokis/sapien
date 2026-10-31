@@ -2,7 +2,7 @@ import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-quer
 import { useSelector } from "@tanstack/react-store";
 import { useCallback, useEffect } from "react";
 import { vaultRead, vaultWrite } from "../infrastructure/vault.api";
-import { errorCodeOf } from "../model/vault";
+import { errorCodeOf, type NoteText } from "../model/vault";
 import { EMPTY_NOTES, notesStore } from "../store/notes.store";
 
 // Пауза в наборе, после которой правка уходит на диск. Короткая: окно могут
@@ -15,6 +15,19 @@ const queue = new Map<string, Promise<void>>();
 // Под общим префиксом хранилища: правка снаружи перечитывает и заметку.
 function noteKey(path: string) {
   return ["vault", "note", path] as const;
+}
+
+// Тексты всех заметок, из них берутся теги.
+export const TEXTS_KEY = ["vault", "texts"] as const;
+
+function withText(texts: NoteText[] | undefined, path: string, text: string) {
+  return texts?.map((note) => {
+    if (note.path !== path) {
+      return note;
+    }
+
+    return { path, text };
+  });
 }
 
 async function write(queryClient: QueryClient, path: string) {
@@ -37,6 +50,8 @@ async function write(queryClient: QueryClient, path: string) {
   // Чтение, начатое до записи, принесло бы прежний текст поверх нового.
   await queryClient.cancelQueries({ queryKey: noteKey(path) });
   queryClient.setQueryData(noteKey(path), text);
+  // Теги этой заметки видны сразу, не дожидаясь слежения за папкой.
+  queryClient.setQueryData<NoteText[]>(TEXTS_KEY, (texts) => withText(texts, path, text));
 
   notesStore.setState((state) => {
     const { [path]: _failed, ...failed } = state.failed;

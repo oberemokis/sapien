@@ -11,6 +11,8 @@ export type VaultEntry =
 
 export type EntryKind = VaultEntry["kind"];
 
+export type NoteText = { path: string; text: string };
+
 // Что середина окна отдаёт редактору открытой заметки. Сам редактор
 // ставит страница.
 export type EditorProps = {
@@ -23,6 +25,10 @@ export type EditorProps = {
   // переключились на её вкладку.
   focusRequest: number;
   label: string;
+  // Теги хранилища для подсказки после «#».
+  tags: string[];
+  // Клик по тегу в тексте: показать заметки с ним.
+  onTagClick: (tag: string) => void;
 };
 
 // Коды те же, что у check_name в domain.rs: окно подсказывает заранее,

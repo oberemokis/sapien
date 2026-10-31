@@ -1,10 +1,11 @@
 import Note01Icon from "@hugeicons/core-free-icons/Note01Icon";
-import { Fragment, useEffect, type ComponentType, type ReactNode } from "react";
+import { Fragment, useEffect, useMemo, type ComponentType, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/core/ui/button";
 import { Icon } from "@/core/ui/icon";
 import { useNote } from "../interactions/note";
-import { openSearch } from "../interactions/search";
+import { openSearch, showTag } from "../interactions/search";
+import { useTagList } from "../interactions/tags";
 import { focusDone, startCreate, useTreeState } from "../interactions/tree";
 import { notePlace, type EditorProps } from "../model/vault";
 
@@ -42,16 +43,22 @@ function NoNote({ showFiles }: Pick<Props, "showFiles">) {
           >
             {t("editor.newNote")}
           </Button>
-          <Button onClick={openSearch}>{t("editor.openNote")}</Button>
+          <Button onClick={() => openSearch()}>{t("editor.openNote")}</Button>
         </div>
       </div>
     </div>
   );
 }
 
-type OpenNoteProps = { path: string; hidden: boolean; focusRequest: number; editor: Props["editor"] };
+type OpenNoteProps = {
+  path: string;
+  hidden: boolean;
+  focusRequest: number;
+  tags: string[];
+  editor: Props["editor"];
+};
 
-function OpenNote({ path, hidden, focusRequest, editor: Editor }: OpenNoteProps) {
+function OpenNote({ path, hidden, focusRequest, tags, editor: Editor }: OpenNoteProps) {
   const { t } = useTranslation();
   const note = useNote(path);
   const { title, folders } = notePlace(path);
@@ -107,6 +114,8 @@ function OpenNote({ path, hidden, focusRequest, editor: Editor }: OpenNoteProps)
           readOnly={note.missing}
           focusRequest={focusRequest}
           label={title}
+          tags={tags}
+          onTagClick={showTag}
         />
       )}
     </div>
@@ -118,6 +127,8 @@ function OpenNote({ path, hidden, focusRequest, editor: Editor }: OpenNoteProps)
 // и прокрутка, и они переживают переключение вкладок.
 export function NoteView({ editor, showFiles }: Props) {
   const { tabs, active, focus } = useTreeState();
+  const tagList = useTagList();
+  const tags = useMemo(() => tagList.map((tag) => tag.name), [tagList]);
 
   if (active === null) {
     return <NoNote showFiles={showFiles} />;
@@ -131,6 +142,7 @@ export function NoteView({ editor, showFiles }: Props) {
           path={path}
           hidden={path !== active}
           focusRequest={focus?.path === path ? focus.request : 0}
+          tags={tags}
           editor={editor}
         />
       ))}

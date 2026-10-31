@@ -1,5 +1,6 @@
+import { currentCompletions } from "@codemirror/autocomplete";
 import { EditorView } from "@codemirror/view";
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { MarkdownEditor } from "@/modules/editor";
 
@@ -18,6 +19,18 @@ function view() {
 function typeAt(position: number, text: string) {
   act(() => {
     view().dispatch({ changes: { from: position, insert: text }, userEvent: "input.type" });
+  });
+}
+
+// Набор, после которого курсор стоит за набранным: подсказка смотрит
+// на место курсора.
+function typeWithCursor(position: number, text: string) {
+  act(() => {
+    view().dispatch({
+      changes: { from: position, insert: text },
+      selection: { anchor: position + text.length },
+      userEvent: "input.type",
+    });
   });
 }
 
@@ -49,5 +62,36 @@ describe("редактор markdown", () => {
     rerender(<MarkdownEditor value="план" onChange={vi.fn()} readOnly label="план" />);
 
     expect(view().state.facet(EditorView.editable)).toBe(false);
+  });
+
+  it("тег выделен, клик по нему зовёт поиск, тег в коде не выделен", async () => {
+    const onTagClick = vi.fn();
+    render(<MarkdownEditor value={"созвон #работа\n`#код`"} onChange={vi.fn()} label="план" onTagClick={onTagClick} />);
+
+    const tags = await vi.waitFor(() => {
+      const found = [...document.querySelectorAll(".cm-hashtag")];
+
+      expect(found).not.toHaveLength(0);
+
+      return found;
+    });
+
+    expect(tags.map((tag) => tag.textContent)).toEqual(["#работа"]);
+    fireEvent.mouseDown(tags[0] as Element);
+    expect(onTagClick).toHaveBeenCalledWith("работа");
+  });
+
+  it("после решётки подсказывает теги хранилища, в блоке кода нет", async () => {
+    render(<MarkdownEditor value={"```\n\n```\n"} onChange={vi.fn()} label="план" tags={["работа", "отпуск"]} />);
+
+    // Пустая строка внутри блока кода.
+    typeWithCursor(4, "#р");
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(currentCompletions(view().state)).toEqual([]);
+
+    typeWithCursor(view().state.doc.length, "#р");
+    await vi.waitFor(() =>
+      expect(currentCompletions(view().state).map((option) => option.label)).toEqual(["#работа"]),
+    );
   });
 });

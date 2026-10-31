@@ -4,7 +4,16 @@ import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useEffect, useRef } from "react";
 import { afterEach, describe, expect, it } from "vitest";
-import { FileSearch, NoteTabs, NoteView, VaultGate, VaultTree, restoreSession, useVaultSync } from "@/modules/vault";
+import {
+  FileSearch,
+  NoteTabs,
+  NoteView,
+  TagList,
+  VaultGate,
+  VaultTree,
+  restoreSession,
+  useVaultSync,
+} from "@/modules/vault";
 import { forgetNotes } from "./interactions/note";
 import { closeSearch } from "./interactions/search";
 import type { EditorProps } from "./model/vault";
@@ -78,6 +87,8 @@ function fakeRust(disk: Disk) {
           return disk.status;
         case "vault_tree":
           return structuredClone(disk.tree);
+        case "vault_texts":
+          return Object.entries(files).map(([file, content]) => ({ path: file, text: content }));
         case "vault_choose":
           disk.status = disk.picked ?? disk.status;
           return disk.status;
@@ -99,8 +110,9 @@ function fakeRust(disk: Disk) {
 }
 
 // Редактор здесь простое поле: хранилище отдаёт ему текст и принимает
-// правку, а CodeMirror проверяется в своём модуле.
-function TextEditor({ value, onChange, readOnly, focusRequest, label }: EditorProps) {
+// правку, а CodeMirror проверяется в своём модуле. Теги в тексте он
+// показывает кнопками, а подсказку тегов строкой.
+function TextEditor({ value, onChange, readOnly, focusRequest, label, tags, onTagClick }: EditorProps) {
   const ref = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -110,13 +122,21 @@ function TextEditor({ value, onChange, readOnly, focusRequest, label }: EditorPr
   }, [focusRequest]);
 
   return (
-    <textarea
-      ref={ref}
-      aria-label={label}
-      value={value}
-      readOnly={readOnly}
-      onChange={(event) => onChange(event.target.value)}
-    />
+    <>
+      <textarea
+        ref={ref}
+        aria-label={label}
+        value={value}
+        readOnly={readOnly}
+        onChange={(event) => onChange(event.target.value)}
+      />
+      {value.match(/#[\p{L}\p{N}_/-]+/gu)?.map((tag) => (
+        <button key={tag} type="button" onClick={() => onTagClick(tag.slice(1))}>
+          {tag}
+        </button>
+      ))}
+      <output aria-label="подсказка тегов">{tags.join(" ")}</output>
+    </>
   );
 }
 
@@ -130,6 +150,7 @@ function Window() {
       </header>
       <aside aria-label="дерево">
         <VaultTree />
+        <TagList />
       </aside>
       <main>
         <VaultGate>
@@ -789,5 +810,80 @@ describe("вкладки", () => {
     await waitFor(() => expect(tabs()).toEqual(["план"]));
     expect(activeTab()).toBe("план");
     expect(await screen.findByRole("textbox", { name: "план" })).toBeDefined();
+  });
+});
+
+function tagged() {
+  return fakeRust({
+    status: { kind: "ready", path: "/notes" },
+    tree: [folder("Встречи", [note("Встречи/ретро.md")]), note("план.md"), note("идеи.md")],
+    files: {
+      "Встречи/ретро.md": "#Работа созвон #встреча",
+      "план.md": "---\ntags: [работа/sapien]\n---\n# План",
+      "идеи.md": "`#код` и # Заголовок",
+    },
+  });
+}
+
+function tagButtons() {
+  return within(screen.getByRole("region", { name: "Теги" }))
+    .queryAllByRole("button")
+    .map((button) => button.getAttribute("aria-label"));
+}
+
+describe("теги", () => {
+  it("раздел тегов: все теги с числом заметок, клик показывает заметки с тегом", async () => {
+    tagged();
+    launch();
+
+    await waitFor(() =>
+      expect(tagButtons()).toEqual([
+        "#встреча, заметок: 1",
+        "#Работа, заметок: 2",
+        "#работа/sapien, заметок: 1",
+      ]),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "#Работа, заметок: 2" }));
+
+    expect(search()).toHaveProperty("value", "#Работа ");
+    expect(options()).toEqual(["план", "ретроВстречи"]);
+  });
+
+  it("несколько тегов в поиске сужают выдачу, чужой тег не находит ничего", async () => {
+    tagged();
+    launch();
+    await waitFor(() => expect(tagButtons()).toHaveLength(3));
+
+    fireEvent.keyDown(window, { code: "KeyK", ...mod });
+    query("#работа #встреча");
+    expect(options()).toEqual(["ретроВстречи"]);
+
+    query("#отпуск");
+    expect(options()).toEqual([]);
+    expect(screen.getByText("Ничего не найдено")).toBeDefined();
+  });
+
+  it("клик по тегу в тексте ищет заметки, правка обновляет список тегов", async () => {
+    const disk = tagged();
+    launch();
+
+    fireEvent.click(await inTree().findByRole("button", { name: "идеи" }));
+    await screen.findByRole("textbox", { name: "идеи" });
+    expect(screen.getByRole("status", { name: "подсказка тегов" }).textContent).toBe(
+      "встреча Работа работа/sapien",
+    );
+
+    type("идеи", "идеи на #отпуск");
+    await waitFor(() => expect(disk.files?.["идеи.md"]).toBe("идеи на #отпуск"), SAVED);
+    await waitFor(() => expect(tagButtons()).toContain("#отпуск, заметок: 1"));
+
+    fireEvent.click(screen.getByRole("button", { name: "#отпуск" }));
+    expect(options()).toEqual(["идеи"]);
+    fireEvent.keyDown(search(), { key: "Escape" });
+
+    // Тег ушёл из последней заметки и пропал из списка.
+    type("идеи", "идеи");
+    await waitFor(() => expect(tagButtons()).not.toContain("#отпуск, заметок: 1"), SAVED);
   });
 });
