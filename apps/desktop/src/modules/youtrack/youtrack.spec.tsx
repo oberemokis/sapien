@@ -75,7 +75,8 @@ describe("подключение YouTrack", () => {
 
     await connect(TOKEN);
 
-    expect(await screen.findByText("Подключено как Илья, https://acme.youtrack.cloud")).toBeDefined();
+    expect(await screen.findByText(/Подключено как Илья/)).toBeDefined();
+    expect(screen.getByText("https://acme.youtrack.cloud")).toBeDefined();
     expect(saved.token).toBe(TOKEN);
     expect(document.body.innerHTML).not.toContain("очень-секретно");
   });

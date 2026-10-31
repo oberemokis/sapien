@@ -6,10 +6,11 @@ import { useYoutrack } from "../interactions/connection";
 import { youtrackProblemOf, type YoutrackProblem } from "../model/youtrack";
 
 const FIELD =
-  "h-8 w-56 rounded-md border border-stroke bg-transparent px-2 text-[13px] outline-none focus:border-accent";
+  "h-8 w-48 rounded-md border border-stroke bg-transparent px-2 text-[13px] outline-none focus:border-accent";
 
-// Раздел «Интеграции»: подключение к своему YouTrack по адресу и токену.
-// Токен после подключения не виден вовсе, его можно только стереть.
+// Раздел «Интеграции»: подключение к своему YouTrack по адресу и токену,
+// одной строкой, как GitLab и ADO в MonoCode. Токен после подключения
+// не виден вовсе, его можно только стереть.
 export function YoutrackSettings() {
   const { t } = useTranslation();
   const youtrack = useYoutrack();
@@ -41,101 +42,81 @@ export function YoutrackSettings() {
     youtrack.disconnect().catch(() => setProblem("failed"));
   }
 
-  // Отказ последнего действия важнее обычной подсказки строки.
-  function hint(usual: string) {
-    if (problem !== null) {
-      return t(`youtrack.problems.${problem}`);
-    }
+  let description: string = t("youtrack.settings.checking");
+  let controls = null;
 
-    return usual;
+  if (status?.kind === "none") {
+    description = t("youtrack.settings.hint");
+    controls = (
+      <>
+        <input
+          aria-label={t("youtrack.settings.host")}
+          placeholder="acme.youtrack.cloud"
+          value={host}
+          autoComplete="off"
+          spellCheck={false}
+          className={FIELD}
+          onChange={(event) => setHost(event.target.value)}
+        />
+        <input
+          type="password"
+          aria-label={t("youtrack.settings.token")}
+          placeholder="perm:…"
+          value={token}
+          autoComplete="off"
+          spellCheck={false}
+          className={FIELD}
+          onChange={(event) => setToken(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              connect();
+            }
+          }}
+        />
+        <Button disabled={!ready} onClick={connect}>
+          {t("youtrack.settings.connect")}
+        </Button>
+      </>
+    );
   }
 
-  let rows = <SettingsRow title={t("youtrack.settings.connection")} description={t("youtrack.settings.checking")}>{null}</SettingsRow>;
-
   if (status?.kind === "connected") {
-    rows = (
-      <SettingsRow
-        title={t("youtrack.settings.connection")}
-        description={hint(t("youtrack.settings.connected", { name: status.name, host: status.host }))}
-      >
-        <Button onClick={disconnect}>{t("youtrack.settings.disconnect")}</Button>
-      </SettingsRow>
-    );
+    description = t("youtrack.settings.connected", { name: status.name });
   }
 
   if (status?.kind === "broken") {
-    rows = (
-      <SettingsRow
-        title={t("youtrack.settings.connection")}
-        description={hint(`${status.host}. ${t(`youtrack.problems.${youtrackProblemOf(status.code)}`)}`)}
-      >
-        <div className="flex gap-2">
+    description = t(`youtrack.problems.${youtrackProblemOf(status.code)}`);
+  }
+
+  if (status?.kind === "connected" || status?.kind === "broken") {
+    controls = (
+      <>
+        <span className="text-[13px] text-content/60">{status.host}</span>
+        {status.kind === "broken" && (
           <Button disabled={youtrack.checking} onClick={() => void youtrack.recheck()}>
             {t("youtrack.settings.recheck")}
           </Button>
-          <Button onClick={disconnect}>{t("youtrack.settings.disconnect")}</Button>
-        </div>
-      </SettingsRow>
-    );
-  }
-
-  let hostHint: string = t("youtrack.settings.hostHint");
-  let tokenHint: string = hint(t("youtrack.settings.tokenHint"));
-
-  if (connecting) {
-    tokenHint = t("youtrack.settings.checking");
-  }
-
-  // Отказ адреса стоит под адресом, остальные под токеном рядом с кнопкой.
-  if (problem?.startsWith("youtrack_host_") === true) {
-    hostHint = hint(hostHint);
-    tokenHint = t("youtrack.settings.tokenHint");
-  }
-
-  if (status?.kind === "none") {
-    rows = (
-      <>
-        <SettingsRow title={t("youtrack.settings.host")} description={hostHint}>
-          <input
-            aria-label={t("youtrack.settings.host")}
-            placeholder="acme.youtrack.cloud"
-            value={host}
-            autoComplete="off"
-            spellCheck={false}
-            className={FIELD}
-            onChange={(event) => setHost(event.target.value)}
-          />
-        </SettingsRow>
-        <SettingsRow title={t("youtrack.settings.token")} description={tokenHint}>
-          <div className="flex gap-2">
-            <input
-              type="password"
-              aria-label={t("youtrack.settings.token")}
-              placeholder="perm:…"
-              value={token}
-              autoComplete="off"
-              spellCheck={false}
-              className={FIELD}
-              onChange={(event) => setToken(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  connect();
-                }
-              }}
-            />
-            <Button disabled={!ready} onClick={connect}>
-              {t("youtrack.settings.connect")}
-            </Button>
-          </div>
-        </SettingsRow>
+        )}
+        <Button onClick={disconnect}>{t("youtrack.settings.disconnect")}</Button>
       </>
     );
+  }
+
+  if (connecting) {
+    description = t("youtrack.settings.checking");
+  }
+
+  // Отказ последнего действия важнее обычного пояснения.
+  if (problem !== null) {
+    description = t(`youtrack.problems.${problem}`);
   }
 
   return (
     <SettingsSection title={t("youtrack.settings.title")} description={t("youtrack.settings.description")}>
       <SettingsGroup title="YouTrack" description={t("youtrack.settings.youtrack")}>
-        {rows}
+        <SettingsRow title={t("youtrack.settings.connection")} description={description}>
+          <div className="flex items-center gap-2">{controls}</div>
+        </SettingsRow>
       </SettingsGroup>
     </SettingsSection>
   );
