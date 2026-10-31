@@ -6,7 +6,7 @@ import { Icon } from "@/core/ui/icon";
 import { MarkdownEditor } from "@/modules/editor";
 import { showPanel, Workspace } from "@/modules/layout";
 import { SettingsButton } from "@/modules/settings";
-import { NoteView, VaultGate, VaultTree } from "@/modules/vault";
+import { FileSearch, NoteView, VaultGate, VaultTree } from "@/modules/vault";
 
 export const Route = createFileRoute("/")({ component: Home });
 
@@ -33,15 +33,18 @@ function Home() {
   const { t } = useTranslation();
 
   return (
-    <Workspace
-      files={<VaultTree onCreateStart={showFiles} />}
-      main={
-        <VaultGate>
-          <NoteView editor={MarkdownEditor} showFiles={showFiles} />
-        </VaultGate>
-      }
-      chat={<Empty icon={BubbleChatIcon} text={t("chat.empty")} />}
-      actions={<SettingsButton />}
-    />
+    <>
+      <Workspace
+        files={<VaultTree onCreateStart={showFiles} />}
+        main={
+          <VaultGate>
+            <NoteView editor={MarkdownEditor} showFiles={showFiles} />
+          </VaultGate>
+        }
+        chat={<Empty icon={BubbleChatIcon} text={t("chat.empty")} />}
+        actions={<SettingsButton />}
+      />
+      <FileSearch />
+    </>
   );
 }

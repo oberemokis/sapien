@@ -4,13 +4,14 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/core/ui/button";
 import { Icon } from "@/core/ui/icon";
 import { useNote } from "../interactions/note";
+import { openSearch } from "../interactions/search";
 import { startCreate, useTreeState } from "../interactions/tree";
 import { notePlace, type EditorProps } from "../model/vault";
 
 type Props = {
   // Редактор текста. Его ставит страница, хранилище знает только, что ему отдать.
   editor: ComponentType<EditorProps>;
-  // Показывает спрятанное дерево: поле нового файла и выбор файла живут в нём.
+  // Показывает спрятанное дерево: поле нового файла живёт в нём.
   showFiles: () => void;
 };
 
@@ -27,15 +28,6 @@ function Notice({ children, action }: { children: ReactNode; action?: ReactNode 
 function NoNote({ showFiles }: Pick<Props, "showFiles">) {
   const { t } = useTranslation();
 
-  // Поиск файла по имени придёт с ⌘K (#9). Пока выбор идёт в дереве:
-  // кнопка показывает его и ставит фокус на строку.
-  function browse() {
-    showFiles();
-    requestAnimationFrame(() => {
-      document.querySelector<HTMLElement>("[data-vault-tree] [aria-current], [data-vault-tree] [data-entry]")?.focus();
-    });
-  }
-
   return (
     <div className="grid flex-1 place-items-center p-4">
       <div className="flex flex-col items-center gap-3 text-center text-content/50">
@@ -50,7 +42,7 @@ function NoNote({ showFiles }: Pick<Props, "showFiles">) {
           >
             {t("editor.newNote")}
           </Button>
-          <Button onClick={browse}>{t("editor.openNote")}</Button>
+          <Button onClick={openSearch}>{t("editor.openNote")}</Button>
         </div>
       </div>
     </div>

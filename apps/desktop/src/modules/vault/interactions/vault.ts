@@ -56,8 +56,9 @@ export function useChooseVault() {
 }
 
 // Поле имени уходит, когда дерево уже перечитано: новая строка встаёт
-// на его место без мигания.
-export function useCreateEntry(draftId: number) {
+// на его место без мигания. Без поля в дереве, например из поиска, номер
+// поля 0: такого поля не бывает, и чужое не закроется.
+export function useCreateEntry(draftId = 0) {
   const queryClient = useQueryClient();
 
   return useMutation({

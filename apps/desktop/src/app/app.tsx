@@ -3,6 +3,7 @@ import { RouterProvider, createRouter } from "@tanstack/react-router";
 import "@/core/i18n/i18n";
 import { restoreTheme, useThemeSync } from "@/modules/appearance";
 import { restoreLayout } from "@/modules/layout";
+import { restoreRecent } from "@/modules/vault";
 import { routeTree } from "@/route-tree.gen";
 
 const queryClient = new QueryClient();
@@ -12,6 +13,7 @@ const router = createRouter({ routeTree });
 // и панели прыгнут из значений по умолчанию в сохранённые.
 restoreTheme();
 restoreLayout();
+restoreRecent();
 
 // Без регистрации Link и navigate не знают дерева и принимают любую строку.
 declare module "@tanstack/react-router" {

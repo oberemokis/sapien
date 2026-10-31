@@ -3,8 +3,9 @@ import { emit } from "@tauri-apps/api/event";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { NoteView, VaultGate, VaultTree, useVaultSync } from "@/modules/vault";
+import { FileSearch, NoteView, VaultGate, VaultTree, useVaultSync } from "@/modules/vault";
 import { forgetNotes } from "./interactions/note";
+import { closeSearch } from "./interactions/search";
 import type { EditorProps } from "./model/vault";
 import { EMPTY_TREE, treeStore } from "./store/tree.store";
 
@@ -123,6 +124,7 @@ function Window() {
           <NoteView editor={TextEditor} showFiles={() => undefined} />
         </VaultGate>
       </main>
+      <FileSearch />
     </>
   );
 }
@@ -161,6 +163,8 @@ afterEach(async () => {
   clearMocks();
   treeStore.setState(() => EMPTY_TREE);
   forgetNotes();
+  closeSearch();
+  localStorage.clear();
 });
 
 describe("хранилище", () => {
@@ -530,5 +534,120 @@ describe("открытая заметка", () => {
     const editor = await screen.findByRole("textbox", { name: "Встреча" });
     expect(editor.getAttribute("data-focus-on-mount")).toBe("true");
     expect(screen.getByRole("heading", { name: "Встреча" })).toBeDefined();
+  });
+});
+
+function vault() {
+  return fakeRust({
+    status: { kind: "ready", path: "/notes" },
+    tree: [
+      folder("Встречи", [note("Встречи/план.md")]),
+      folder("Проекты", [note("Проекты/план.md"), note("Проекты/Презентация.md")]),
+      note("Ёлка.md"),
+    ],
+    files: { "Встречи/план.md": "", "Проекты/план.md": "", "Проекты/Презентация.md": "слайды", "Ёлка.md": "" },
+  });
+}
+
+function search() {
+  return screen.getByRole("combobox", { name: "Поиск файла" });
+}
+
+function query(text: string) {
+  fireEvent.change(search(), { target: { value: text } });
+}
+
+function options() {
+  return screen.queryAllByRole("option").map((option) => option.textContent);
+}
+
+describe("поиск файла", () => {
+  it("⌘K ищет нечётко, Enter открывает найденное", async () => {
+    vault();
+    launch();
+    await inTree().findByRole("button", { name: "Встречи" });
+
+    fireEvent.keyDown(window, { code: "KeyK", ...mod });
+    query("прзнт");
+
+    expect(options()).toEqual(["ПрезентацияПроекты"]);
+    expect(screen.getByRole("option").querySelectorAll("mark")).toHaveLength(3);
+
+    fireEvent.keyDown(search(), { key: "Enter" });
+
+    expect(await screen.findByRole("textbox", { name: "Презентация" })).toBeDefined();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByRole("button", { name: "Презентация" }).getAttribute("aria-current")).toBe("true");
+  });
+
+  it("одинаковые имена различаются папкой, «е» находит «ё»", async () => {
+    vault();
+    launch();
+    fireEvent.click(await inTree().findByRole("button", { name: /Поиск/ }));
+
+    query("ПЛАН");
+    expect(options().toSorted()).toEqual(["планВстречи", "планПроекты"]);
+
+    query("елка");
+    expect(options()).toEqual(["Ёлка"]);
+  });
+
+  it("пустой запрос показывает недавно открытые, свежие сверху", async () => {
+    vault();
+    launch();
+
+    fireEvent.click(await inTree().findByRole("button", { name: "Ёлка" }));
+    fireEvent.click(screen.getByRole("button", { name: "Проекты" }));
+    fireEvent.click(screen.getByRole("button", { name: "Презентация" }));
+    fireEvent.keyDown(window, { code: "KeyK", ...mod });
+
+    expect(screen.getByText("Недавние")).toBeDefined();
+    expect(options()).toEqual(["ПрезентацияПроекты", "Ёлка"]);
+  });
+
+  it("ничего не нашлось: файл создаётся в корне и открывается", async () => {
+    const disk = vault();
+    launch();
+    fireEvent.click(await within(screen.getByRole("main")).findByRole("button", { name: "Открыть файл" }));
+
+    query("Ретро");
+    expect(screen.getByText("Ничего не найдено")).toBeDefined();
+    expect(options()).toEqual(["Создать файл «Ретро»"]);
+
+    fireEvent.keyDown(search(), { key: "Enter" });
+
+    expect(await screen.findByRole("textbox", { name: "Ретро" })).toBeDefined();
+    expect(disk.created).toEqual([{ parent: "", name: "Ретро", kind: "note" }]);
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("Escape закрывает поиск, и фокус возвращается туда, где был", async () => {
+    vault();
+    launch();
+    const trigger = await inTree().findByRole("button", { name: /Поиск/ });
+    trigger.focus();
+
+    fireEvent.click(trigger);
+    expect(document.activeElement).toBe(search());
+
+    fireEvent.keyDown(search(), { key: "Escape" });
+
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it("удалённый снаружи файл следующий поиск уже не находит", async () => {
+    const disk = vault();
+    launch();
+    await inTree().findByRole("button", { name: "Ёлка" });
+
+    disk.tree = disk.tree.filter((entry) => entry.path !== "Ёлка.md");
+    await act(() => emit("vault://changed"));
+    await waitFor(() => expect(inTree().queryByRole("button", { name: "Ёлка" })).toBeNull());
+
+    fireEvent.keyDown(window, { code: "KeyK", ...mod });
+    query("елка");
+
+    expect(screen.getByText("Ничего не найдено")).toBeDefined();
   });
 });
