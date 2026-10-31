@@ -4,7 +4,7 @@ import type { IconSvgElement } from "@hugeicons/react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { Icon } from "@/core/ui/icon";
-import { Workspace } from "@/modules/layout";
+import { showPanel, Workspace } from "@/modules/layout";
 import { SettingsButton } from "@/modules/settings";
 import { VaultGate, VaultTree } from "@/modules/vault";
 
@@ -23,12 +23,17 @@ function Empty({ icon, text }: { icon: IconSvgElement; text: string }) {
   );
 }
 
+// Поле имени нового файла живёт в дереве: спрятанное дерево показывается.
+function showFiles() {
+  showPanel("files");
+}
+
 function Home() {
   const { t } = useTranslation();
 
   return (
     <Workspace
-      files={<VaultTree />}
+      files={<VaultTree onCreateStart={showFiles} />}
       main={
         <VaultGate>
           <Empty icon={Note01Icon} text={t("editor.empty")} />

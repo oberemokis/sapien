@@ -3,9 +3,11 @@ import { useEffect } from "react";
 import {
   onVaultChanged,
   vaultChoose,
+  vaultCreate,
   vaultStatus,
   vaultTree,
 } from "../infrastructure/vault.api";
+import { finishCreate } from "./tree";
 
 // Ключи из имён команд vault_status и vault_tree: общий префикс ["vault"]
 // перечитывает всё хранилище разом.
@@ -36,6 +38,20 @@ export function useChooseVault() {
   return useMutation({
     mutationFn: vaultChoose,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: VAULT_KEY }),
+  });
+}
+
+// Поле имени уходит, когда дерево уже перечитано: новая строка встаёт
+// на его место без мигания.
+export function useCreateEntry(draftId: number) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: vaultCreate,
+    onSuccess: async (path, { kind }) => {
+      await queryClient.invalidateQueries({ queryKey: VAULT_KEY });
+      finishCreate(draftId, path, kind);
+    },
   });
 }
 

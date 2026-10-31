@@ -1,7 +1,8 @@
 use crate::error::AppError;
-use crate::modules::vault::domain::{Entry, is_hidden, is_note, sort_entries};
+use crate::modules::vault::domain::{Entry, EntryKind, is_hidden, is_note, sort_entries};
 use crate::modules::vault::ports::VaultDisk;
-use std::fs;
+use std::fs::{self, OpenOptions};
+use std::io::ErrorKind;
 use std::path::Path;
 
 pub struct Disk;
@@ -15,6 +16,26 @@ impl VaultDisk for Disk {
         let items = fs::read_dir(root).map_err(|_| AppError::unavailable("vault_unreadable"))?;
 
         Ok(walk(items, ""))
+    }
+
+    fn create(&self, path: &Path, kind: EntryKind) -> Result<(), AppError> {
+        // create_new и create_dir падают на занятом месте, а не перезаписывают:
+        // проверка «есть ли такое» отдельно от создания проиграла бы гонку
+        // с правкой снаружи.
+        let created = match kind {
+            EntryKind::Note => OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(path)
+                .map(drop),
+            EntryKind::Folder => fs::create_dir(path),
+        };
+
+        created.map_err(|error| match error.kind() {
+            ErrorKind::AlreadyExists => AppError::conflict("name_taken"),
+            ErrorKind::NotFound => AppError::not_found("parent_missing"),
+            _ => AppError::unavailable("vault_unwritable"),
+        })
     }
 }
 
@@ -113,6 +134,42 @@ mod tests {
         assert_eq!(
             Disk.list(&root.path().join("нет")),
             Err(AppError::unavailable("vault_unreadable"))
+        );
+    }
+
+    #[test]
+    fn занятое_имя_не_перезаписывается() {
+        let root = tempfile::tempdir().unwrap();
+        let note = root.path().join("план.md");
+        fs::write(&note, "важное").unwrap();
+
+        assert_eq!(
+            Disk.create(&note, EntryKind::Note),
+            Err(AppError::conflict("name_taken"))
+        );
+        assert_eq!(fs::read_to_string(&note).unwrap(), "важное");
+        assert_eq!(
+            Disk.create(&root.path().join("план.md"), EntryKind::Folder),
+            Err(AppError::conflict("name_taken"))
+        );
+    }
+
+    #[test]
+    fn создаёт_пустую_заметку_и_папку() {
+        let root = tempfile::tempdir().unwrap();
+
+        Disk.create(&root.path().join("Встречи"), EntryKind::Folder)
+            .unwrap();
+        Disk.create(&root.path().join("Встречи/итоги.md"), EntryKind::Note)
+            .unwrap();
+
+        assert_eq!(
+            fs::read_to_string(root.path().join("Встречи/итоги.md")).unwrap(),
+            ""
+        );
+        assert_eq!(
+            Disk.create(&root.path().join("нет/план.md"), EntryKind::Note),
+            Err(AppError::not_found("parent_missing"))
         );
     }
 }

@@ -49,6 +49,14 @@ export function togglePanel(panel: Panel) {
   writeLayout(layoutStore.get());
 }
 
+// Показывает панель, если её не видно, и не трогает видимую: например,
+// дерево, в котором начали создавать файл.
+export function showPanel(panel: Panel) {
+  if (!fitLayout(layoutStore.get(), windowWidth())[panel].visible) {
+    togglePanel(panel);
+  }
+}
+
 // Зовётся на каждом шаге перетаскивания, поэтому только меняет состояние.
 // Записывает saveLayout, когда указатель отпустили.
 export function resizeLayoutPanel(panel: Panel, width: number) {

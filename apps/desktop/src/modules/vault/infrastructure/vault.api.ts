@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { VaultEntry, VaultStatus } from "../model/vault";
+import type { EntryKind, VaultEntry, VaultStatus } from "../model/vault";
 
 export function vaultStatus() {
   return invoke<VaultStatus>("vault_status");
@@ -13,6 +13,11 @@ export function vaultTree() {
 // Папку выбирает системный диалог в Rust, путь сюда не передаётся.
 export function vaultChoose() {
   return invoke<VaultStatus>("vault_choose");
+}
+
+// Отдаёт путь созданного элемента в том же виде, что в дереве.
+export function vaultCreate(input: { parent: string; name: string; kind: EntryKind }) {
+  return invoke<string>("vault_create", input);
 }
 
 // Rust следит за папкой и шлёт событие, когда в ней что-то поменялось снаружи.
