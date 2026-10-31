@@ -280,6 +280,40 @@ pub struct Similar {
     pub summary: String,
 }
 
+/// Человек, которого можно назначить исполнителем в проекте.
+#[derive(Debug, PartialEq, Serialize)]
+pub struct Person {
+    pub login: String,
+    pub name: String,
+}
+
+/// Исполнители проекта из ответа о его полях: пользователи набора
+/// поля Assignee.
+pub fn project_assignees(fields: &Value) -> Vec<Person> {
+    fields
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|field| {
+            field["field"]["name"]
+                .as_str()
+                .is_some_and(|name| name.eq_ignore_ascii_case("Assignee"))
+        })
+        .flat_map(|field| {
+            field["bundle"]["aggregatedUsers"]
+                .as_array()
+                .into_iter()
+                .flatten()
+        })
+        .filter_map(|user| {
+            Some(Person {
+                login: user["login"].as_str()?.to_owned(),
+                name: user["fullName"].as_str().unwrap_or_default().to_owned(),
+            })
+        })
+        .collect()
+}
+
 /// Слова названия для поиска похожих задач: буквы и цифры, от трёх знаков.
 /// Остальное язык запросов YouTrack прочёл бы как свои знаки.
 pub fn search_words(summary: &str) -> Vec<String> {

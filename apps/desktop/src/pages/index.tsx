@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState, type ComponentProps } from "react";
 import { useTranslation } from "react-i18next";
-import { ACTIONS_FOLDER, AgentChat, useActions } from "@/modules/agent";
+import { ACTIONS_FOLDER, AgentChat, useActions, useMeetingTasks } from "@/modules/agent";
 import { MarkdownEditor } from "@/modules/editor";
 import { showPanel, Workspace } from "@/modules/layout";
 import { SettingsButton } from "@/modules/settings";
@@ -13,13 +13,21 @@ import {
   setTemplateValues,
   TagList,
   useActiveNote,
+  useCreateNote,
   useFolderNotes,
   useNewFromTemplateSet,
   useNoteTexts,
   VaultGate,
   VaultTree,
 } from "@/modules/vault";
-import { TASK_TEMPLATES, TaskDraftForm, useDefaultProject, useYoutrackCheck } from "@/modules/youtrack";
+import {
+  MEETING_FOLDER,
+  MeetingDrafts,
+  TASK_TEMPLATES,
+  TaskDraftForm,
+  useDefaultProject,
+  useYoutrackCheck,
+} from "@/modules/youtrack";
 
 export const Route = createFileRoute("/")({ component: Home });
 
@@ -46,6 +54,42 @@ function DraftAbove(props: { path: string; text: string; readOnly: boolean; onCh
   return <TaskDraftForm {...props} notes={notes ?? []} onOpen={openDraft} />;
 }
 
+type MeetingProps = Pick<ComponentProps<typeof MeetingDrafts>, "tasks" | "problem" | "onClose"> & { path: string };
+
+// Черновики из встречи: предлагает агент, кладёт хранилище. Имя нового
+// черновика сверяется с заметками, поэтому их тексты читаются, только
+// пока окно открыто. После создания открывается первый черновик.
+function MeetingWindow({ path, tasks, problem, onClose }: MeetingProps) {
+  const notes = useNoteTexts();
+  const create = useCreateNote();
+
+  async function createDrafts(drafts: { name: string; text: string }[]) {
+    const paths: string[] = [];
+
+    for (const draft of drafts) {
+      // oxlint-disable-next-line no-await-in-loop -- папку задач создаёт первый черновик
+      paths.push(await create.mutateAsync({ folder: MEETING_FOLDER, ...draft }));
+    }
+
+    onClose();
+
+    if (paths[0] !== undefined) {
+      openDraft(paths[0]);
+    }
+  }
+
+  return (
+    <MeetingDrafts
+      source={path}
+      tasks={tasks}
+      problem={problem}
+      paths={(notes ?? []).map((note) => note.path)}
+      onCreate={createDrafts}
+      onClose={onClose}
+    />
+  );
+}
+
 function Home() {
   const { t } = useTranslation();
   // Агент видит, что открыто и выделено: хранилище это знает, чат спрашивает.
@@ -60,6 +104,8 @@ function Home() {
   // это проект по умолчанию из настроек YouTrack.
   const newTask = useNewFromTemplateSet(TASK_TEMPLATES);
   const project = useDefaultProject();
+  const meeting = useMeetingTasks();
+  const [meetingPath, setMeetingPath] = useState<string | null>(null);
 
   useEffect(() => {
     setTemplateValues({ project });
@@ -69,14 +115,40 @@ function Home() {
     return [{ label: t("youtrack.newTask"), onSelect: () => void newTask(parent) }];
   }
 
+  function closeMeeting() {
+    setMeetingPath(null);
+    meeting.reset();
+  }
+
   // Действие из меню заметки в дереве работает с ней, а не с открытой.
+  // Агенту нужна сеть, без неё пункты видны, но недоступны.
   function noteMenu(path: string) {
-    return actions.actions.map((action) => ({
-      label: action.name,
+    const offline = actions.online ? undefined : t("agent.actions.offline");
+    const fromMeeting = {
+      label: t("youtrack.meeting.run"),
       disabled: !actions.online,
-      hint: actions.online ? undefined : t("agent.actions.offline"),
-      onSelect: () => void actions.run(action, { path, selection: path === note.path ? note.selection : "" }),
-    }));
+      hint: offline,
+      onSelect: () => {
+        setMeetingPath(path);
+        meeting.run(path);
+      },
+    };
+
+    return [
+      fromMeeting,
+      ...actions.actions.map((action) => ({
+        label: action.name,
+        disabled: !actions.online,
+        hint: offline,
+        onSelect: () => void actions.run(action, { path, selection: path === note.path ? note.selection : "" }),
+      })),
+    ];
+  }
+
+  let meetingProblem: string | null = null;
+
+  if (meeting.problem !== null) {
+    meetingProblem = t(`agent.problems.${meeting.problem}`);
   }
 
   return (
@@ -98,6 +170,9 @@ function Home() {
         actions={<SettingsButton />}
       />
       <FileSearch />
+      {meetingPath !== null && (
+        <MeetingWindow path={meetingPath} tasks={meeting.tasks} problem={meetingProblem} onClose={closeMeeting} />
+      )}
     </>
   );
 }

@@ -1,6 +1,7 @@
 use super::domain::{
-    Assembler, Chat, Context, Entry, Event, MAX_STEPS, ModelError, Tool, parse_model, push_user,
-    replace_once, request, search, touch, transcript, turns, undo_plan, user_blocks,
+    Assembler, Chat, Context, Entry, Event, MAX_STEPS, MeetingTask, ModelError, Tool,
+    meeting_request, meeting_tasks, parse_model, push_user, replace_once, request, search, touch,
+    transcript, turns, undo_plan, user_blocks,
 };
 use super::ports::{ChatStore, Model, Notes, Tracker};
 use crate::error::AppError;
@@ -250,6 +251,56 @@ pub async fn send(
     }
 
     Err(AppError::invalid("agent_too_many_steps"))
+}
+
+/// «Задачи из встречи»: агент читает заметку со встречи целиком и предлагает
+/// черновики задач. Заметок он не меняет и в историю чата не пишет: черновики
+/// из предложенного создаёт человек.
+pub async fn meeting(
+    model: &impl Model,
+    notes: &impl Notes,
+    secrets: &Secrets,
+    model_name: &str,
+    path: &str,
+    today: &str,
+) -> Result<Vec<MeetingTask>, AppError> {
+    let model_id = parse_model(model_name).ok_or(AppError::invalid("agent_model_unknown"))?;
+    let key = secrets
+        .get(SecretName::ModelKey)
+        .ok_or(AppError::not_found("agent_key_missing"))?;
+
+    if !notes.open(path) {
+        return Err(AppError::invalid("note_closed"));
+    }
+
+    let text = notes.read(path)?;
+    let body = meeting_request(model_id, path, &text, today);
+    let mut assembler = Assembler::default();
+    let streamed = model
+        .stream(&key, &body, &mut |event| {
+            assembler.apply(&event);
+        })
+        .await;
+
+    if let Some(error) = streamed.err().or(assembler.error()) {
+        return Err(error.into());
+    }
+
+    match assembler.stop_reason() {
+        Some("refusal") => return Err(AppError::invalid("agent_refused")),
+        Some("max_tokens") => return Err(AppError::invalid("agent_too_long")),
+        None => return Err(ModelError::Unreachable.into()),
+        Some(_) => {}
+    }
+
+    let answer: String = assembler
+        .message(true)
+        .iter()
+        .flat_map(|message| message["content"].as_array().into_iter().flatten())
+        .filter_map(|block| block["text"].as_str())
+        .collect();
+
+    meeting_tasks(&answer).ok_or(AppError::invalid("agent_bad_answer"))
 }
 
 #[cfg(test)]
@@ -844,6 +895,91 @@ mod tests {
                 .changes
                 .iter()
                 .all(|change| change.undone)
+        );
+    }
+
+    fn meeting_with(
+        model: &FakeModel,
+        notes: &FakeNotes,
+        path: &str,
+    ) -> Result<Vec<MeetingTask>, AppError> {
+        block_on(meeting(
+            model,
+            notes,
+            &keyed(),
+            "claude-sonnet-5-5",
+            path,
+            "2026-10-31",
+        ))
+    }
+
+    fn task(summary: &str, assignee: &str) -> Value {
+        json!({
+            "summary": summary,
+            "description": "",
+            "assignee": assignee,
+            "due": "",
+            "issues": [],
+            "quote": "",
+        })
+    }
+
+    #[test]
+    fn задачи_из_встречи_без_повторов_и_с_записью_целиком() {
+        let record = format!(
+            "# Планёрка\n\n{}\nИлья пишет письмо.",
+            "Обсуждение.\n".repeat(5_000)
+        );
+        let answer = json!({
+            "tasks": [
+                task("Написать письмо", "Илья"),
+                task("Обновить план", ""),
+                task("написать письмо ", "Илья"),
+            ],
+        });
+        let model = FakeModel::with(vec![Script::Answer(text(&answer.to_string()))]);
+        let notes = FakeNotes::with(&[("Встречи/планёрка.md", record.as_str())]);
+
+        let tasks = meeting_with(&model, &notes, "Встречи/планёрка.md").unwrap();
+
+        assert_eq!(
+            tasks
+                .iter()
+                .map(|task| task.summary.as_str())
+                .collect::<Vec<_>>(),
+            ["Написать письмо", "Обновить план"],
+        );
+
+        let (key, body) = model.bodies.lock().unwrap()[0].clone();
+        let asked = body["messages"][0]["content"][0]["text"].as_str().unwrap();
+
+        assert_eq!(key, KEY);
+        assert!(asked.starts_with("Сегодня 2026-10-31. Заметка «Встречи/планёрка.md»"));
+        assert!(asked.contains(&record));
+        assert_eq!(body["output_config"]["format"]["type"], "json_schema");
+        assert!(body.get("tools").is_none());
+    }
+
+    #[test]
+    fn встреча_без_действий_закрытая_и_непонятный_ответ() {
+        let notes = FakeNotes::with(&[
+            ("Встречи/кофе.md", "Поболтали."),
+            ("Личное/встреча.md", "Секрет."),
+        ]);
+        let model = FakeModel::with(vec![
+            Script::Answer(text(r#"{"tasks":[]}"#)),
+            Script::Answer(text("Действий нет.")),
+        ]);
+
+        assert_eq!(meeting_with(&model, &notes, "Встречи/кофе.md"), Ok(vec![]));
+        assert_eq!(
+            meeting_with(&model, &notes, "Встречи/кофе.md"),
+            Err(AppError::invalid("agent_bad_answer")),
+        );
+        // Закрытая заметка не уходит модели: лишний запрос уронил бы фейк.
+        assert_eq!(
+            meeting_with(&model, &notes, "Личное/встреча.md"),
+            Err(AppError::invalid("note_closed")),
         );
     }
 }

@@ -1,7 +1,7 @@
 use super::domain::{
-    ApiError, Checked, Draft, IssueFacts, IssueState, Published, Sent, Similar, YoutrackStatus,
-    field_command, field_value, link_command, missing_fields, parse_host, parse_issue_id,
-    search_words,
+    ApiError, Checked, Draft, IssueFacts, IssueState, Person, Published, Sent, Similar,
+    YoutrackStatus, field_command, field_value, link_command, missing_fields, parse_host,
+    parse_issue_id, project_assignees, search_words,
 };
 use super::ports::{HostPlace, Ledger, YoutrackApi};
 use crate::error::AppError;
@@ -460,6 +460,30 @@ pub async fn similar(
         .collect())
 }
 
+/// Кого можно назначить исполнителем в проекте: по этому списку окно узнаёт
+/// исполнителя, которого назвали по имени.
+pub async fn assignees(
+    api: &impl YoutrackApi,
+    place: &impl HostPlace,
+    secrets: &Secrets,
+    project: &str,
+) -> Result<Vec<Person>, AppError> {
+    let (host, token) = connection(place, secrets)?;
+    let project = project_id(api, &host, &token, project).await?;
+    let query = [
+        (
+            "fields",
+            "field(name),bundle(aggregatedUsers(login,fullName))",
+        ),
+        ("$top", "200"),
+    ];
+    let path = format!("/api/admin/projects/{project}/customFields");
+
+    Ok(project_assignees(&json_of(
+        &api.get(&host, &token, &path, &query).await?,
+    )?))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -565,6 +589,14 @@ mod tests {
                     { "field": { "name": "Priority" }, "canBeEmpty": false, "defaultValues": [{ "name": "Normal" }] },
                     { "field": { "name": "Subsystem" }, "canBeEmpty": false, "defaultValues": [] },
                     { "field": { "name": "Fix versions" }, "canBeEmpty": true },
+                    {
+                        "field": { "name": "Assignee" },
+                        "canBeEmpty": true,
+                        "bundle": { "aggregatedUsers": [
+                            { "login": "ilya", "fullName": "Илья Оберемок" },
+                            { "login": "anna" },
+                        ] },
+                    },
                 ]),
                 _ => {
                     let id = path.strip_prefix("/api/issues/").ok_or(ApiError::Missing)?;
@@ -1160,6 +1192,30 @@ mod tests {
         assert_eq!(
             block_on(similar(&board, &place, &secrets, "SAP", "по и")),
             Ok(vec![])
+        );
+    }
+
+    #[test]
+    fn исполнители_проекта_из_набора_поля_assignee() {
+        let board = with_issues(&[], vec![]);
+        let (place, secrets) = connected();
+
+        assert_eq!(
+            block_on(assignees(&board, &place, &secrets, "sap")),
+            Ok(vec![
+                Person {
+                    login: "ilya".into(),
+                    name: "Илья Оберемок".into(),
+                },
+                Person {
+                    login: "anna".into(),
+                    name: String::new(),
+                },
+            ])
+        );
+        assert_eq!(
+            block_on(assignees(&board, &place, &secrets, "WEB")),
+            Err(AppError::invalid("youtrack_project_missing"))
         );
     }
 }

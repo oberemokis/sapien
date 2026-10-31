@@ -27,6 +27,9 @@ export type Checked = { projectFound: boolean; missing: string[]; issues: IssueF
 // Задача проекта, похожая на черновик.
 export type Similar = { id: string; summary: string };
 
+// Кого можно назначить исполнителем в проекте, как Person в domain.rs.
+export type Person = { login: string; name: string };
+
 // Коды отказов из domain.rs и use_case.rs, у каждого своя подсказка.
 const PROBLEMS = [
   "youtrack_host_empty",
