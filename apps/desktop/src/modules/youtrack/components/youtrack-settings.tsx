@@ -3,11 +3,41 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/core/ui/button";
 import { SettingsGroup, SettingsRow, SettingsSection } from "@/core/ui/settings";
 import { useYoutrack } from "../interactions/connection";
+import { changeTracked, useTracked } from "../interactions/inbox";
 import { changeDefaultProject, useDefaultProject } from "../interactions/project";
 import { youtrackProblemOf, type YoutrackProblem } from "../model/youtrack";
 
-const FIELD =
-  "h-8 w-48 rounded-md border border-stroke bg-transparent px-2 text-[13px] outline-none focus:border-accent";
+const INPUT = "h-8 rounded-md border border-stroke bg-transparent px-2 text-[13px] outline-none focus:border-accent";
+const FIELD = `${INPUT} w-48`;
+
+// Запрос отслеживаемых задач применяется, когда поле теряет фокус или по
+// Enter: каждая буква иначе спрашивала бы YouTrack заново.
+function TrackedQuery() {
+  const { t } = useTranslation();
+  const tracked = useTracked();
+  const [query, setQuery] = useState(tracked);
+
+  function apply() {
+    setQuery(changeTracked(query));
+  }
+
+  return (
+    <input
+      aria-label={t("youtrack.settings.tracked")}
+      value={query}
+      autoComplete="off"
+      spellCheck={false}
+      className={`${INPUT} w-80`}
+      onChange={(event) => setQuery(event.target.value)}
+      onBlur={apply}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") {
+          apply();
+        }
+      }}
+    />
+  );
+}
 
 // Раздел «Интеграции»: подключение к своему YouTrack по адресу и токену,
 // одной строкой, как GitLab и ADO в MonoCode. Токен после подключения
@@ -129,6 +159,9 @@ export function YoutrackSettings() {
             className={FIELD}
             onChange={(event) => changeDefaultProject(event.target.value)}
           />
+        </SettingsRow>
+        <SettingsRow title={t("youtrack.settings.tracked")} description={t("youtrack.settings.trackedHint")}>
+          <TrackedQuery />
         </SettingsRow>
       </SettingsGroup>
     </SettingsSection>

@@ -300,6 +300,8 @@ type Props = {
   // Пункты соседей рядом с «Новым файлом»: создают в папке parent,
   // например черновик задачи.
   createMenu?: (parent: string) => MenuItem[];
+  // Разделы соседей под поиском, например «Входящие».
+  nav?: ReactNode;
 };
 
 type Menu = {
@@ -313,7 +315,7 @@ type Menu = {
 
 // Дерево хранилища в левой панели. Пока хранилище не открыто, панель пуста:
 // что делать, объясняет середина окна.
-export function VaultTree({ onCreateStart, noteMenu, createMenu }: Props) {
+export function VaultTree({ onCreateStart, noteMenu, createMenu, nav }: Props) {
   const { t } = useTranslation();
   const status = useVaultStatus();
   const tree = useVaultTree();
@@ -405,6 +407,7 @@ export function VaultTree({ onCreateStart, noteMenu, createMenu }: Props) {
         <span className="flex-1 text-left">{t("vault.search.open")}</span>
         <kbd className="font-sans text-[11px] text-content/40">{shortcutLabel("K")}</kbd>
       </button>
+      {nav}
       <div className="flex h-9 shrink-0 items-center gap-1 pr-1.5 pl-3">
         <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-content/50">
           {status.data.path.split(/[/\\]/).at(-1)}

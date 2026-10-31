@@ -1,4 +1,6 @@
-use super::domain::{Checked, Draft, IssueState, Person, Published, Similar, YoutrackStatus};
+use super::domain::{
+    Checked, Draft, FeedEvent, IssueDetail, IssueState, Person, Published, Similar, YoutrackStatus,
+};
 use super::infrastructure::host_file::HostFile;
 use super::infrastructure::http::Http;
 use super::infrastructure::sent_file::SentFile;
@@ -165,12 +167,49 @@ pub async fn epic_changes<R: Runtime>(
 ) -> Result<String, AppError> {
     let http = app.state::<Http>();
     let secrets = app.state::<Secrets>();
-    let now = SystemTime::now()
+    let changes =
+        use_case::epic_changes(&*http, &place(app)?, &secrets, epic, since, now_ms()).await?;
+
+    Ok(serde_json::to_string(&changes).unwrap_or_default())
+}
+
+/// Сейчас в миллисекундах от начала эпохи, как время в YouTrack.
+fn now_ms() -> i64 {
+    SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |elapsed| {
             i64::try_from(elapsed.as_millis()).unwrap_or(i64::MAX)
-        });
-    let changes = use_case::epic_changes(&*http, &place(app)?, &secrets, epic, since, now).await?;
+        })
+}
 
-    Ok(serde_json::to_string(&changes).unwrap_or_default())
+/// События ленты по отслеживаемым задачам с момента `since`.
+#[tauri::command]
+pub async fn youtrack_feed(
+    app: AppHandle,
+    http: State<'_, Http>,
+    secrets: State<'_, Secrets>,
+    query: String,
+    ids: Vec<String>,
+    since: i64,
+) -> Result<Vec<FeedEvent>, AppError> {
+    use_case::feed(
+        &*http,
+        &place(&app)?,
+        &secrets,
+        &query,
+        &ids,
+        since,
+        now_ms(),
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn youtrack_issue_detail(
+    app: AppHandle,
+    http: State<'_, Http>,
+    secrets: State<'_, Secrets>,
+    id: String,
+) -> Result<IssueDetail, AppError> {
+    use_case::issue_detail(&*http, &place(&app)?, &secrets, &id).await
 }
