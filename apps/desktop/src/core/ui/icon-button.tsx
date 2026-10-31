@@ -6,18 +6,21 @@ type Props = {
   label: string;
   // Подпись сочетания из shortcutLabel: попадает в подсказку при наведении.
   shortcut?: string;
+  // Кнопка-переключатель: включена ли сейчас.
+  pressed?: boolean;
   onClick: () => void;
 };
 
 // Кнопка без подписи в верхней полосе окна. Имя для чтения с экрана даёт
 // label, подсказка повторяет его вместе с сочетанием.
-export function IconButton({ icon, label, shortcut, onClick }: Props) {
+export function IconButton({ icon, label, shortcut, pressed, onClick }: Props) {
   return (
     <button
       type="button"
       aria-label={label}
+      aria-pressed={pressed}
       title={shortcut === undefined ? label : `${label} (${shortcut})`}
-      className="grid size-7 place-items-center rounded-md text-content/60 transition-colors duration-120 hover:bg-selection-hover hover:text-content"
+      className="grid size-7 place-items-center rounded-md text-content/60 transition-colors duration-120 hover:bg-selection-hover hover:text-content aria-pressed:bg-selection aria-pressed:text-content"
       onClick={onClick}
     >
       <Icon icon={icon} size={15} />

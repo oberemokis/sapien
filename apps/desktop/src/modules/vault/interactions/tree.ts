@@ -2,7 +2,18 @@ import { useSelector } from "@tanstack/react-store";
 import { readRecent, writeRecent } from "../infrastructure/recent.device";
 import { readTabs, writeTabs } from "../infrastructure/tabs.device";
 import { parseRecent, pushRecent } from "../model/search";
-import { closeTab, cycleTab, keepTabs, moveTab, openTab, parseTabs, renameTabs, type Tabs } from "../model/tabs";
+import {
+  closeTab,
+  cycleTab,
+  followReading,
+  keepTabs,
+  moveTab,
+  openTab,
+  parseReading,
+  parseTabs,
+  renameTabs,
+  type Tabs,
+} from "../model/tabs";
 import { foldersDownTo, isWithin, movedPath, notePlace, parentOf, type EntryKind, type Moved } from "../model/vault";
 import { EMPTY_TREE, treeStore } from "../store/tree.store";
 import { restoreTagPanel } from "./tag-panel";
@@ -32,21 +43,56 @@ let checkedOnStart = false;
 
 export function restoreSession() {
   checkedOnStart = false;
+
+  const saved = readTabs();
+  const tabs = parseTabs(saved);
+
   treeStore.setState((state) => ({
     ...state,
-    ...parseTabs(readTabs()),
+    ...tabs,
+    reading: parseReading(saved, tabs.tabs),
     recent: parseRecent(readRecent()),
   }));
   restoreTemplateSettings();
   restoreTagPanel();
 }
 
+function saveTabs() {
+  const { tabs, active, reading } = treeStore.get();
+
+  writeTabs({ tabs, active, reading });
+}
+
 function updateTabs(update: (tabs: Tabs) => Tabs) {
-  treeStore.setState((state) => ({ ...state, ...update({ tabs: state.tabs, active: state.active }) }));
+  treeStore.setState((state) => {
+    const next = update({ tabs: state.tabs, active: state.active });
 
-  const { tabs, active } = treeStore.get();
+    return { ...state, ...next, reading: followReading(state.reading, state.tabs, next.tabs) };
+  });
+  saveTabs();
+}
 
-  writeTabs({ tabs, active });
+export function useReading(path: string) {
+  return useSelector(treeStore, (tree) => tree.reading.includes(path));
+}
+
+// ⌘E и кнопка в шапке заметки. Из чтения в правку курсор идёт в текст:
+// человек переключился, чтобы писать.
+export function toggleReading(path: string) {
+  const reading = treeStore.get().reading.includes(path);
+
+  treeStore.setState((state) => {
+    if (reading) {
+      return { ...state, reading: state.reading.filter((tab) => tab !== path) };
+    }
+
+    return { ...state, reading: [...state.reading, path] };
+  });
+  saveTabs();
+
+  if (reading) {
+    focusNote(path);
+  }
 }
 
 // Один раз за запуск, по первому дереву. Дальше вкладка пропавшего файла
@@ -289,5 +335,5 @@ export function finishCreate(draftId: number, path: string, kind: EntryKind) {
 export function resetTree() {
   treeStore.setState(() => EMPTY_TREE);
   writeRecent([]);
-  writeTabs({ tabs: [], active: null });
+  writeTabs({ tabs: [], active: null, reading: [] });
 }

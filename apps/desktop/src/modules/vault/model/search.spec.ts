@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { fuzzyMatch, highlight, notesOf, parseRecent, pushRecent, searchNotes, type NoteItem } from "./search";
+import {
+  findNoteLink,
+  fuzzyMatch,
+  highlight,
+  notesOf,
+  parseRecent,
+  pushRecent,
+  searchNotes,
+  type NoteItem,
+} from "./search";
 
 const item = (path: string): NoteItem => {
   const parts = path.replace(/\.md$/, "").split("/");
@@ -76,6 +85,26 @@ describe("поиск по заметкам", () => {
     ];
 
     expect(notesOf(tree)).toEqual([item("Проекты/план.md"), item("Идеи.md")]);
+  });
+});
+
+describe("[[ссылка]] на заметку", () => {
+  const notes = ["Встречи/план.md", "Проекты/sapien/план.md", "План.md", "Идеи.md"].map(item);
+
+  it("по имени без учёта регистра, ближе заметка из той же папки, потом с коротким путём", () => {
+    expect(findNoteLink(notes, "идеи", "Встречи/Кофе.md")).toBe("Идеи.md");
+    expect(findNoteLink(notes, "план", "Встречи/Кофе.md")).toBe("Встречи/план.md");
+    expect(findNoteLink(notes, "план", "Идеи.md")).toBe("План.md");
+  });
+
+  it("по пути, с «.md» и с заголовком в конце", () => {
+    expect(findNoteLink(notes, "Проекты/sapien/план", "Идеи.md")).toBe("Проекты/sapien/план.md");
+    expect(findNoteLink(notes, "Идеи.md#Сегодня", "План.md")).toBe("Идеи.md");
+  });
+
+  it("нет такой заметки, null", () => {
+    expect(findNoteLink(notes, "Нет", "Идеи.md")).toBeNull();
+    expect(findNoteLink(notes, "#Заголовок", "Идеи.md")).toBeNull();
   });
 });
 

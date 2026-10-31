@@ -12,7 +12,7 @@ export function readTabs(): unknown {
   }
 }
 
-export function writeTabs(tabs: Tabs) {
+export function writeTabs(tabs: Tabs & { reading: string[] }) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(tabs));
   } catch {

@@ -25,7 +25,7 @@ import { forgetNotes } from "./interactions/note";
 import { closeHistory } from "./interactions/history";
 import { closeSearch } from "./interactions/search";
 import { DEFAULT_TEMPLATES } from "./model/templates";
-import type { EditorProps, Unsaved } from "./model/vault";
+import type { EditorProps, ReaderProps, Unsaved } from "./model/vault";
 import { tagPanelStore } from "./store/tag-panel.store";
 import { templatesStore } from "./store/templates.store";
 import { EMPTY_TREE, treeStore } from "./store/tree.store";
@@ -262,6 +262,25 @@ function TextEditor({ value, onChange, readOnly, focusRequest, insert, label, ta
   );
 }
 
+// Чтение здесь текст как есть и [[ссылки]] кнопками: отрисовка markdown
+// проверяется в модуле редактора.
+function TextReader({ value, label, hidden, findNote, onNoteClick }: ReaderProps) {
+  return (
+    <article aria-label={`чтение ${label}`} hidden={hidden}>
+      <p>{value}</p>
+      {[...value.matchAll(/\[\[([^\]]+)\]\]/g)].map(([link, target = ""]) => {
+        const path = findNote(target);
+
+        return (
+          <button key={link} type="button" disabled={path === null} onClick={() => path !== null && onNoteClick(path)}>
+            {link}
+          </button>
+        );
+      })}
+    </article>
+  );
+}
+
 // Набор стандартных шаблонов соседа, как шаблоны задач у YouTrack.
 const TASKS: TemplateSet = {
   folder: "Задачи",
@@ -289,7 +308,7 @@ function Window({ noteMenu }: { noteMenu?: (path: string) => MenuItem[] }) {
       </aside>
       <main>
         <VaultGate>
-          <NoteView editor={TextEditor} showFiles={() => undefined} />
+          <NoteView editor={TextEditor} reader={TextReader} showFiles={() => undefined} />
         </VaultGate>
       </main>
       <FileSearch />
@@ -1254,6 +1273,95 @@ describe("вкладки", () => {
 
     await waitFor(() => expect(tabs()).toEqual(["план", "итоги"]));
     expect(await screen.findByRole("textbox", { name: "итоги" })).toHaveProperty("value", "итоги");
+  });
+});
+
+function reading(label: string) {
+  return screen.queryByRole("article", { name: `чтение ${label}` });
+}
+
+function readingButton() {
+  return screen
+    .getAllByRole("button", { name: "Режим чтения" })
+    .find((button) => button.closest("[hidden]") === null) as HTMLElement;
+}
+
+function pressModE() {
+  fireEvent.keyDown(window, { code: "KeyE", key: "e", ...mod });
+}
+
+describe("режим чтения", () => {
+  it("⌘E и кнопка переключают вкладку, правка не теряется, курсор возвращается в текст", async () => {
+    workspace();
+    launch();
+    await openFromTree("идеи");
+    const editor = await screen.findByRole("textbox", { name: "идеи" });
+    fireEvent.change(editor, { target: { value: "идеи и [[план]]" } });
+
+    pressModE();
+
+    expect(reading("идеи")?.textContent).toContain("идеи и [[план]]");
+    expect(editor.closest("[hidden]")).not.toBeNull();
+    expect(readingButton().getAttribute("aria-pressed")).toBe("true");
+    // В чтении вставлять шаблон некуда.
+    expect(screen.queryByRole("button", { name: "Вставить шаблон" })).toBeNull();
+
+    fireEvent.click(readingButton());
+
+    expect(reading("идеи")?.closest("[hidden]")).not.toBeNull();
+    expect(editor.closest("[hidden]")).toBeNull();
+    expect(editorText("идеи")).toBe("идеи и [[план]]");
+    await waitFor(() => expect(document.activeElement).toBe(editor));
+  });
+
+  it("режим помнит вкладка: другая вкладка в правке, после перезапуска чтение на месте", async () => {
+    workspace();
+    const first = launch();
+    await openFromTree("идеи");
+    pressModE();
+    fireEvent.click(inTree().getByRole("button", { name: "Встречи" }));
+    fireEvent.click(inTree().getByRole("button", { name: "план" }), mod);
+
+    expect(await screen.findByRole("textbox", { name: "план" })).toBeDefined();
+    expect(reading("план")).toBeNull();
+
+    first.unmount();
+    treeStore.setState(() => EMPTY_TREE);
+    restoreSession();
+    launch();
+
+    await waitFor(() => expect(tabs()).toEqual(["идеи", "план"]));
+    fireEvent.click(screen.getByRole("tab", { name: "идеи" }));
+    expect(await screen.findByRole("article", { name: "чтение идеи" })).toBeDefined();
+  });
+
+  it("[[заметка]] из чтения открывает заметку в той же вкладке, тоже в чтении", async () => {
+    const disk = workspace();
+    (disk.files ?? {})["идеи.md"] = "см. [[Встречи/план]] и [[нет такой]]";
+    launch();
+    await openFromTree("идеи");
+    await screen.findByRole("textbox", { name: "идеи" });
+    pressModE();
+
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "[[нет такой]]" }).disabled).toBe(true);
+    fireEvent.click(await screen.findByRole("button", { name: "[[Встречи/план]]" }));
+
+    await waitFor(() => expect(tabs()).toEqual(["план"]));
+    expect(await screen.findByRole("article", { name: "чтение план" })).toBeDefined();
+  });
+
+  it("правка файла снаружи видна в чтении без перезапуска", async () => {
+    const disk = workspace();
+    launch();
+    await openFromTree("идеи");
+    await screen.findByRole("textbox", { name: "идеи" });
+    pressModE();
+    expect(reading("идеи")?.textContent).toBe("идеи");
+
+    (disk.files ?? {})["идеи.md"] = "идеи с другого устройства";
+    await act(() => emit("vault://changed"));
+
+    await waitFor(() => expect(reading("идеи")?.textContent).toContain("идеи с другого устройства"));
   });
 });
 

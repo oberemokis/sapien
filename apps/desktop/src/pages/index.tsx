@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState, type ComponentProps } from "react";
 import { useTranslation } from "react-i18next";
 import { ACTIONS_FOLDER, AgentChat, useActions, useAsk, useMeetingTasks } from "@/modules/agent";
-import { MarkdownEditor } from "@/modules/editor";
+import { MarkdownEditor, MarkdownReader } from "@/modules/editor";
 import { showPanel, Workspace } from "@/modules/layout";
 import { SettingsButton } from "@/modules/settings";
 import {
@@ -241,7 +241,7 @@ function Home() {
             {inboxOpen ? (
               <Inbox inbox={inbox} onAsk={askAbout} />
             ) : (
-              <NoteView editor={NoteEditor} showFiles={showFiles} above={DraftAbove} />
+              <NoteView editor={NoteEditor} reader={MarkdownReader} showFiles={showFiles} above={DraftAbove} />
             )}
           </VaultGate>
         }

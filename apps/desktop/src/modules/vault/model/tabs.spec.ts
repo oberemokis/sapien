@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   closeTab,
   cycleTab,
+  followReading,
   keepTabs,
   moveTab,
   NO_TABS,
   openTab,
+  parseReading,
   parseTabs,
   renameTabs,
   tabLabels,
@@ -61,6 +63,26 @@ describe("вкладки", () => {
     expect(parseTabs(null)).toEqual(NO_TABS);
     expect(parseTabs({ tabs: "а.md" })).toEqual(NO_TABS);
     expect(parseTabs({ tabs: ["а.md", 1, "а.md"], active: "нет.md" })).toEqual({ tabs: ["а.md"], active: "а.md" });
+  });
+
+  it("режим чтения остаётся у вкладки, когда в ней сменился файл, и уходит с закрытой", () => {
+    const reading = ["б.md"];
+
+    // Клик в дереве заменил файл читаемой вкладки.
+    expect(followReading(reading, three.tabs, openTab(three, "г.md", false).tabs)).toEqual(["г.md"]);
+    // Новая вкладка открывается в правке.
+    expect(followReading(reading, three.tabs, openTab(three, "г.md", true).tabs)).toEqual(["б.md"]);
+    expect(followReading(reading, three.tabs, renameTabs(three, [{ from: "б.md", to: "Архив/б.md" }]).tabs)).toEqual([
+      "Архив/б.md",
+    ]);
+    expect(followReading(reading, three.tabs, moveTab(three, "б.md", 0).tabs)).toEqual(["б.md"]);
+    expect(followReading(reading, three.tabs, closeTab(three, "б.md").tabs)).toEqual([]);
+  });
+
+  it("режим чтения из хранилища окна только у открытых вкладок", () => {
+    expect(parseReading({ tabs: ["а.md"], reading: ["а.md", "нет.md", 1] }, ["а.md"])).toEqual(["а.md"]);
+    expect(parseReading({ tabs: ["а.md"] }, ["а.md"])).toEqual([]);
+    expect(parseReading(null, [])).toEqual([]);
   });
 
   it("одинаковые имена подписаны папкой", () => {

@@ -1,6 +1,7 @@
 import { syntaxTree } from "@codemirror/language";
 import type { EditorState, Range } from "@codemirror/state";
 import { Decoration, EditorView, ViewPlugin, WidgetType, type DecorationSet, type ViewUpdate } from "@codemirror/view";
+import { wikiLinks } from "../model/wiki-links";
 
 type SyntaxNode = ReturnType<ReturnType<typeof syntaxTree>["resolveInner"]>;
 
@@ -10,9 +11,6 @@ const link = Decoration.mark({ class: "cm-lp-link" });
 const quoteLine = Decoration.line({ class: "cm-lp-quote" });
 const codeLine = Decoration.line({ class: "cm-lp-codeblock" });
 
-// [[заметка]] и [[заметка|подпись]]: lezer их не разбирает, они ищутся
-// в тексте строки.
-const WIKI_LINK = /\[\[([^[\]|\n]+)(\|[^[\]\n]+)?\]\]/g;
 const CODE = new Set(["FencedCode", "CodeBlock", "InlineCode", "Frontmatter"]);
 
 class Bullet extends WidgetType {
@@ -147,37 +145,38 @@ function eachLine(state: EditorState, from: number, to: number, add: (lineFrom: 
   }
 }
 
+// lezer зовёт ссылкой любой «[текст]», даже без адреса: «[x]» в тексте
+// и половину «[[заметки]]». Ссылка только та, у которой есть адрес или метка.
 function linkRanges(node: SyntaxNode, ranges: Range<Decoration>[]) {
   const marks = node.getChildren("LinkMark");
   const open = marks[0];
   const close = marks[1];
+  const target = node.getChild("URL") ?? node.getChild("LinkLabel");
 
-  if (open === undefined || close === undefined || close.from <= open.to) {
+  if (open === undefined || close === undefined || close.from <= open.to || target === null) {
     return;
   }
 
   ranges.push(hidden.range(open.from, open.to), link.range(open.to, close.from), hidden.range(close.from, node.to));
 }
 
-function wikiLinks(state: EditorState, from: number, to: number, revealed: Set<number>, ranges: Range<Decoration>[]) {
-  const text = state.sliceDoc(from, to);
-
-  for (const match of text.matchAll(WIKI_LINK)) {
-    const start = from + match.index;
-    const end = start + match[0].length;
+function wikiLinkRanges(
+  state: EditorState,
+  from: number,
+  to: number,
+  revealed: Set<number>,
+  ranges: Range<Decoration>[],
+) {
+  for (const wiki of wikiLinks(state.sliceDoc(from, to))) {
+    const start = from + wiki.from;
+    const shown = from + wiki.labelFrom;
+    const end = from + wiki.to;
 
     if (revealed.has(state.doc.lineAt(start).number) || inCode(state, start)) {
       continue;
     }
 
-    const target = match[1] ?? "";
-    let shownFrom = start + 2;
-
-    if (match[2] !== undefined) {
-      shownFrom = start + 2 + target.length + 1;
-    }
-
-    ranges.push(hidden.range(start, shownFrom), link.range(shownFrom, end - 2), hidden.range(end - 2, end));
+    ranges.push(hidden.range(start, shown), link.range(shown, end - 2), hidden.range(end - 2, end));
   }
 }
 
@@ -272,7 +271,7 @@ function decorations(view: EditorView, taskLabel: string): DecorationSet {
       },
     });
 
-    wikiLinks(state, from, to, revealed, ranges);
+    wikiLinkRanges(state, from, to, revealed, ranges);
   }
 
   return Decoration.set(ranges, true);

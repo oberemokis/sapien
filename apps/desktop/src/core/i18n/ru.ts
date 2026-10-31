@@ -18,6 +18,7 @@ export const ru = {
     missing: "Файла больше нет на диске",
   },
   vault: {
+    reading: "Режим чтения",
     choose: "Выбрать папку",
     retry: "Повторить",
     none: {
@@ -135,6 +136,9 @@ export const ru = {
     restore: "Вернуть",
     discard: "Отказаться",
     task: "Задача выполнена",
+    reader: {
+      missing: "Такой заметки нет",
+    },
     mode: {
       title: "Редактор",
       description: "Live Preview прячет разметку вне строки с курсором, исходный текст показывает её всегда.",

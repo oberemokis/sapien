@@ -61,6 +61,25 @@ export type EditorProps = {
   onSelectionChange: (text: string) => void;
 };
 
+// Заметка в режиме чтения: отрисована целиком, правится только флажками задач.
+export type ReaderProps = {
+  value: string;
+  onChange: (text: string) => void;
+  readOnly: boolean;
+  label: string;
+  // Вкладка в правке: чтение стоит спрятанным и текст не разбирает.
+  hidden: boolean;
+  // Как у редактора: новый номер ставит фокус в чтение, например при
+  // переключении на вкладку.
+  focusRequest: number;
+  onTagClick: (tag: string) => void;
+  // Щелчок по ссылке на сайт: открыть адрес в браузере системы.
+  onLinkClick: (url: string) => void;
+  // [[заметка]]: путь заметки хранилища или null, если такой нет.
+  findNote: (target: string) => string | null;
+  onNoteClick: (path: string) => void;
+};
+
 // Коды те же, что у check_name в domain.rs: окно подсказывает заранее,
 // а Rust проверяет ещё раз и отвечает теми же кодами.
 export type NameProblem = "name_empty" | "name_forbidden" | "name_hidden" | "name_taken";
