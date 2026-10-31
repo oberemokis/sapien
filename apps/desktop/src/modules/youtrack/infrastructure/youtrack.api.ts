@@ -38,6 +38,16 @@ export function youtrackSimilar(project: string, summary: string) {
   return invoke<Similar[]>("youtrack_similar", { project, summary });
 }
 
+// Короткие имена проектов: с них начинаются номера задач.
+export function youtrackProjects() {
+  return invoke<string[]>("youtrack_projects");
+}
+
+// Последние задачи проекта, свежие первыми.
+export function youtrackProjectIssues(project: string) {
+  return invoke<Similar[]>("youtrack_project_issues", { project });
+}
+
 // Кого можно назначить исполнителем в проекте.
 export function youtrackAssignees(project: string) {
   return invoke<Person[]>("youtrack_assignees", { project });

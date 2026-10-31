@@ -1,12 +1,22 @@
+import { autocompletion } from "@codemirror/autocomplete";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { Annotation, Compartment, EditorState, Transaction } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { useEffect, useRef } from "react";
+import { IssueIds } from "@/core/markdown/issues";
 import { Frontmatter, Hashtags } from "@/core/markdown/tags";
 import { textChange } from "../model/text-change";
 import { markdownTheme } from "../ui/markdown-theme";
 import { tagClick, tagCompletion } from "./hashtags";
+import {
+  issueCards,
+  issueClick,
+  issueCompletion,
+  type IssueMentions,
+  issuePlaques,
+  refreshIssues,
+} from "./issues";
 import { linkClick } from "./links";
 
 // Пометка правки, пришедшей снаружи: её не возвращают обратно через onChange.
@@ -29,6 +39,8 @@ type Props = {
   // Выделенный текст, пустая строка без выделения. Выделение помнится
   // и тогда, когда фокус ушёл из редактора, например в поле чата.
   onSelectionChange?: (text: string) => void;
+  // Задачи для номеров вида SAP-12. Без них номер остаётся текстом.
+  issues?: IssueMentions | null;
 };
 
 const NO_TAGS: string[] = [];
@@ -53,6 +65,7 @@ export function MarkdownEditor({
   onTagClick = ignore,
   onLinkClick = ignore,
   onSelectionChange = ignore,
+  issues = null,
 }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -61,6 +74,7 @@ export function MarkdownEditor({
   const onTagClickRef = useRef(onTagClick);
   const onLinkClickRef = useRef(onLinkClick);
   const onSelectionChangeRef = useRef(onSelectionChange);
+  const issuesRef = useRef(issues);
   const editableRef = useRef(new Compartment());
   const labelRef = useRef(new Compartment());
   const initialRef = useRef({ value, readOnly, label });
@@ -73,8 +87,15 @@ export function MarkdownEditor({
     onSelectionChangeRef.current = onSelectionChange;
   }, [onChange, tags, onTagClick, onLinkClick, onSelectionChange]);
 
+  // Пришёл ответ о задачах: плашки рисуются заново.
+  useEffect(() => {
+    issuesRef.current = issues;
+    viewRef.current?.dispatch({ effects: refreshIssues.of(null) });
+  }, [issues]);
+
   useEffect(() => {
     const initial = initialRef.current;
+    const getIssues = () => issuesRef.current;
     const view = new EditorView({
       parent: hostRef.current ?? undefined,
       state: EditorState.create({
@@ -82,8 +103,14 @@ export function MarkdownEditor({
         extensions: [
           history(),
           keymap.of([...defaultKeymap, ...historyKeymap]),
-          markdown({ base: markdownLanguage, extensions: [Hashtags, Frontmatter] }),
-          tagCompletion(() => tagsRef.current),
+          markdown({ base: markdownLanguage, extensions: [Hashtags, Frontmatter, IssueIds] }),
+          autocompletion({
+            icons: false,
+            override: [tagCompletion(() => tagsRef.current), issueCompletion(getIssues)],
+          }),
+          issuePlaques(getIssues),
+          issueCards(getIssues),
+          issueClick(getIssues),
           tagClick((tag) => onTagClickRef.current(tag)),
           linkClick((url) => onLinkClickRef.current(url)),
           EditorView.lineWrapping,

@@ -51,6 +51,37 @@ export const markdownTheme = [
       padding: "1px 3px",
       cursor: "pointer",
     },
+    // Номер задачи плашкой цвета ссылки, статус за ним мелким словом.
+    // Серый статус: задачи нет, или он мог устареть.
+    ".cm-issue": {
+      color: "var(--color-link)",
+      backgroundColor: "color-mix(in srgb, var(--color-link) 12%, transparent)",
+      borderRadius: "4px",
+      padding: "1px 3px",
+    },
+    ".cm-issue-state": {
+      marginLeft: "4px",
+      padding: "1px 6px",
+      borderRadius: "999px",
+      fontSize: "12px",
+      color: "var(--color-content)",
+      backgroundColor: "color-mix(in srgb, var(--color-content) 8%, transparent)",
+      cursor: "pointer",
+    },
+    ".cm-issue-state.cm-issue-muted": {
+      color: "color-mix(in srgb, var(--color-content) 50%, transparent)",
+      fontStyle: "italic",
+    },
+    ".cm-issue-card": {
+      maxWidth: "360px",
+      padding: "8px 10px",
+      fontFamily: "var(--font-sans)",
+      fontSize: "13px",
+      lineHeight: "1.5",
+      color: "color-mix(in srgb, var(--color-content) 70%, transparent)",
+    },
+    ".cm-issue-card-title": { marginBottom: "4px", fontWeight: "600", color: "var(--color-content)" },
+    ".cm-completionDetail": { marginLeft: "8px", color: "color-mix(in srgb, var(--color-content) 55%, transparent)" },
     ".cm-tooltip": {
       border: "1px solid var(--color-stroke)",
       borderRadius: "8px",

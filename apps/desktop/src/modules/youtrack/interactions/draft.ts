@@ -1,15 +1,35 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { forgetIssue, rememberIssue } from "../infrastructure/issues.device";
 import { youtrackCheck, youtrackIssueState, youtrackPublish, youtrackSimilar } from "../infrastructure/youtrack.api";
 import type { DraftRequest } from "../model/draft";
+import { youtrackProblemOf } from "../model/youtrack";
 
-const ISSUE_KEY = ["youtrack-issue"] as const;
+export const ISSUE_KEY = ["youtrack-issue"] as const;
+
+// Задача по номеру. Последний ответ помнится на устройстве: без сети
+// номер в тексте показывает его.
+export async function fetchIssue(id: string) {
+  try {
+    const state = await youtrackIssueState(id);
+
+    rememberIssue(state);
+
+    return state;
+  } catch (error) {
+    if (youtrackProblemOf(error) === "youtrack_missing") {
+      forgetIssue(id);
+    }
+
+    throw error;
+  }
+}
 
 // Статус и исполнитель задачи для плашки. Их меняют в YouTrack другие люди,
 // поэтому ответ живёт минуту, а без сети не спрашивается.
 export function useIssueState(id: string | null, online: boolean) {
   return useQuery({
     queryKey: [...ISSUE_KEY, id],
-    queryFn: () => youtrackIssueState(id ?? ""),
+    queryFn: () => fetchIssue(id ?? ""),
     enabled: id !== null && online,
     staleTime: 60_000,
     retry: false,

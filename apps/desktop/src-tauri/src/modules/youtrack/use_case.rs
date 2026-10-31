@@ -1,7 +1,7 @@
 use super::domain::{
     ApiError, Checked, Draft, IssueFacts, IssueState, Person, Published, Sent, Similar,
-    YoutrackStatus, field_command, field_value, link_command, missing_fields, parse_host,
-    parse_issue_id, project_assignees, search_words,
+    YoutrackStatus, field_command, link_command, missing_fields, parse_host, parse_issue_id,
+    project_assignees, search_words,
 };
 use super::ports::{HostPlace, Ledger, YoutrackApi};
 use crate::error::AppError;
@@ -321,7 +321,8 @@ pub async fn publish(
     Ok(Published::Done { id, failed })
 }
 
-/// Номер, статус и исполнитель задачи для плашки над черновиком.
+/// Задача для плашки над черновиком и карточки номера в тексте: название,
+/// статус, исполнитель, срок и связи.
 pub async fn issue_state(
     api: &impl YoutrackApi,
     place: &impl HostPlace,
@@ -330,18 +331,81 @@ pub async fn issue_state(
 ) -> Result<IssueState, AppError> {
     let (host, token) = connection(place, secrets)?;
     let id = parse_issue_id(id).ok_or(AppError::invalid("youtrack_issue_invalid"))?;
-    let query = [("fields", "customFields(name,value(name,login,fullName))")];
+    let query = [(
+        "fields",
+        "summary,resolved,customFields(name,value(name,login,fullName)),\
+links(direction,linkType(name,sourceToTarget,targetToSource),issues(idReadable))",
+    )];
     let issue = json_of(
         &api.get(&host, &token, &format!("/api/issues/{id}"), &query)
             .await?,
     )?;
 
-    Ok(IssueState {
-        id: id.to_owned(),
-        state: field_value(&issue, "State"),
-        assignee: field_value(&issue, "Assignee"),
-        url: format!("{host}/issue/{id}"),
-    })
+    Ok(IssueState::of(id, format!("{host}/issue/{id}"), &issue))
+}
+
+/// Короткие имена проектов: с них начинаются номера задач.
+pub async fn projects(
+    api: &impl YoutrackApi,
+    place: &impl HostPlace,
+    secrets: &Secrets,
+) -> Result<Vec<String>, AppError> {
+    let query = [("fields", "shortName"), ("$top", "500")];
+    let projects = json_of(&read(api, place, secrets, "/api/admin/projects", &query).await?)?;
+
+    Ok(projects
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|project| project["shortName"].as_str().map(str::to_owned))
+        .collect())
+}
+
+/// Последние сто задач проекта, свежие первыми: подсказка после «SAP-».
+pub async fn project_issues(
+    api: &impl YoutrackApi,
+    place: &impl HostPlace,
+    secrets: &Secrets,
+    project: &str,
+) -> Result<Vec<Similar>, AppError> {
+    let project = parse_issue_id(project).ok_or(AppError::invalid("youtrack_project_missing"))?;
+
+    briefs(
+        api,
+        place,
+        secrets,
+        &format!("project: {{{project}}} sort by: updated desc"),
+        "100",
+    )
+    .await
+}
+
+/// Номера и названия задач по запросу на языке поиска YouTrack.
+async fn briefs(
+    api: &impl YoutrackApi,
+    place: &impl HostPlace,
+    secrets: &Secrets,
+    query: &str,
+    top: &str,
+) -> Result<Vec<Similar>, AppError> {
+    let query = [
+        ("query", query),
+        ("fields", "idReadable,summary"),
+        ("$top", top),
+    ];
+    let found = json_of(&read(api, place, secrets, "/api/issues", &query).await?)?;
+
+    Ok(found
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|issue| {
+            Some(Similar {
+                id: issue["idReadable"].as_str()?.to_owned(),
+                summary: issue["summary"].as_str()?.to_owned(),
+            })
+        })
+        .collect())
 }
 
 /// Задачи по запросу на языке поиска YouTrack, первые двадцать.
@@ -440,24 +504,8 @@ pub async fn similar(
     }
 
     let query = format!("project: {{{project}}} ({})", words.join(" or "));
-    let query = [
-        ("query", query.as_str()),
-        ("fields", "idReadable,summary"),
-        ("$top", "20"),
-    ];
-    let found = json_of(&read(api, place, secrets, "/api/issues", &query).await?)?;
 
-    Ok(found
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|issue| {
-            Some(Similar {
-                id: issue["idReadable"].as_str()?.to_owned(),
-                summary: issue["summary"].as_str()?.to_owned(),
-            })
-        })
-        .collect())
+    briefs(api, place, secrets, &query, "20").await
 }
 
 /// Кого можно назначить исполнителем в проекте: по этому списку окно узнаёт
@@ -1089,8 +1137,12 @@ mod tests {
             block_on(issue_state(&board, &place, &secrets, "SAP-1")),
             Ok(IssueState {
                 id: "SAP-1".into(),
+                summary: "Вход по ссылке".into(),
                 state: Some("Open".into()),
+                resolved: false,
                 assignee: Some("Илья Оберемок".into()),
+                due: Some(1_767_225_600_000),
+                links: vec![],
                 url: "https://acme.youtrack.cloud/issue/SAP-1".into(),
             })
         );
@@ -1192,6 +1244,33 @@ mod tests {
         assert_eq!(
             block_on(similar(&board, &place, &secrets, "SAP", "по и")),
             Ok(vec![])
+        );
+    }
+
+    #[test]
+    fn подсказка_номеров_знает_проекты_и_свежие_задачи() {
+        let board = with_issues(&["SAP-3"], vec![]);
+        let (place, secrets) = connected();
+
+        assert_eq!(
+            block_on(projects(&board, &place, &secrets)),
+            Ok(vec!["SAP".to_owned()])
+        );
+        assert_eq!(
+            block_on(project_issues(&board, &place, &secrets, "SAP")),
+            Ok(vec![Similar {
+                id: "SAP-3".into(),
+                summary: "Задача SAP-3".into(),
+            }])
+        );
+        assert_eq!(
+            *board.searches.lock().unwrap(),
+            ["project: {SAP} sort by: updated desc"]
+        );
+        // Имя проекта встаёт в запрос: скобка его бы закрыла.
+        assert_eq!(
+            block_on(project_issues(&board, &place, &secrets, "SAP} or {X")),
+            Err(AppError::invalid("youtrack_project_missing"))
         );
     }
 

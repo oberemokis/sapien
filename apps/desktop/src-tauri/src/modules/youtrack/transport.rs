@@ -82,6 +82,25 @@ pub async fn youtrack_similar(
 }
 
 #[tauri::command]
+pub async fn youtrack_projects(
+    app: AppHandle,
+    http: State<'_, Http>,
+    secrets: State<'_, Secrets>,
+) -> Result<Vec<String>, AppError> {
+    use_case::projects(&*http, &place(&app)?, &secrets).await
+}
+
+#[tauri::command]
+pub async fn youtrack_project_issues(
+    app: AppHandle,
+    http: State<'_, Http>,
+    secrets: State<'_, Secrets>,
+    project: String,
+) -> Result<Vec<Similar>, AppError> {
+    use_case::project_issues(&*http, &place(&app)?, &secrets, &project).await
+}
+
+#[tauri::command]
 pub async fn youtrack_assignees(
     app: AppHandle,
     http: State<'_, Http>,

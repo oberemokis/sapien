@@ -4,6 +4,7 @@ import { EditorView } from "@codemirror/view";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { MarkdownEditor } from "@/modules/editor";
+import type { IssueMention, IssueMentions } from "./components/issues";
 
 function view() {
   const content = screen.getByRole("textbox", { name: "план" });
@@ -226,5 +227,118 @@ describe("редактор markdown", () => {
     typeWithCursor(view().state.doc.line(3).to, " #р");
     await new Promise((resolve) => setTimeout(resolve, 200));
     expect(currentCompletions(view().state)).toEqual([]);
+  });
+});
+
+// Задачи проекта SAP: ответы о номерах и подсказка после «SAP-».
+function issues(mentions: Record<string, IssueMention>, onOpen = vi.fn()): IssueMentions {
+  return {
+    prefixes: new Set(["SAP"]),
+    mentions: new Map(Object.entries(mentions)),
+    suggest: async () => [
+      { id: "SAP-12", summary: "Вход по ссылке" },
+      { id: "SAP-7", summary: "Письмо со ссылкой" },
+      { id: "SAP-3", summary: "Тёмная тема" },
+    ],
+    onOpen,
+  };
+}
+
+const open: IssueMention = { label: "Open", muted: false, title: "SAP-1 Вход", details: [] };
+const missing: IssueMention = { label: "не найдена", muted: true, title: "SAP-404", details: [] };
+
+async function plaques(count: number) {
+  return vi.waitFor(() => {
+    const found = [...document.querySelectorAll<HTMLElement>(".cm-issue")];
+
+    expect(found).toHaveLength(count);
+
+    return found;
+  });
+}
+
+// Статусы за номерами: слово и серая ли плашка.
+function states() {
+  return [...document.querySelectorAll(".cm-issue-state")].map((state) => [
+    state.textContent,
+    state.classList.contains("cm-issue-muted"),
+  ]);
+}
+
+describe("номера задач в редакторе", () => {
+  it("номер известного проекта плашкой со статусом, в коде и с чужим префиксом текстом", async () => {
+    render(
+      <MarkdownEditor
+        value={"SAP-1 и SAP-404, ещё SAP-9 и ABC-1\n\n`SAP-1`\n\n```\nSAP-1\n```"}
+        onChange={vi.fn()}
+        label="план"
+        issues={issues({ "SAP-1": open, "SAP-404": missing })}
+      />,
+    );
+
+    expect((await plaques(3)).map((plaque) => plaque.textContent)).toEqual(["SAP-1", "SAP-404", "SAP-9"]);
+    // У SAP-9 ответа ещё нет: плашка без статуса.
+    expect(states()).toEqual([
+      ["Open", false],
+      ["не найдена", true],
+    ]);
+  });
+
+  it("новый статус меняет плашку без нового редактора", async () => {
+    const { rerender } = render(
+      <MarkdownEditor value="SAP-1" onChange={vi.fn()} label="план" issues={issues({ "SAP-1": open })} />,
+    );
+    const editor = view();
+
+    await plaques(1);
+    rerender(
+      <MarkdownEditor
+        value="SAP-1"
+        onChange={vi.fn()}
+        label="план"
+        issues={issues({ "SAP-1": { ...open, label: "Fixed" } })}
+      />,
+    );
+
+    await vi.waitFor(() => expect(states()).toEqual([["Fixed", false]]));
+    expect(view()).toBe(editor);
+  });
+
+  it("клик по статусу и ⌘клик по номеру открывают задачу, простой клик по номеру нет", async () => {
+    const onOpen = vi.fn();
+    render(<MarkdownEditor value="SAP-1" onChange={vi.fn()} label="план" issues={issues({ "SAP-1": open }, onOpen)} />);
+
+    const [plaque] = await plaques(1);
+
+    // Выделение от редактора прошлого теста happy-dom не снимает, и простой
+    // клик по новому редактору спотыкается о него.
+    document.getSelection()?.removeAllRanges();
+    fireEvent.mouseDown(plaque as Element, mod);
+    fireEvent.mouseDown(document.querySelector(".cm-issue-state") as Element);
+    expect(onOpen.mock.calls).toEqual([["SAP-1"], ["SAP-1"]]);
+
+    fireEvent.mouseDown(plaque as Element);
+    expect(onOpen).toHaveBeenCalledTimes(2);
+  });
+
+  it("после «SAP-» подсказывает задачи проекта по номеру и названию, после чужого префикса нет", async () => {
+    render(<MarkdownEditor value="" onChange={vi.fn()} label="план" issues={issues({})} />);
+
+    typeWithCursor(0, "ABC-");
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(currentCompletions(view().state)).toEqual([]);
+
+    typeWithCursor(view().state.doc.length, " SAP-");
+    await vi.waitFor(() =>
+      expect(currentCompletions(view().state).map((option) => option.label)).toEqual(["SAP-12", "SAP-7", "SAP-3"]),
+    );
+
+    typeWithCursor(view().state.doc.length, "1");
+    await vi.waitFor(() => expect(currentCompletions(view().state).map((option) => option.label)).toEqual(["SAP-12"]));
+
+    typeWithCursor(view().state.doc.length, " SAP-ссылк");
+    await vi.waitFor(() =>
+      expect(currentCompletions(view().state).map((option) => option.label)).toEqual(["SAP-12", "SAP-7"]),
+    );
   });
 });
