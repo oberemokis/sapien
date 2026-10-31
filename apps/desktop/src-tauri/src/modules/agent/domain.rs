@@ -2,6 +2,7 @@ use crate::error::AppError;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::HashMap;
+use std::time::Duration;
 
 /// Модели на выбор в настройках, первая по умолчанию.
 pub const MODELS: [&str; 3] = ["claude-sonnet-5-5", "claude-opus-5-5", "claude-haiku-5-5"];
@@ -26,6 +27,11 @@ const SYSTEM: &str = "Ты помощник в приложении замето
 в историю, и человек может её откатить, но меняй только то, о чём просили. Прежде чем \
 менять заметку, прочитай её. Небольшую правку делай через edit_note, а не переписывай \
 заметку целиком.
+
+Перед правкой приложение может спросить разрешения у человека. Если он не разрешил, \
+инструмент ответит ошибкой: не повторяй эту правку, продолжай без неё и скажи, \
+что не сделал. Если без решения человека не обойтись, спроси его инструментом ask_user \
+и дождись ответа. Не спрашивай о том, что можно узнать из заметок.
 
 Некоторые папки человек закрыл для тебя: их заметок нет в списке и поиске, а чтение \
 и запись по пути отвечают ошибкой note_closed. Если человек спросит о такой заметке, \
@@ -65,6 +71,17 @@ fn tools() -> Value {
             },
         })
     };
+    // Вопрос человеку есть в списке всегда, даже когда человека нет:
+    // смена списка сбросила бы кеш запроса.
+    let mut ask_user = tool(
+        "ask_user",
+        "Спрашивает человека и ждёт ответа. options это два-четыре коротких варианта, \
+         человек выбирает один или пишет свой ответ. Ответ приходит текстом. Человека \
+         может не быть: тогда ответ скажет решить самому.",
+        &["question", "options"],
+    );
+
+    ask_user["input_schema"]["properties"]["options"] = json!({ "type": "array", "items": string });
 
     json!([
         tool(
@@ -110,7 +127,88 @@ fn tools() -> Value {
              overdue), links новые связи. Для сводки по эпику. JSON.",
             &["epic", "since"],
         ),
+        ask_user,
     ])
+}
+
+/// Сколько агент ждёт ответа на вопрос.
+pub const ANSWER_WAIT: Duration = Duration::from_secs(600);
+
+/// Ответы инструментов, когда человек не ответил или не разрешил.
+pub const AWAY: &str =
+    "Человека нет рядом: это действие по расписанию. Реши сам и в ответе напиши, что выбрал.";
+const NO_ANSWER: &str = "Человек не ответил за 10 минут. Реши сам и в ответе напиши, что выбрал.";
+const DENIED: &str = "Человек не разрешил эту правку. Не повторяй её.";
+const NOT_ALLOWED: &str = "Человек не ответил за 10 минут, правка не сделана. Не повторяй её.";
+pub const STOPPED: &str = "Человек остановил ответ, вызов не выполнен.";
+
+/// Кто следит за ответом агента.
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Oversight {
+    /// Человек у окна, правки с его разрешения.
+    Ask,
+    /// Человек у окна, правки без вопросов.
+    Trust,
+    /// Человека нет: действие по расписанию. Правки без вопросов,
+    /// на вопрос агент решает сам.
+    Away,
+}
+
+/// Вопрос человеку посреди ответа. `id` это номер вызова инструмента.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum Question {
+    /// Вопрос агента с вариантами.
+    Choice {
+        id: String,
+        question: String,
+        options: Vec<String>,
+    },
+    /// Разрешение на правку заметки `path` инструментом `tool`.
+    Permission {
+        id: String,
+        tool: String,
+        path: String,
+    },
+}
+
+impl Question {
+    pub fn id(&self) -> &str {
+        match self {
+            Self::Choice { id, .. } | Self::Permission { id, .. } => id,
+        }
+    }
+}
+
+/// Ответ человека: вариант или свой текст, а на разрешение да или нет.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum Answer {
+    Text { text: String },
+    Allow,
+    Deny,
+}
+
+/// Что агент получит в ответ на свой вопрос.
+pub fn choice_result(answer: Option<Answer>) -> Result<String, String> {
+    match answer {
+        Some(Answer::Text { text }) => Ok(text),
+        Some(Answer::Allow) => Ok("Да.".to_owned()),
+        Some(Answer::Deny) => Ok("Нет.".to_owned()),
+        None => Err(NO_ANSWER.to_owned()),
+    }
+}
+
+/// Можно ли править, а нельзя, что агент получит вместо правки. Текст
+/// вместо кнопки это отказ со словами человека.
+pub fn permission_result(answer: Option<Answer>) -> Result<(), String> {
+    match answer {
+        Some(Answer::Allow) => Ok(()),
+        Some(Answer::Deny) => Err(DENIED.to_owned()),
+        Some(Answer::Text { text }) => Err(format!("{DENIED} Человек написал: «{text}»")),
+        None => Err(NOT_ALLOWED.to_owned()),
+    }
 }
 
 /// Запрос к Messages API. Модели сами решают, сколько думать, а средний
@@ -660,6 +758,10 @@ pub enum Tool {
         epic: String,
         since: String,
     },
+    AskUser {
+        question: String,
+        options: Vec<String>,
+    },
 }
 
 impl Tool {
@@ -691,6 +793,14 @@ pub enum Entry {
         name: String,
         target: String,
         ok: bool,
+    },
+    /// Вопрос агента и ответ человека. Без ответа человек не ответил вовсе
+    /// или его не было.
+    Question {
+        id: String,
+        question: String,
+        options: Vec<String>,
+        answer: Option<String>,
     },
     /// Ответ на сообщение `turn` поменял заметки. `with` это более поздние
     /// ответы, которые откатятся вместе с ним.
@@ -834,11 +944,11 @@ fn changed(changes: &[Change], turn: usize) -> Option<Entry> {
 /// и размышления окно не показывает. Под ответом, который менял заметки,
 /// стоит строка `Changed`.
 pub fn transcript(messages: &[Value], changes: &[Change]) -> Vec<Entry> {
-    let failed: Vec<&str> = messages
+    let results: HashMap<&str, &Value> = messages
         .iter()
         .flat_map(|message| message["content"].as_array().into_iter().flatten())
-        .filter(|block| block["type"] == "tool_result" && block["is_error"] == true)
-        .filter_map(|block| block["tool_use_id"].as_str())
+        .filter(|block| block["type"] == "tool_result")
+        .filter_map(|block| Some((block["tool_use_id"].as_str()?, block)))
         .collect();
     let mut entries: Vec<Entry> = vec![];
     let mut asked = 0;
@@ -871,8 +981,23 @@ pub fn transcript(messages: &[Value], changes: &[Change]) -> Vec<Entry> {
                 },
                 (Some("tool_use"), false) => {
                     let id = block["id"].as_str().unwrap_or_default();
+                    let result = results.get(id);
+                    let ok = result.is_some_and(|result| result["is_error"] != true);
 
-                    entries.push(Entry::tool(block, !failed.contains(&id)));
+                    match Tool::parse(block) {
+                        Some(Tool::AskUser { question, options }) => {
+                            entries.push(Entry::Question {
+                                id: id.to_owned(),
+                                question,
+                                options,
+                                answer: result
+                                    .filter(|_| ok)
+                                    .and_then(|result| result["content"].as_str())
+                                    .map(str::to_owned),
+                            });
+                        }
+                        _ => entries.push(Entry::tool(block, ok || result.is_none())),
+                    }
                 }
                 _ => {}
             }
@@ -898,6 +1023,11 @@ pub enum Event {
         target: String,
         ok: bool,
     },
+    /// Агент ждёт ответа человека.
+    Asked { question: Question },
+    /// Вопрос закрыт: ответом, без ответа или «Стопом». `answer` это ответ
+    /// на вопрос агента, как его покажет история.
+    Answered { id: String, answer: Option<String> },
 }
 
 impl Event {
@@ -1384,8 +1514,13 @@ mod tests {
                 "edit_note",
                 "youtrack_search",
                 "youtrack_issue",
-                "youtrack_epic_changes"
+                "youtrack_epic_changes",
+                "ask_user"
             ]
+        );
+        assert_eq!(
+            body["tools"][8]["input_schema"]["properties"]["options"]["type"],
+            "array"
         );
         assert_eq!(
             body["tools"][4]["input_schema"]["required"],

@@ -1,9 +1,10 @@
 use super::domain::{
-    Assembler, Chat, Context, Entry, Event, MAX_STEPS, MEETING, MeetingTask, ModelError, Tool,
-    meeting_message, meeting_request, meeting_schema, meeting_tasks, parse_model, push_user,
+    AWAY, Answer, Assembler, Chat, Context, Entry, Event, MAX_STEPS, MEETING, MeetingTask,
+    ModelError, Oversight, Question, STOPPED, Tool, choice_result, meeting_message,
+    meeting_request, meeting_schema, meeting_tasks, parse_model, permission_result, push_user,
     replace_once, request, search, touch, transcript, turns, undo_plan, user_blocks,
 };
-use super::ports::{ChatStore, Claude, Model, Notes, Tracker};
+use super::ports::{ChatStore, Claude, Human, Model, Notes, Tracker};
 use crate::error::AppError;
 use crate::secrets::{SecretName, Secrets};
 use serde_json::{Value, json};
@@ -61,6 +62,62 @@ pub struct Turn<'a> {
     pub model: &'a str,
     pub text: &'a str,
     pub context: Context,
+    pub oversight: Oversight,
+}
+
+/// Кому агент задаёт вопросы посреди ответа и спрашивать ли разрешения
+/// на правку.
+struct Asking<'a, H> {
+    human: &'a H,
+    oversight: Oversight,
+}
+
+impl<H: Human> Asking<'_, H> {
+    /// Показывает вопрос окну и ждёт ответа. Окно узнаёт и о том, что вопрос
+    /// закрыт, вместе с ответом на вопрос агента.
+    async fn ask(
+        &self,
+        question: Question,
+        events: &mut (impl FnMut(Event) + Send),
+    ) -> Option<Answer> {
+        let id = question.id().to_owned();
+
+        events(Event::Asked {
+            question: question.clone(),
+        });
+
+        let answer = self.human.ask(&question).await;
+        let shown = match question {
+            Question::Choice { .. } => choice_result(answer.clone()).ok(),
+            Question::Permission { .. } => None,
+        };
+
+        events(Event::Answered { id, answer: shown });
+        answer
+    }
+
+    /// Перед правкой заметки `path` человек у окна даёт разрешение, если
+    /// просил спрашивать. Заметку из закрытой папки не спрашивает: правку
+    /// всё равно отклонит хранилище.
+    async fn allowed(
+        &self,
+        call: &Value,
+        notes: &impl Notes,
+        path: &str,
+        events: &mut (impl FnMut(Event) + Send),
+    ) -> Result<(), String> {
+        if self.oversight != Oversight::Ask || !notes.open(path) {
+            return Ok(());
+        }
+
+        let question = Question::Permission {
+            id: call["id"].as_str().unwrap_or_default().to_owned(),
+            tool: call["name"].as_str().unwrap_or_default().to_owned(),
+            path: path.to_owned(),
+        };
+
+        permission_result(self.ask(question, events).await)
+    }
 }
 
 /// Выполняет вызов инструмента. Ошибка уходит модели текстом, чтобы она
@@ -71,6 +128,8 @@ async fn run(
     assembler: &Assembler,
     notes: &impl Notes,
     tracker: &impl Tracker,
+    asking: &Asking<'_, impl Human>,
+    events: &mut (impl FnMut(Event) + Send),
     wrote: &mut (impl FnMut(&str, Option<String>) + Send),
 ) -> Result<String, String> {
     if let Some(raw) = call["id"]
@@ -85,10 +144,25 @@ async fn run(
     };
     let failed = |error: AppError| format!("Ошибка: {}", error.code);
     let done = match tool {
+        Tool::AskUser { question, options } => {
+            if asking.oversight == Oversight::Away {
+                return Err(AWAY.to_owned());
+            }
+
+            let question = Question::Choice {
+                id: call["id"].as_str().unwrap_or_default().to_owned(),
+                question,
+                options,
+            };
+
+            return choice_result(asking.ask(question, events).await);
+        }
         Tool::ListNotes {} => notes.paths().map(|paths| paths.join("\n")),
         Tool::SearchNotes { query } => notes.texts().map(|texts| search(&texts, &query)),
         Tool::ReadNote { path } => notes.read(&path),
         Tool::WriteNote { path, text } => {
+            asking.allowed(call, notes, &path, events).await?;
+
             let was = before(notes, &path).map_err(failed)?;
 
             notes.put(&path, &text).map(|()| {
@@ -101,6 +175,8 @@ async fn run(
             old_text,
             new_text,
         } => {
+            asking.allowed(call, notes, &path, events).await?;
+
             let text = notes.read(&path).map_err(failed)?;
             let edited = replace_once(&text, &old_text, &new_text).map_err(str::to_owned)?;
 
@@ -132,7 +208,8 @@ async fn run(
 /// История пишется на диск после каждого шага в виде, который модель примет
 /// обратно: «Стоп», обрыв сети и ошибка провайдера оставляют то, что уже
 /// пришло, и вопрос человека. Ответ, который модель отказалась давать,
-/// не сохраняется вовсе.
+/// не сохраняется вовсе. «Стоп» посреди вызовов, например во время вопроса,
+/// закрывает оставшиеся вызовы ошибкой, а сделанные правки остаются в откате.
 #[expect(
     clippy::too_many_arguments,
     reason = "порты сценария и вход, без обёртки"
@@ -143,10 +220,15 @@ pub async fn send(
     tracker: &impl Tracker,
     chat: &impl ChatStore,
     secrets: &Secrets,
+    human: &impl Human,
     stop: &Notify,
     turn: Turn<'_>,
     events: &mut (impl FnMut(Event) + Send),
 ) -> Result<(), AppError> {
+    let asking = Asking {
+        human,
+        oversight: turn.oversight,
+    };
     let model_id = parse_model(turn.model).ok_or(AppError::invalid("agent_model_unknown"))?;
     let key = secrets
         .get(SecretName::ModelKey)
@@ -231,14 +313,29 @@ pub async fn send(
         }
 
         let mut results = vec![];
+        let mut stopped = false;
 
         for call in &calls {
             let mut wrote = |path: &str, was| touch(&mut changes, asked, path, was);
-            let result = run(call, &assembler, notes, tracker, &mut wrote).await;
+            let result = if stopped {
+                Err(STOPPED.to_owned())
+            } else {
+                tokio::select! {
+                    result = run(call, &assembler, notes, tracker, &asking, events, &mut wrote) => result,
+                    () = stop.notified() => {
+                        stopped = true;
+                        Err(STOPPED.to_owned())
+                    }
+                }
+            };
             let ok = result.is_ok();
             let content = result.unwrap_or_else(|error| error);
 
-            events(Event::tool(call, ok));
+            // Вопрос агента окно уже показало вопросом.
+            if call["name"] != "ask_user" {
+                events(Event::tool(call, ok));
+            }
+
             results.push(json!({
                 "type": "tool_result",
                 "tool_use_id": call["id"],
@@ -249,6 +346,10 @@ pub async fn send(
 
         push_user(&mut messages, results);
         chat.save(&messages, &changes)?;
+
+        if stopped {
+            return Ok(());
+        }
     }
 
     Err(AppError::invalid("agent_too_many_steps"))
@@ -397,6 +498,45 @@ mod tests {
         }
     }
 
+    /// Человек, который отвечает по очереди и помнит вопросы. `None` значит,
+    /// что ответа не дождались. Кончились ответы, и он жмёт «Стоп» вместо
+    /// ответа.
+    struct FakeHuman {
+        answers: Mutex<VecDeque<Option<Answer>>>,
+        asked: Mutex<Vec<Question>>,
+        stop: Arc<Notify>,
+    }
+
+    impl FakeHuman {
+        fn with(answers: Vec<Option<Answer>>, stop: &Arc<Notify>) -> Self {
+            Self {
+                answers: Mutex::new(answers.into()),
+                asked: Mutex::default(),
+                stop: stop.clone(),
+            }
+        }
+
+        fn asked(&self) -> Vec<Question> {
+            self.asked.lock().unwrap().clone()
+        }
+    }
+
+    impl Human for FakeHuman {
+        async fn ask(&self, question: &Question) -> Option<Answer> {
+            self.asked.lock().unwrap().push(question.clone());
+
+            let answer = self.answers.lock().unwrap().pop_front();
+
+            match answer {
+                Some(answer) => answer,
+                None => {
+                    self.stop.notify_one();
+                    std::future::pending().await
+                }
+            }
+        }
+    }
+
     #[derive(Default)]
     struct FakeNotes(Mutex<BTreeMap<String, String>>);
 
@@ -529,10 +669,34 @@ mod tests {
         events: Vec<Event>,
     }
 
+    /// Ответ, при котором человек правок не проверяет и вопросов агент
+    /// не задаёт.
     fn send_with(
         model: &FakeModel,
         notes: &FakeNotes,
         chat: &FakeChat,
+        secrets: &Secrets,
+        stop: &Notify,
+        text: &str,
+    ) -> Run {
+        let nobody = FakeHuman::with(vec![], &Arc::new(Notify::new()));
+
+        send_asking(
+            model,
+            notes,
+            chat,
+            (&nobody, Oversight::Trust),
+            secrets,
+            stop,
+            text,
+        )
+    }
+
+    fn send_asking(
+        model: &FakeModel,
+        notes: &FakeNotes,
+        chat: &FakeChat,
+        (human, oversight): (&FakeHuman, Oversight),
         secrets: &Secrets,
         stop: &Notify,
         text: &str,
@@ -545,6 +709,7 @@ mod tests {
                 path: Some("план.md".into()),
                 selection: None,
             },
+            oversight,
         };
         let result = block_on(send(
             model,
@@ -552,6 +717,7 @@ mod tests {
             &NoTracker,
             chat,
             secrets,
+            human,
             stop,
             turn,
             &mut |event| events.push(event),
@@ -777,17 +943,20 @@ mod tests {
             &Notify::new(),
             "Вопрос",
         );
+        let stop = Arc::new(Notify::new());
         let unknown = block_on(send(
             &model,
             &FakeNotes::default(),
             &NoTracker,
             &chat,
             &keyed(),
-            &Notify::new(),
+            &FakeHuman::with(vec![], &stop),
+            &stop,
             Turn {
                 model: "gpt-5",
                 text: "Вопрос",
                 context: Context::default(),
+                oversight: Oversight::Ask,
             },
             &mut |_| {},
         ));
@@ -801,13 +970,15 @@ mod tests {
     fn заметка_из_закрытой_папки_не_уходит_модели_ни_путём_ни_выделением() {
         let model = FakeModel::with(vec![Script::Answer(text("Не вижу заметки."))]);
         let chat = FakeChat::default();
+        let stop = Arc::new(Notify::new());
         let result = block_on(send(
             &model,
             &FakeNotes::default(),
             &NoTracker,
             &chat,
             &keyed(),
-            &Notify::new(),
+            &FakeHuman::with(vec![], &stop),
+            &stop,
             Turn {
                 model: "claude-sonnet-5-5",
                 text: "Что тут?",
@@ -815,6 +986,7 @@ mod tests {
                     path: Some("Личное/дневник.md".into()),
                     selection: Some("сокровенное".into()),
                 },
+                oversight: Oversight::Ask,
             },
             &mut |_| {},
         ));
@@ -933,6 +1105,312 @@ mod tests {
                 .iter()
                 .all(|change| change.undone)
         );
+    }
+
+    /// Несколько вызовов инструментов одним сообщением модели.
+    fn calls(list: &[(&str, &str, Value)]) -> Vec<Value> {
+        let mut events: Vec<Value> = list
+            .iter()
+            .enumerate()
+            .flat_map(|(index, (id, name, input))| {
+                let tool = json!({ "type": "tool_use", "id": id, "name": name, "input": {} });
+
+                [
+                    json!({ "type": "content_block_start", "index": index, "content_block": tool }),
+                    json!({ "type": "content_block_delta", "index": index, "delta": { "type": "input_json_delta", "partial_json": input.to_string() } }),
+                    json!({ "type": "content_block_stop", "index": index }),
+                ]
+            })
+            .collect();
+
+        events.push(json!({ "type": "message_delta", "delta": { "stop_reason": "tool_use" } }));
+        events
+    }
+
+    /// Результаты инструментов, с которыми модель получила запрос `index`.
+    fn results(model: &FakeModel, index: usize) -> Vec<Value> {
+        let bodies = model.bodies.lock().unwrap();
+        let last = bodies[index].1["messages"]
+            .as_array()
+            .unwrap()
+            .last()
+            .unwrap();
+
+        last["content"].as_array().unwrap().clone()
+    }
+
+    #[test]
+    fn вопрос_агента_уходит_человеку_а_ответ_агенту() {
+        let stop = Arc::new(Notify::new());
+        let ask = json!({ "question": "Куда записать?", "options": ["Идеи", "План"] });
+        let model = FakeModel::with(vec![
+            Script::Answer(call("q1", "ask_user", &ask)),
+            Script::Answer(text("Записал в идеи.")),
+        ]);
+        let human = FakeHuman::with(
+            vec![Some(Answer::Text {
+                text: "В идеи".into(),
+            })],
+            &stop,
+        );
+        let chat = FakeChat::default();
+
+        let run = send_asking(
+            &model,
+            &FakeNotes::default(),
+            &chat,
+            (&human, Oversight::Ask),
+            &keyed(),
+            &stop,
+            "Запиши мысль",
+        );
+
+        let options = vec!["Идеи".to_owned(), "План".to_owned()];
+        let question = Question::Choice {
+            id: "q1".into(),
+            question: "Куда записать?".into(),
+            options: options.clone(),
+        };
+
+        assert_eq!(run.result, Ok(()));
+        assert_eq!(human.asked(), [question.clone()]);
+        assert_eq!(
+            run.events[..2],
+            [
+                Event::Asked { question },
+                Event::Answered {
+                    id: "q1".into(),
+                    answer: Some("В идеи".into()),
+                },
+            ]
+        );
+        assert_eq!(results(&model, 1)[0]["content"], "В идеи");
+        assert_eq!(
+            history(&chat).unwrap()[1],
+            Entry::Question {
+                id: "q1".into(),
+                question: "Куда записать?".into(),
+                options,
+                answer: Some("В идеи".into()),
+            }
+        );
+    }
+
+    #[test]
+    fn правка_ждёт_разрешения_человека_а_отказ_агент_принимает() {
+        let edit = json!({ "path": "план.md", "old_text": "было", "new_text": "стало" });
+        let attempt = |answer: Answer| {
+            let stop = Arc::new(Notify::new());
+            let model = FakeModel::with(vec![
+                Script::Answer(call("e1", "edit_note", &edit)),
+                Script::Answer(text("Готово.")),
+            ]);
+            let notes = FakeNotes::with(&[("план.md", "было")]);
+            let human = FakeHuman::with(vec![Some(answer)], &stop);
+
+            let run = send_asking(
+                &model,
+                &notes,
+                &FakeChat::default(),
+                (&human, Oversight::Ask),
+                &keyed(),
+                &stop,
+                "Поправь",
+            );
+
+            assert_eq!(run.result, Ok(()));
+            assert_eq!(
+                human.asked(),
+                [Question::Permission {
+                    id: "e1".into(),
+                    tool: "edit_note".into(),
+                    path: "план.md".into(),
+                }]
+            );
+
+            (
+                notes.text("план.md").unwrap(),
+                results(&model, 1)[0].clone(),
+            )
+        };
+
+        let (text, result) = attempt(Answer::Allow);
+        assert_eq!(text, "стало");
+        assert_eq!(result["is_error"], false);
+
+        let (text, result) = attempt(Answer::Deny);
+        assert_eq!(text, "было");
+        assert_eq!(result["is_error"], true);
+        assert_eq!(
+            result["content"],
+            permission_result(Some(Answer::Deny)).unwrap_err()
+        );
+
+        // Написанное вместо кнопки это отказ со словами человека.
+        let (text, result) = attempt(Answer::Text {
+            text: "лучше завтра".into(),
+        });
+        assert_eq!(text, "было");
+        assert!(
+            result["content"]
+                .as_str()
+                .unwrap()
+                .contains("«лучше завтра»")
+        );
+    }
+
+    #[test]
+    fn без_ответа_правки_нет_а_на_вопрос_агент_решает_сам() {
+        let stop = Arc::new(Notify::new());
+        let model = FakeModel::with(vec![
+            Script::Answer(call(
+                "q1",
+                "ask_user",
+                &json!({ "question": "Куда?", "options": ["Сюда", "Туда"] }),
+            )),
+            Script::Answer(call(
+                "w1",
+                "write_note",
+                &json!({ "path": "новая.md", "text": "текст" }),
+            )),
+            Script::Answer(text("Выбрал «Сюда», заметку не создал.")),
+        ]);
+        let notes = FakeNotes::default();
+        let human = FakeHuman::with(vec![None, None], &stop);
+        let chat = FakeChat::default();
+
+        let run = send_asking(
+            &model,
+            &notes,
+            &chat,
+            (&human, Oversight::Ask),
+            &keyed(),
+            &stop,
+            "Сделай",
+        );
+
+        assert_eq!(run.result, Ok(()));
+        assert_eq!(notes.text("новая.md"), None);
+        assert_eq!(results(&model, 1)[0]["is_error"], true);
+        assert!(
+            results(&model, 1)[0]["content"]
+                .as_str()
+                .unwrap()
+                .contains("Реши сам")
+        );
+        assert_eq!(results(&model, 2)[0]["is_error"], true);
+        assert!(run.events.contains(&Event::Answered {
+            id: "q1".into(),
+            answer: None,
+        }));
+        assert!(matches!(
+            history(&chat).unwrap()[1],
+            Entry::Question { answer: None, .. }
+        ));
+    }
+
+    #[test]
+    fn без_проверки_и_по_расписанию_правки_идут_без_вопросов() {
+        for oversight in [Oversight::Trust, Oversight::Away] {
+            let stop = Arc::new(Notify::new());
+            let model = FakeModel::with(vec![
+                Script::Answer(calls(&[
+                    (
+                        "q1",
+                        "ask_user",
+                        json!({ "question": "Какой эпик?", "options": ["SAP-1", "SAP-2"] }),
+                    ),
+                    (
+                        "w1",
+                        "write_note",
+                        json!({ "path": "сводка.md", "text": "итоги" }),
+                    ),
+                ])),
+                Script::Answer(text("Готово.")),
+            ]);
+            let notes = FakeNotes::default();
+            let human = FakeHuman::with(
+                vec![Some(Answer::Text {
+                    text: "SAP-1".into(),
+                })],
+                &stop,
+            );
+
+            let run = send_asking(
+                &model,
+                &notes,
+                &FakeChat::default(),
+                (&human, oversight),
+                &keyed(),
+                &stop,
+                "Сводка",
+            );
+            let results = results(&model, 1);
+
+            assert_eq!(run.result, Ok(()));
+            assert_eq!(notes.text("сводка.md").as_deref(), Some("итоги"));
+            assert_eq!(results[1]["is_error"], false);
+
+            if oversight == Oversight::Away {
+                // Человека нет: агент решает сам, а окно вопроса не видит.
+                assert!(human.asked().is_empty());
+                assert_eq!(results[0]["content"], AWAY);
+            } else {
+                assert_eq!(human.asked().len(), 1);
+                assert_eq!(results[0]["content"], "SAP-1");
+            }
+        }
+    }
+
+    #[test]
+    fn стоп_на_втором_разрешении_оставляет_первую_правку_в_откате() {
+        let stop = Arc::new(Notify::new());
+        let model = FakeModel::with(vec![
+            Script::Answer(calls(&[
+                (
+                    "e1",
+                    "edit_note",
+                    json!({ "path": "план.md", "old_text": "было", "new_text": "стало" }),
+                ),
+                (
+                    "e2",
+                    "edit_note",
+                    json!({ "path": "идеи.md", "old_text": "мысль", "new_text": "идея" }),
+                ),
+            ])),
+            Script::Answer(text("Слушаю.")),
+        ]);
+        let notes = FakeNotes::with(&[("план.md", "было"), ("идеи.md", "мысль")]);
+        let human = FakeHuman::with(vec![Some(Answer::Allow)], &stop);
+        let chat = FakeChat::default();
+
+        let run = send_asking(
+            &model,
+            &notes,
+            &chat,
+            (&human, Oversight::Ask),
+            &keyed(),
+            &stop,
+            "Поправь обе",
+        );
+
+        assert_eq!(run.result, Ok(()));
+        assert_eq!(human.asked().len(), 2);
+        assert_eq!(notes.text("план.md").as_deref(), Some("стало"));
+        assert_eq!(notes.text("идеи.md").as_deref(), Some("мысль"));
+        // После «Стопа» модель больше не спрашивали.
+        assert_eq!(model.bodies.lock().unwrap().len(), 1);
+        assert_eq!(
+            chat.messages().last().unwrap()["content"][1]["content"],
+            STOPPED
+        );
+
+        undo(&chat, &notes, 0).unwrap();
+        assert_eq!(notes.text("план.md").as_deref(), Some("было"));
+
+        // История годится модели: следующее сообщение идёт как обычно.
+        let next = send_with(&model, &notes, &chat, &keyed(), &stop, "Ещё раз");
+        assert_eq!(next.result, Ok(()));
     }
 
     fn meeting_with(

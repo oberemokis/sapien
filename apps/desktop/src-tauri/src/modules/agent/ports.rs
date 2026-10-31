@@ -1,6 +1,13 @@
-use super::domain::{Change, Chat, ClaudeStatus, ModelError};
+use super::domain::{Answer, Change, Chat, ClaudeStatus, ModelError, Question};
 use crate::error::AppError;
 use serde_json::Value;
+
+/// Человек у окна: отвечает на вопросы агента посреди ответа.
+pub trait Human {
+    /// Ждёт ответа на вопрос, который окно уже показало, не дольше
+    /// `ANSWER_WAIT`. `None`: ответа не дождались.
+    fn ask(&self, question: &Question) -> impl Future<Output = Option<Answer>> + Send;
+}
 
 /// Claude Code на устройстве со входом пользователя, отгороженный от его
 /// настроек, инструментов и памяти.

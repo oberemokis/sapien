@@ -21,9 +21,12 @@ import {
   isToolName,
   MODEL_NAMES,
   questionsOf,
+  type Answer,
   type ChangedEntry,
   type ChatContext,
   type ChatEntry,
+  type PermissionEntry,
+  type QuestionEntry,
 } from "../model/chat";
 
 type Props = {
@@ -37,15 +40,13 @@ const OPTION = "flex h-7 cursor-default items-center gap-2 rounded-md px-2 text-
 
 const LINK = "shrink-0 text-[13px] font-medium underline-offset-2 hover:underline";
 
-function Line({ entry }: { entry: Exclude<ChatEntry, ChangedEntry> }) {
+const BUBBLE = "max-w-[85%] self-end rounded-lg bg-selection px-3 py-2 text-[13px] break-words whitespace-pre-wrap";
+
+function Line({ entry }: { entry: Exclude<ChatEntry, ChangedEntry | QuestionEntry | PermissionEntry> }) {
   const { t } = useTranslation();
 
   if (entry.kind === "user") {
-    return (
-      <p className="max-w-[85%] self-end rounded-lg bg-selection px-3 py-2 text-[13px] break-words whitespace-pre-wrap">
-        {entry.text}
-      </p>
-    );
+    return <p className={BUBBLE}>{entry.text}</p>;
   }
 
   // ponytail: ответ показан исходным markdown, без разметки. Рисовать его
@@ -68,6 +69,61 @@ function Line({ entry }: { entry: Exclude<ChatEntry, ChangedEntry> }) {
     <p className="truncate text-[12px] text-content/50" title={entry.target}>
       {action} <span className="text-content/70">{entry.target}</span>
     </p>
+  );
+}
+
+type AskedProps = {
+  entry: QuestionEntry | PermissionEntry;
+  // Ждёт ли строка ответа человека сейчас.
+  waiting: boolean;
+  answer: (id: string, answer: Answer) => void;
+};
+
+// Вопрос агента с вариантами или просьба разрешить правку. Пока строка ждёт,
+// под ней кнопки, а свой ответ пишут в поле ввода. Ответ на вопрос остаётся
+// в ленте репликой человека.
+function Asked({ entry, waiting, answer }: AskedProps) {
+  const { t } = useTranslation();
+
+  if (entry.kind === "permission") {
+    let ask: string = t("agent.chat.permission.edit_note", { path: entry.path });
+
+    if (entry.tool === "write_note") {
+      ask = t("agent.chat.permission.write_note", { path: entry.path });
+    }
+
+    return (
+      <div
+        role="group"
+        aria-label={t("agent.chat.permissionLabel")}
+        className="flex flex-col gap-2 rounded-md bg-selection px-3 py-2 text-[13px]"
+      >
+        <p className="break-words">{ask}</p>
+        {waiting && (
+          <div className="flex gap-2">
+            <Button onClick={() => answer(entry.id, { kind: "allow" })}>{t("agent.chat.allow")}</Button>
+            <Button onClick={() => answer(entry.id, { kind: "deny" })}>{t("agent.chat.deny")}</Button>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div role="group" aria-label={t("agent.chat.questionLabel")} className="flex flex-col gap-2">
+      <p className="text-[13px] leading-relaxed break-words whitespace-pre-wrap">{entry.question}</p>
+      {waiting && (
+        <div className="flex flex-wrap gap-2">
+          {entry.options.map((option) => (
+            <Button key={option} onClick={() => answer(entry.id, { kind: "text", text: option })}>
+              {option}
+            </Button>
+          ))}
+        </div>
+      )}
+      {!waiting && entry.answer !== null && <p className={BUBBLE}>{entry.answer}</p>}
+      {!waiting && entry.answer === null && <p className="text-[12px] text-content/50">{t("agent.chat.noAnswer")}</p>}
+    </div>
   );
 }
 
@@ -206,7 +262,9 @@ export function AgentChat({ context, actions }: Props) {
   }
 
   const asked = chat.entries.map(({ entry }) => entry);
-  const canSend = online && !chat.running && draft.trim() !== "";
+  // Пока агент ждёт ответа, написанное уходит ответом на его вопрос.
+  const answering = chat.open !== null;
+  const canSend = online && (!chat.running || answering) && draft.trim() !== "";
   const canRun = online && !chat.running;
   const slash = actions !== undefined && /^\/[^\n]*$/.test(draft);
   const query = draft.slice(1).trim().toLowerCase();
@@ -237,6 +295,12 @@ export function AgentChat({ context, actions }: Props) {
     }
 
     setDraft("");
+
+    if (chat.open !== null) {
+      void chat.answer(chat.open, { kind: "text", text: draft });
+      return;
+    }
+
     void chat.send(model, draft, sent);
   }
 
@@ -269,6 +333,15 @@ export function AgentChat({ context, actions }: Props) {
   let header = (
     <>
       <p className="flex-1 truncate text-[12px] text-content/50">{MODEL_NAMES[model]}</p>
+      <label className="flex shrink-0 items-center gap-1.5 text-[12px] text-content/60">
+        <input
+          type="checkbox"
+          className="accent-accent"
+          checked={chat.askEdits}
+          onChange={(event) => chat.setAskEdits(event.target.checked)}
+        />
+        {t("agent.chat.askEdits")}
+      </label>
       {chat.entries.length > 0 && !chat.running && (
         <IconButton icon={Delete02Icon} label={t("agent.chat.clear")} onClick={() => setClearing(true)} />
       )}
@@ -330,14 +403,25 @@ export function AgentChat({ context, actions }: Props) {
         {chat.loaded && chat.entries.length === 0 && (
           <p className="m-auto text-center text-sm text-content/50">{t("agent.chat.empty")}</p>
         )}
-        {chat.entries.map(({ id, entry }) =>
-          entry.kind === "changed" ? (
-            <Changed key={id} entry={entry} later={questionsOf(asked, entry.with)} disabled={chat.running} />
-          ) : (
-            <Line key={id} entry={entry} />
-          ),
-        )}
-        {chat.running && last?.kind !== "assistant" && (
+        {chat.entries.map(({ id, entry }) => {
+          if (entry.kind === "changed") {
+            return <Changed key={id} entry={entry} later={questionsOf(asked, entry.with)} disabled={chat.running} />;
+          }
+
+          if (entry.kind === "question" || entry.kind === "permission") {
+            return (
+              <Asked
+                key={id}
+                entry={entry}
+                waiting={entry.id === chat.open}
+                answer={(question, reply) => void chat.answer(question, reply)}
+              />
+            );
+          }
+
+          return <Line key={id} entry={entry} />;
+        })}
+        {chat.running && !answering && last?.kind !== "assistant" && (
           <p className="text-[12px] text-content/50">{t("agent.chat.thinking")}</p>
         )}
       </div>
@@ -381,7 +465,7 @@ export function AgentChat({ context, actions }: Props) {
             aria-controls={slash ? listId : undefined}
             aria-autocomplete={slash ? "list" : undefined}
             aria-activedescendant={matches.length > 0 ? `${listId}-${active}` : undefined}
-            placeholder={t("agent.chat.placeholder")}
+            placeholder={answering ? t("agent.chat.answerPlaceholder") : t("agent.chat.placeholder")}
             value={draft}
             rows={3}
             className="block w-full resize-none bg-transparent px-3 pt-2.5 text-[13px] outline-none"
@@ -431,6 +515,11 @@ export function AgentChat({ context, actions }: Props) {
                 </ul>
               )}
             </div>
+            {answering && (
+              <Button disabled={!canSend} onClick={send}>
+                {t("agent.chat.answer")}
+              </Button>
+            )}
             {chat.running && <Button onClick={() => void chat.stop()}>{t("agent.chat.stop")}</Button>}
             {!chat.running && (
               <Button disabled={!canSend} onClick={send}>
