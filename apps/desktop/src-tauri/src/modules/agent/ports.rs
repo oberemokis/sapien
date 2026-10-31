@@ -1,4 +1,4 @@
-use super::domain::ModelError;
+use super::domain::{Change, Chat, ModelError};
 use crate::error::AppError;
 use serde_json::Value;
 
@@ -26,6 +26,10 @@ pub trait Notes {
     fn read(&self, path: &str) -> Result<String, AppError>;
     /// Пишет заметку целиком, новую создаёт. Прежний текст уходит в историю.
     fn put(&self, path: &str, text: &str) -> Result<(), AppError>;
+    /// Откат правки агента: заметка получает текст до неё, а без текста
+    /// уходит в корзину. Откат просит человек, поэтому закрытые папки ему
+    /// не мешают. Текущий текст уходит в историю.
+    fn revert(&self, path: &str, before: Option<&str>) -> Result<(), AppError>;
 }
 
 /// Задачи YouTrack, только чтение. Ответ JSON-текстом.
@@ -34,9 +38,10 @@ pub trait Tracker {
     fn issue(&self, id: &str) -> impl Future<Output = Result<String, AppError>> + Send;
 }
 
-/// Где лежит история чата хранилища: сообщения в формате Messages API.
+/// Где лежит история чата хранилища: сообщения в формате Messages API
+/// и что поменял каждый ответ.
 pub trait ChatStore {
-    fn load(&self) -> Result<Vec<Value>, AppError>;
-    fn save(&self, messages: &[Value]) -> Result<(), AppError>;
+    fn load(&self) -> Result<Chat, AppError>;
+    fn save(&self, messages: &[Value], changes: &[Change]) -> Result<(), AppError>;
     fn clear(&self) -> Result<(), AppError>;
 }

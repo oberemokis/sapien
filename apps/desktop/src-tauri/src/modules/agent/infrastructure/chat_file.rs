@@ -1,5 +1,6 @@
 use crate::durable::{self, file_key};
 use crate::error::AppError;
+use crate::modules::agent::domain::{Change, Chat};
 use crate::modules::agent::ports::ChatStore;
 use serde_json::{Value, json};
 use std::fs;
@@ -7,7 +8,8 @@ use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
 /// История чата лежит в папке данных приложения, файл на хранилище:
-/// `chats/<хеш пути хранилища>.json`, внутри `{ "messages": [...] }`.
+/// `chats/<хеш пути хранилища>.json`, внутри `{ "messages": [...],
+/// "changes": [...] }`. Файл без `changes` читается с пустым списком.
 /// В хранилище её нет: она не попадает ни в дерево, ни на облачный диск.
 pub struct ChatFile {
     file: PathBuf,
@@ -24,26 +26,24 @@ impl ChatFile {
 }
 
 impl ChatStore for ChatFile {
-    fn load(&self) -> Result<Vec<Value>, AppError> {
+    fn load(&self) -> Result<Chat, AppError> {
         let bytes = match fs::read(&self.file) {
             Ok(bytes) => bytes,
-            Err(error) if error.kind() == ErrorKind::NotFound => return Ok(vec![]),
+            Err(error) if error.kind() == ErrorKind::NotFound => return Ok(Chat::default()),
             Err(_) => return Err(AppError::unavailable("chat_unreadable")),
         };
-        let saved: Value =
-            serde_json::from_slice(&bytes).map_err(|_| AppError::unavailable("chat_unreadable"))?;
 
-        Ok(saved["messages"].as_array().cloned().unwrap_or_default())
+        serde_json::from_slice(&bytes).map_err(|_| AppError::unavailable("chat_unreadable"))
     }
 
-    fn save(&self, messages: &[Value]) -> Result<(), AppError> {
+    fn save(&self, messages: &[Value], changes: &[Change]) -> Result<(), AppError> {
         let unwritable = |_| AppError::unavailable("chat_unwritable");
 
         if let Some(dir) = self.file.parent() {
             fs::create_dir_all(dir).map_err(unwritable)?;
         }
 
-        let saved = json!({ "messages": messages });
+        let saved = json!({ "messages": messages, "changes": changes });
 
         durable::write(&self.file, saved.to_string().as_bytes()).map_err(unwritable)
     }
@@ -69,17 +69,44 @@ mod tests {
         let home = ChatFile::new(data.path(), Path::new("/Users/me/Дом"));
         let messages =
             [json!({ "role": "user", "content": [{ "type": "text", "text": "Привет" }] })];
+        let changes = [Change {
+            turn: 0,
+            touched: vec![],
+            undone: true,
+        }];
 
-        assert_eq!(work.load(), Ok(vec![]));
+        assert_eq!(work.load(), Ok(Chat::default()));
 
-        work.save(&messages).unwrap();
+        work.save(&messages, &changes).unwrap();
 
-        assert_eq!(work.load(), Ok(messages.to_vec()));
-        assert_eq!(home.load(), Ok(vec![]));
+        assert_eq!(
+            work.load(),
+            Ok(Chat {
+                messages: messages.to_vec(),
+                changes: changes.to_vec(),
+            })
+        );
+        assert_eq!(home.load(), Ok(Chat::default()));
 
         work.clear().unwrap();
         work.clear().unwrap();
 
-        assert_eq!(work.load(), Ok(vec![]));
+        assert_eq!(work.load(), Ok(Chat::default()));
+    }
+
+    #[test]
+    fn история_до_отката_читается_без_правок() {
+        let data = tempfile::tempdir().unwrap();
+        let chat = ChatFile::new(data.path(), Path::new("/Users/me/Работа"));
+        let messages =
+            json!([{ "role": "user", "content": [{ "type": "text", "text": "Привет" }] }]);
+
+        fs::create_dir_all(chat.file.parent().unwrap()).unwrap();
+        fs::write(&chat.file, json!({ "messages": messages }).to_string()).unwrap();
+
+        let loaded = chat.load().unwrap();
+
+        assert_eq!(Value::Array(loaded.messages), messages);
+        assert!(loaded.changes.is_empty());
     }
 }

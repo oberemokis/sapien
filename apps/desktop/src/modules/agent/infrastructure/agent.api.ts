@@ -18,3 +18,7 @@ export function agentStop() {
 export function agentClear() {
   return invoke<null>("agent_clear");
 }
+
+export function agentUndo(turn: number) {
+  return invoke<null>("agent_undo", { turn });
+}

@@ -261,6 +261,16 @@ pub fn put_note<R: Runtime>(app: &AppHandle<R>, path: &str, text: &str) -> Resul
     use_case::agent_put(&place(app)?, &Disk, &history(app)?, path, text)
 }
 
+/// Откат правки агента по просьбе человека, поэтому без проверки закрытых
+/// папок.
+pub fn revert_note<R: Runtime>(
+    app: &AppHandle<R>,
+    path: &str,
+    before: Option<&str>,
+) -> Result<(), AppError> {
+    use_case::revert(&place(app)?, &Disk, &history(app)?, path, before)
+}
+
 /// Можно ли показать агенту путь заметки, например открытой у человека.
 /// Не вышло проверить, значит, нельзя.
 pub fn open_to_agent<R: Runtime>(app: &AppHandle<R>, path: &str) -> bool {

@@ -1,6 +1,6 @@
 use super::domain::{
-    Assembler, Context, Entry, Event, MAX_STEPS, ModelError, Tool, parse_model, push_user,
-    replace_once, request, search, transcript, user_blocks,
+    Assembler, Chat, Context, Entry, Event, MAX_STEPS, ModelError, Tool, parse_model, push_user,
+    replace_once, request, search, touch, transcript, turns, undo_plan, user_blocks,
 };
 use super::ports::{ChatStore, Model, Notes, Tracker};
 use crate::error::AppError;
@@ -9,11 +9,49 @@ use serde_json::{Value, json};
 use tokio::sync::Notify;
 
 pub fn history(chat: &impl ChatStore) -> Result<Vec<Entry>, AppError> {
-    Ok(transcript(&chat.load()?))
+    let chat = chat.load()?;
+
+    Ok(transcript(&chat.messages, &chat.changes))
 }
 
 pub fn clear(chat: &impl ChatStore) -> Result<(), AppError> {
     chat.clear()
+}
+
+/// «Откатить» у ответа на сообщение `turn`: этот ответ и более поздние,
+/// которые трогали те же заметки (`undo_plan`). Заметки возвращаются
+/// к тексту до них, созданные агентом уходят в корзину. Текущий текст
+/// перед этим уходит в историю версий: правка человека поверх агента
+/// не теряется, а откат сам обратим. Не вышло вернуть заметку, и ответы
+/// остаются неоткаченными, откат можно повторить.
+pub fn undo(chat: &impl ChatStore, notes: &impl Notes, turn: usize) -> Result<(), AppError> {
+    let Chat {
+        messages,
+        mut changes,
+    } = chat.load()?;
+    let (turns, targets) = undo_plan(&changes, turn);
+
+    for target in &targets {
+        notes.revert(&target.path, target.before.as_deref())?;
+    }
+
+    for change in changes
+        .iter_mut()
+        .filter(|change| turns.contains(&change.turn))
+    {
+        change.undone = true;
+    }
+
+    chat.save(&messages, &changes)
+}
+
+/// Текст заметки до правки. Нет заметки, значит, правка её создаст.
+fn before(notes: &impl Notes, path: &str) -> Result<Option<String>, AppError> {
+    match notes.read(path) {
+        Ok(text) => Ok(Some(text)),
+        Err(error) if error.code == "note_missing" => Ok(None),
+        Err(error) => Err(error),
+    }
 }
 
 /// Сообщение человека. Пустой текст продолжает историю, которая кончается
@@ -25,12 +63,14 @@ pub struct Turn<'a> {
 }
 
 /// Выполняет вызов инструмента. Ошибка уходит модели текстом, чтобы она
-/// поправила вызов или сказала человеку, что не вышло.
+/// поправила вызов или сказала человеку, что не вышло. Заметку, которую
+/// инструмент поменял, и её текст до правки получает `wrote`.
 async fn run(
     call: &Value,
     assembler: &Assembler,
     notes: &impl Notes,
     tracker: &impl Tracker,
+    wrote: &mut (impl FnMut(&str, Option<String>) + Send),
 ) -> Result<String, String> {
     if let Some(raw) = call["id"]
         .as_str()
@@ -47,7 +87,14 @@ async fn run(
         Tool::ListNotes {} => notes.paths().map(|paths| paths.join("\n")),
         Tool::SearchNotes { query } => notes.texts().map(|texts| search(&texts, &query)),
         Tool::ReadNote { path } => notes.read(&path),
-        Tool::WriteNote { path, text } => notes.put(&path, &text).map(|()| "Записано.".to_owned()),
+        Tool::WriteNote { path, text } => {
+            let was = before(notes, &path).map_err(failed)?;
+
+            notes.put(&path, &text).map(|()| {
+                wrote(&path, was);
+                "Записано.".to_owned()
+            })
+        }
         Tool::EditNote {
             path,
             old_text,
@@ -56,7 +103,10 @@ async fn run(
             let text = notes.read(&path).map_err(failed)?;
             let edited = replace_once(&text, &old_text, &new_text).map_err(str::to_owned)?;
 
-            notes.put(&path, &edited).map(|()| "Заменено.".to_owned())
+            notes.put(&path, &edited).map(|()| {
+                wrote(&path, Some(text));
+                "Заменено.".to_owned()
+            })
         }
         Tool::YoutrackSearch { query } => tracker.search(&query).await,
         Tool::YoutrackIssue { id } => tracker.issue(&id).await,
@@ -99,7 +149,10 @@ pub async fn send(
     let key = secrets
         .get(SecretName::ModelKey)
         .ok_or(AppError::not_found("agent_key_missing"))?;
-    let mut messages = chat.load()?;
+    let Chat {
+        mut messages,
+        mut changes,
+    } = chat.load()?;
     let mut context = turn.context;
 
     // Заметка из закрытой папки не уходит модели ни путём, ни выделением,
@@ -114,12 +167,15 @@ pub async fn send(
 
     if !turn.text.trim().is_empty() {
         push_user(&mut messages, user_blocks(turn.text, &context));
-        chat.save(&messages)?;
+        chat.save(&messages, &changes)?;
     }
 
     if messages.last().is_none_or(|last| last["role"] != "user") {
         return Ok(());
     }
+
+    // Номер сообщения, на которое идёт ответ: «Повторить» продолжает его же.
+    let asked = turns(&messages).saturating_sub(1);
 
     for _ in 0..MAX_STEPS {
         let body = request(model_id, &messages);
@@ -168,14 +224,15 @@ pub async fn send(
         };
 
         if !matches!(outcome, Ok(true)) {
-            chat.save(&messages)?;
+            chat.save(&messages, &changes)?;
             return outcome.map(drop);
         }
 
         let mut results = vec![];
 
         for call in &calls {
-            let result = run(call, &assembler, notes, tracker).await;
+            let mut wrote = |path: &str, was| touch(&mut changes, asked, path, was);
+            let result = run(call, &assembler, notes, tracker, &mut wrote).await;
             let ok = result.is_ok();
             let content = result.unwrap_or_else(|error| error);
 
@@ -189,7 +246,7 @@ pub async fn send(
         }
 
         push_user(&mut messages, results);
-        chat.save(&messages)?;
+        chat.save(&messages, &changes)?;
     }
 
     Err(AppError::invalid("agent_too_many_steps"))
@@ -198,6 +255,7 @@ pub async fn send(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::modules::agent::domain::Change;
     use std::collections::{BTreeMap, VecDeque};
     use std::sync::{Arc, Mutex};
     use tauri::async_runtime::block_on;
@@ -295,6 +353,17 @@ mod tests {
             self.0.lock().unwrap().insert(path.into(), text.into());
             Ok(())
         }
+
+        fn revert(&self, path: &str, before: Option<&str>) -> Result<(), AppError> {
+            let mut notes = self.0.lock().unwrap();
+
+            match before {
+                Some(text) => notes.insert(path.into(), text.into()),
+                None => notes.remove(path),
+            };
+
+            Ok(())
+        }
     }
 
     /// YouTrack не подключён.
@@ -311,26 +380,29 @@ mod tests {
     }
 
     #[derive(Default)]
-    struct FakeChat(Mutex<Vec<Value>>);
+    struct FakeChat(Mutex<Chat>);
 
     impl FakeChat {
         fn messages(&self) -> Vec<Value> {
-            self.0.lock().unwrap().clone()
+            self.0.lock().unwrap().messages.clone()
         }
     }
 
     impl ChatStore for FakeChat {
-        fn load(&self) -> Result<Vec<Value>, AppError> {
-            Ok(self.messages())
+        fn load(&self) -> Result<Chat, AppError> {
+            Ok(self.0.lock().unwrap().clone())
         }
 
-        fn save(&self, messages: &[Value]) -> Result<(), AppError> {
-            *self.0.lock().unwrap() = messages.to_vec();
+        fn save(&self, messages: &[Value], changes: &[Change]) -> Result<(), AppError> {
+            *self.0.lock().unwrap() = Chat {
+                messages: messages.to_vec(),
+                changes: changes.to_vec(),
+            };
             Ok(())
         }
 
         fn clear(&self) -> Result<(), AppError> {
-            self.0.lock().unwrap().clear();
+            *self.0.lock().unwrap() = Chat::default();
             Ok(())
         }
     }
@@ -453,6 +525,12 @@ mod tests {
                 },
                 Entry::Assistant {
                     text: "Отметил релиз.".into()
+                },
+                Entry::Changed {
+                    turn: 0,
+                    paths: vec!["план.md".into()],
+                    undone: false,
+                    with: vec![],
                 },
             ]
         );
@@ -660,5 +738,112 @@ mod tests {
         assert!(!sent.contains("Личное"));
         assert!(!sent.contains("сокровенное"));
         assert!(sent.contains("Что тут?"));
+    }
+
+    #[test]
+    fn откат_возвращает_все_заметки_ответа_а_созданную_убирает() {
+        let model = FakeModel::with(vec![
+            Script::Answer(call(
+                "t1",
+                "edit_note",
+                &json!({ "path": "план.md", "old_text": "- [ ] релиз", "new_text": "- [x] релиз" }),
+            )),
+            Script::Answer(call(
+                "t2",
+                "write_note",
+                &json!({ "path": "итоги.md", "text": "Релиз вышел." }),
+            )),
+            Script::Answer(call(
+                "t3",
+                "write_note",
+                &json!({ "path": "Релизы/1.0.md", "text": "# 1.0" }),
+            )),
+            Script::Answer(call(
+                "t4",
+                "edit_note",
+                &json!({ "path": "план.md", "old_text": "- [x] релиз", "new_text": "- [x] релиз 1.0" }),
+            )),
+            Script::Answer(text("Готово.")),
+        ]);
+        let notes = FakeNotes::with(&[("план.md", "- [ ] релиз\n"), ("итоги.md", "Пока пусто.")]);
+        let chat = FakeChat::default();
+
+        let run = send_with(
+            &model,
+            &notes,
+            &chat,
+            &keyed(),
+            &Notify::new(),
+            "Отметь релиз",
+        );
+
+        assert_eq!(run.result, Ok(()));
+        assert_eq!(
+            history(&chat).unwrap().last(),
+            Some(&Entry::Changed {
+                turn: 0,
+                paths: vec!["план.md".into(), "итоги.md".into(), "Релизы/1.0.md".into()],
+                undone: false,
+                with: vec![],
+            })
+        );
+
+        undo(&chat, &notes, 0).unwrap();
+
+        assert_eq!(notes.text("план.md").as_deref(), Some("- [ ] релиз\n"));
+        assert_eq!(notes.text("итоги.md").as_deref(), Some("Пока пусто."));
+        assert_eq!(notes.text("Релизы/1.0.md"), None);
+        assert!(matches!(
+            history(&chat).unwrap().last(),
+            Some(Entry::Changed { undone: true, .. })
+        ));
+    }
+
+    #[test]
+    fn откат_раннего_ответа_забирает_поздний_по_той_же_заметке() {
+        let write = |id: &str, text: &str| {
+            Script::Answer(call(
+                id,
+                "write_note",
+                &json!({ "path": "план.md", "text": text }),
+            ))
+        };
+        let model = FakeModel::with(vec![
+            write("t1", "один"),
+            Script::Answer(text("Записал.")),
+            Script::Answer(text("Привет.")),
+            write("t2", "три"),
+            Script::Answer(text("Переписал.")),
+        ]);
+        let notes = FakeNotes::with(&[("план.md", "ноль")]);
+        let chat = FakeChat::default();
+        let secrets = keyed();
+
+        for question in ["Запиши", "Привет", "Перепиши"] {
+            let run = send_with(&model, &notes, &chat, &secrets, &Notify::new(), question);
+
+            assert_eq!(run.result, Ok(()));
+        }
+
+        assert!(history(&chat).unwrap().contains(&Entry::Changed {
+            turn: 0,
+            paths: vec!["план.md".into()],
+            undone: false,
+            with: vec![2],
+        }));
+
+        undo(&chat, &notes, 1).unwrap();
+        assert_eq!(notes.text("план.md").as_deref(), Some("три"));
+
+        undo(&chat, &notes, 0).unwrap();
+        assert_eq!(notes.text("план.md").as_deref(), Some("ноль"));
+        assert!(
+            chat.0
+                .lock()
+                .unwrap()
+                .changes
+                .iter()
+                .all(|change| change.undone)
+        );
     }
 }

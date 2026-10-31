@@ -31,6 +31,10 @@ impl<R: Runtime> Notes for VaultNotes<R> {
     fn put(&self, path: &str, text: &str) -> Result<(), AppError> {
         vault::transport::put_note(&self.0, path, text)
     }
+
+    fn revert(&self, path: &str, before: Option<&str>) -> Result<(), AppError> {
+        vault::transport::revert_note(&self.0, path, before)
+    }
 }
 
 pub struct YoutrackIssues<R: Runtime>(pub AppHandle<R>);
