@@ -10,12 +10,14 @@ import { useTranslation } from "react-i18next";
 import { FileTypeIcon } from "@/core/ui/file-type-icon";
 import { Icon } from "@/core/ui/icon";
 import { hasModKey } from "@/core/ui/keys";
-import { closeSearch, openSearch, useSearchOpen, useSearchStartQuery } from "../interactions/search";
+import { closeSearch, openSearch, useSearchMode, useSearchOpen, useSearchStartQuery } from "../interactions/search";
 import { useNoteTags } from "../interactions/tags";
-import { openNote, useTreeState } from "../interactions/tree";
+import { useTemplateSettings } from "../interactions/templates";
+import { insertTemplate, openNote, startCreate, useTreeState } from "../interactions/tree";
 import { useCreateEntry, useVaultStatus, useVaultTree } from "../interactions/vault";
 import { highlight, notesOf, recentNotes, searchNotes, type Found } from "../model/search";
 import { splitQuery } from "../model/tags";
+import { isTemplate } from "../model/templates";
 import { checkName } from "../model/vault";
 
 // ⌘K открывает поиск, где бы ни стоял фокус. Код клавиши, а не символ:
@@ -67,6 +69,8 @@ function SearchDialog() {
   const { recent } = useTreeState();
   const create = useCreateEntry();
   const noteTags = useNoteTags();
+  const mode = useSearchMode();
+  const { folder } = useTemplateSettings();
   const [query, setQuery] = useState(useSearchStartQuery());
   const [active, setActive] = useState(0);
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -75,12 +79,24 @@ function SearchDialog() {
   const listId = useId();
 
   const notes = useMemo(() => notesOf(tree.data ?? []), [tree.data]);
+  // Шаблоны это заметки папки шаблонов, все сразу по алфавиту.
+  const picking = mode.kind !== "files";
+  const templates = useMemo(() => notes.filter((note) => isTemplate(note.path, folder)), [notes, folder]);
   const { tags, name } = splitQuery(query);
   const empty = tags.length === 0 && name === "";
-  const found = empty ? recentNotes(notes, recent) : searchNotes(notes, query, noteTags.data ?? []);
+  let found: Found[];
+
+  if (picking) {
+    found = searchNotes(templates, query);
+  } else if (empty) {
+    found = recentNotes(notes, recent);
+  } else {
+    found = searchNotes(notes, query, noteTags.data ?? []);
+  }
+
   // Ничего не нашлось по имени: файл с таким именем создаётся в корне.
-  // По тегу создавать нечего.
-  const offerCreate = found.length === 0 && name !== "" && tags.length === 0;
+  // По тегу и среди шаблонов создавать нечего.
+  const offerCreate = !picking && found.length === 0 && name !== "" && tags.length === 0;
   const problem = offerCreate ? checkName(name, "note", tree.data ?? []) : null;
   const count = found.length + (offerCreate ? 1 : 0);
 
@@ -109,10 +125,18 @@ function SearchDialog() {
   }
 
   // Найденная заметка открывается с курсором в тексте: Enter в активной
-  // вкладке, ⌘Enter и ⌘клик в новой.
+  // вкладке, ⌘Enter и ⌘клик в новой. Выбранный шаблон идёт в поле имени
+  // нового файла в дереве или на место курсора в открытой заметке.
   function choose(path: string, newTab: boolean) {
     close();
-    openNote(path, { focus: true, newTab });
+
+    if (mode.kind === "newFromTemplate") {
+      startCreate("note", mode.parent, path);
+    } else if (mode.kind === "insertTemplate") {
+      void insertTemplate(mode.path, path);
+    } else {
+      openNote(path, { focus: true, newTab });
+    }
   }
 
   function createNote() {
@@ -156,11 +180,13 @@ function SearchDialog() {
     createHint = t("vault.create.failed");
   }
 
+  const title = picking ? t("vault.templates.pick") : t("vault.search.title");
+
   return (
     // Нажатие на затемнение вокруг окна закрывает поиск, как Escape.
     <dialog
       ref={dialogRef}
-      aria-label={t("vault.search.title")}
+      aria-label={title}
       className="fixed inset-x-0 top-[12vh] mx-auto w-[min(560px,calc(100vw-32px))] overflow-hidden rounded-xl border border-content/8 bg-shell/95 p-0 text-content shadow-float backdrop-blur-xl backdrop:bg-scrim"
       onKeyDown={onKeyDown}
       onCancel={(event) => {
@@ -178,12 +204,12 @@ function SearchDialog() {
         <input
           ref={inputRef}
           role="combobox"
-          aria-label={t("vault.search.title")}
+          aria-label={title}
           aria-expanded
           aria-controls={listId}
           aria-autocomplete="list"
           aria-activedescendant={count > 0 ? `${listId}-${active}` : undefined}
-          placeholder={t("vault.search.placeholder")}
+          placeholder={picking ? t("vault.templates.placeholder") : t("vault.search.placeholder")}
           className="h-full min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-content/40"
           value={query}
           onChange={(event) => {
@@ -194,13 +220,16 @@ function SearchDialog() {
         />
       </div>
       <div className="max-h-[360px] overflow-y-auto p-1">
-        {empty && found.length > 0 && (
+        {!picking && empty && found.length > 0 && (
           <p className="px-2 pt-1 pb-1.5 text-[12px] text-content/50">{t("vault.search.recent")}</p>
         )}
-        {!empty && found.length === 0 && (
+        {picking && templates.length === 0 && (
+          <p className="px-2 py-1.5 text-[13px] text-content/50">{t("vault.templates.empty", { folder })}</p>
+        )}
+        {!empty && found.length === 0 && (!picking || templates.length > 0) && (
           <p className="px-2 pt-1 pb-1.5 text-[13px] text-content/50">{t("vault.search.nothing")}</p>
         )}
-        <div id={listId} role="listbox" aria-label={t("vault.search.title")}>
+        <div id={listId} role="listbox" aria-label={title}>
           {found.map((note, index) => (
             <div
               key={note.path}

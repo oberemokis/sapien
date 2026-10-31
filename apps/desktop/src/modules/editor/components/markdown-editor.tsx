@@ -17,6 +17,8 @@ type Props = {
   readOnly?: boolean;
   // Каждый новый номер больше нуля ставит курсор в текст.
   focusRequest?: number;
+  // Текст на место курсора. Новая строка вставляется один раз.
+  insert?: string | null;
   label: string;
   // Теги для подсказки после «#».
   tags?: string[];
@@ -37,6 +39,7 @@ export function MarkdownEditor({
   onChange,
   readOnly = false,
   focusRequest = 0,
+  insert = null,
   label,
   tags = NO_TAGS,
   onTagClick = ignoreTag,
@@ -92,6 +95,27 @@ export function MarkdownEditor({
       viewRef.current?.focus();
     }
   }, [focusRequest]);
+
+  // Вставка у курсора, например шаблона. Выделенное не заменяется, текст
+  // встаёт рядом с ним, и курсор уходит в конец вставленного. Это правка
+  // человека: она уходит наружу и отменяется ⌘Z.
+  useEffect(() => {
+    const view = viewRef.current;
+
+    if (view === null || insert === null) {
+      return;
+    }
+
+    const at = view.state.selection.main.head;
+
+    view.dispatch({
+      changes: { from: at, insert },
+      selection: { anchor: at + insert.length },
+      scrollIntoView: true,
+      userEvent: "input",
+    });
+    view.focus();
+  }, [insert]);
 
   // Файл поменяли снаружи. Правка не попадает в историю: Cmd+Z отменяет
   // только своё.

@@ -3,15 +3,16 @@ import { readRecent, writeRecent } from "../infrastructure/recent.device";
 import { readTabs, writeTabs } from "../infrastructure/tabs.device";
 import { parseRecent, pushRecent } from "../model/search";
 import { closeTab, cycleTab, keepTabs, moveTab, openTab, parseTabs, type Tabs } from "../model/tabs";
-import { foldersDownTo, parentOf, type EntryKind } from "../model/vault";
+import { foldersDownTo, notePlace, parentOf, type EntryKind } from "../model/vault";
 import { EMPTY_TREE, treeStore } from "../store/tree.store";
+import { readTemplate, restoreTemplateSettings } from "./templates";
 
 export function useTreeState() {
   return useSelector(treeStore);
 }
 
-// Вкладки и недавние с прошлого запуска. Вкладки, чьих файлов уже нет,
-// уберёт keepExistingTabs, когда придёт дерево.
+// Вкладки, недавние и настройки шаблонов с прошлого запуска. Вкладки,
+// чьих файлов уже нет, уберёт keepExistingTabs, когда придёт дерево.
 let checkedOnStart = false;
 
 export function restoreSession() {
@@ -21,6 +22,7 @@ export function restoreSession() {
     ...parseTabs(readTabs()),
     recent: parseRecent(readRecent()),
   }));
+  restoreTemplateSettings();
 }
 
 function updateTabs(update: (tabs: Tabs) => Tabs) {
@@ -59,6 +61,33 @@ export function focusDone(path: string) {
     }
 
     return { ...state, focus: null };
+  });
+}
+
+// Текст на место курсора в заметке, его вставит её редактор.
+export function insertIntoNote(path: string, text: string) {
+  treeStore.setState((state) => ({ ...state, insert: { path, text } }));
+}
+
+// Шаблон на место курсора в заметке, {{title}} это её имя. Шаблон успели
+// удалить, пока выбирали: вставлять нечего, и заметка остаётся как была.
+export async function insertTemplate(path: string, template: string) {
+  try {
+    insertIntoNote(path, await readTemplate(template, notePlace(path).title));
+  } catch {
+    // Нечего вставить.
+  }
+}
+
+// Вставлено. Просьба разовая, как и с курсором: повторно открытая
+// заметка не вставит текст второй раз.
+export function insertDone(path: string) {
+  treeStore.setState((state) => {
+    if (state.insert?.path !== path) {
+      return state;
+    }
+
+    return { ...state, insert: null };
   });
 }
 
@@ -147,9 +176,9 @@ function targetFolder() {
 // вместе со всеми над ней.
 let lastDraftId = 0;
 
-export function startCreate(kind: EntryKind, parent = targetFolder()) {
+export function startCreate(kind: EntryKind, parent = targetFolder(), template?: string) {
   lastDraftId += 1;
-  const draft = { id: lastDraftId, parent, kind };
+  const draft = { id: lastDraftId, parent, kind, template };
 
   treeStore.setState((state) => ({
     ...state,

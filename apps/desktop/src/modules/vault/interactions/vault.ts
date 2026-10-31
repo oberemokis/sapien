@@ -6,10 +6,28 @@ import {
   vaultCreate,
   vaultStatus,
   vaultTree,
+  vaultWrite,
 } from "../infrastructure/vault.api";
-import type { VaultStatus } from "../model/vault";
+import type { EntryKind, VaultStatus } from "../model/vault";
 import { forgetNotes } from "./note";
+import { readTemplate } from "./templates";
 import { finishCreate, resetTree } from "./tree";
+
+type CreateInput = { parent: string; name: string; kind: EntryKind; template?: string };
+
+// Шаблон читается до создания: пропал он, и пустой файл не остаётся.
+async function createEntry({ template, ...input }: CreateInput) {
+  if (template === undefined) {
+    return vaultCreate(input);
+  }
+
+  const text = await readTemplate(template, input.name);
+  const path = await vaultCreate(input);
+
+  await vaultWrite(path, text);
+
+  return path;
+}
 
 // Ключи из имён команд vault_status и vault_tree: общий префикс ["vault"]
 // перечитывает всё хранилище разом.
@@ -62,7 +80,7 @@ export function useCreateEntry(draftId = 0) {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: vaultCreate,
+    mutationFn: createEntry,
     onSuccess: async (path, { kind }) => {
       await queryClient.invalidateQueries({ queryKey: VAULT_KEY });
       finishCreate(draftId, path, kind);

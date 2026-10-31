@@ -1,12 +1,14 @@
+import FilePasteIcon from "@hugeicons/core-free-icons/FilePasteIcon";
 import Note01Icon from "@hugeicons/core-free-icons/Note01Icon";
 import { Fragment, useEffect, useMemo, type ComponentType, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/core/ui/button";
 import { Icon } from "@/core/ui/icon";
+import { IconButton } from "@/core/ui/icon-button";
 import { useNote } from "../interactions/note";
-import { openSearch, showTag } from "../interactions/search";
+import { openSearch, pickTemplate, showTag } from "../interactions/search";
 import { useTagList } from "../interactions/tags";
-import { focusDone, startCreate, useTreeState } from "../interactions/tree";
+import { focusDone, insertDone, startCreate, useTreeState } from "../interactions/tree";
 import { notePlace, type EditorProps } from "../model/vault";
 
 type Props = {
@@ -54,11 +56,12 @@ type OpenNoteProps = {
   path: string;
   hidden: boolean;
   focusRequest: number;
+  insert: string | null;
   tags: string[];
   editor: Props["editor"];
 };
 
-function OpenNote({ path, hidden, focusRequest, tags, editor: Editor }: OpenNoteProps) {
+function OpenNote({ path, hidden, focusRequest, insert, tags, editor: Editor }: OpenNoteProps) {
   const { t } = useTranslation();
   const note = useNote(path);
   const { title, folders } = notePlace(path);
@@ -83,6 +86,13 @@ function OpenNote({ path, hidden, focusRequest, tags, editor: Editor }: OpenNote
     }
   }, [focusRequest, loaded, path]);
 
+  // Так же разово и вставка: редактор вставил текст в этот проход.
+  useEffect(() => {
+    if (insert !== null && loaded) {
+      insertDone(path);
+    }
+  }, [insert, loaded, path]);
+
   return (
     <div hidden={hidden} className="flex min-h-0 flex-1 flex-col">
       <nav aria-label={t("editor.path")} className="flex h-10 shrink-0 items-center gap-1.5 px-4 text-[13px]">
@@ -93,6 +103,15 @@ function OpenNote({ path, hidden, focusRequest, tags, editor: Editor }: OpenNote
           </Fragment>
         ))}
         <h1 className="truncate font-medium">{title}</h1>
+        {!note.missing && (
+          <div className="ml-auto">
+            <IconButton
+              icon={FilePasteIcon}
+              label={t("vault.templates.insert")}
+              onClick={() => pickTemplate({ kind: "insertTemplate", path })}
+            />
+          </div>
+        )}
       </nav>
       {note.missing && <Notice>{t("editor.missing")}</Notice>}
       {note.unreadable && !note.missing && <Notice>{t("editor.unreadable")}</Notice>}
@@ -113,6 +132,7 @@ function OpenNote({ path, hidden, focusRequest, tags, editor: Editor }: OpenNote
           onChange={note.change}
           readOnly={note.missing}
           focusRequest={focusRequest}
+          insert={insert}
           label={title}
           tags={tags}
           onTagClick={showTag}
@@ -126,7 +146,7 @@ function OpenNote({ path, hidden, focusRequest, tags, editor: Editor }: OpenNote
 // живут, на экране только активная: у каждой своя история правок
 // и прокрутка, и они переживают переключение вкладок.
 export function NoteView({ editor, showFiles }: Props) {
-  const { tabs, active, focus } = useTreeState();
+  const { tabs, active, focus, insert } = useTreeState();
   const tagList = useTagList();
   const tags = useMemo(() => tagList.map((tag) => tag.name), [tagList]);
 
@@ -142,6 +162,7 @@ export function NoteView({ editor, showFiles }: Props) {
           path={path}
           hidden={path !== active}
           focusRequest={focus?.path === path ? focus.request : 0}
+          insert={insert?.path === path ? insert.text : null}
           tags={tags}
           editor={editor}
         />
