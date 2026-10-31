@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from "./pages/index";
 import { Route as SettingsRouteImport } from "./pages/settings";
 import { Route as SettingsIndexRouteImport } from "./pages/settings.index";
 import { Route as SettingsAppearanceRouteImport } from "./pages/settings.appearance";
+import { Route as SettingsVaultRouteImport } from "./pages/settings.vault";
 
 const IndexRoute = IndexRouteImport.update({
   id: "/",
@@ -34,16 +35,23 @@ const SettingsAppearanceRoute = SettingsAppearanceRouteImport.update({
   path: "/appearance",
   getParentRoute: () => SettingsRoute,
 } as any);
+const SettingsVaultRoute = SettingsVaultRouteImport.update({
+  id: "/vault",
+  path: "/vault",
+  getParentRoute: () => SettingsRoute,
+} as any);
 
 export interface FileRoutesByFullPath {
   "/": typeof IndexRoute;
   "/settings": typeof SettingsRouteWithChildren;
   "/settings/appearance": typeof SettingsAppearanceRoute;
+  "/settings/vault": typeof SettingsVaultRoute;
   "/settings/": typeof SettingsIndexRoute;
 }
 export interface FileRoutesByTo {
   "/": typeof IndexRoute;
   "/settings/appearance": typeof SettingsAppearanceRoute;
+  "/settings/vault": typeof SettingsVaultRoute;
   "/settings": typeof SettingsIndexRoute;
 }
 export interface FileRoutesById {
@@ -51,14 +59,26 @@ export interface FileRoutesById {
   "/": typeof IndexRoute;
   "/settings": typeof SettingsRouteWithChildren;
   "/settings/appearance": typeof SettingsAppearanceRoute;
+  "/settings/vault": typeof SettingsVaultRoute;
   "/settings/": typeof SettingsIndexRoute;
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath;
-  fullPaths: "/" | "/settings" | "/settings/appearance" | "/settings/";
+  fullPaths:
+    | "/"
+    | "/settings"
+    | "/settings/appearance"
+    | "/settings/vault"
+    | "/settings/";
   fileRoutesByTo: FileRoutesByTo;
-  to: "/" | "/settings/appearance" | "/settings";
-  id: "__root__" | "/" | "/settings" | "/settings/appearance" | "/settings/";
+  to: "/" | "/settings/appearance" | "/settings/vault" | "/settings";
+  id:
+    | "__root__"
+    | "/"
+    | "/settings"
+    | "/settings/appearance"
+    | "/settings/vault"
+    | "/settings/";
   fileRoutesById: FileRoutesById;
 }
 export interface RootRouteChildren {
@@ -96,16 +116,25 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof SettingsAppearanceRouteImport;
       parentRoute: typeof SettingsRoute;
     };
+    "/settings/vault": {
+      id: "/settings/vault";
+      path: "/vault";
+      fullPath: "/settings/vault";
+      preLoaderRoute: typeof SettingsVaultRouteImport;
+      parentRoute: typeof SettingsRoute;
+    };
   }
 }
 
 interface SettingsRouteChildren {
   SettingsAppearanceRoute: typeof SettingsAppearanceRoute;
+  SettingsVaultRoute: typeof SettingsVaultRoute;
   SettingsIndexRoute: typeof SettingsIndexRoute;
 }
 
 const SettingsRouteChildren: SettingsRouteChildren = {
   SettingsAppearanceRoute: SettingsAppearanceRoute,
+  SettingsVaultRoute: SettingsVaultRoute,
   SettingsIndexRoute: SettingsIndexRoute,
 };
 
