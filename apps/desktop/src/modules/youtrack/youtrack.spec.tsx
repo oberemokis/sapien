@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { TaskDraftForm, YoutrackSettings } from "@/modules/youtrack";
@@ -301,6 +301,23 @@ describe("черновик задачи", () => {
     fireEvent.click(screen.getByRole("button", { name: "Открыть" }));
 
     expect(opened).toEqual(["Задачи/Почта.md"]);
+  });
+
+  it("задача из шаблона без проекта: поле подсвечено, публикация ждёт проект", async () => {
+    fakeYoutrack();
+    const note = openDraft(DRAFT.replace("project: SAP", "project:"));
+    const project = await screen.findByLabelText("Проект");
+
+    // Ответ о подключении уже пришёл: держит именно пустой проект.
+    await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+    expect(project.getAttribute("aria-invalid")).toBe("true");
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Опубликовать в YouTrack" }).disabled).toBe(true);
+
+    fireEvent.change(project, { target: { value: "SAP" } });
+    fireEvent.blur(project);
+
+    await ready("Опубликовать в YouTrack");
+    expect(note.text).toContain("project: SAP\n");
   });
 
   it("без сети черновик правится, а публикация недоступна", async () => {

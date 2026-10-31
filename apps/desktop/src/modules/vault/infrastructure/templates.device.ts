@@ -19,3 +19,23 @@ export function writeTemplateSettings(settings: TemplateSettings) {
     // Настройки уже в окне, без записи они только не переживут перезапуск.
   }
 }
+
+const SEEDED_KEY = "sapien.templates.seeded";
+
+// Какие наборы стандартных шаблонов уже клались в какие хранилища.
+export function readSeeded(): unknown {
+  try {
+    return JSON.parse(localStorage.getItem(SEEDED_KEY) ?? "[]");
+  } catch {
+    return [];
+  }
+}
+
+export function writeSeeded(seeded: string[]) {
+  try {
+    localStorage.setItem(SEEDED_KEY, JSON.stringify(seeded));
+  } catch {
+    // Без записи набор положится снова, но только на место удалённых
+    // шаблонов: правленые не перезаписываются.
+  }
+}

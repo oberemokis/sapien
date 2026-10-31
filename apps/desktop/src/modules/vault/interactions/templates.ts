@@ -19,8 +19,16 @@ export function changeTemplateSettings(change: Partial<TemplateSettings>) {
   writeTemplateSettings(templatesStore.get());
 }
 
+// Подстановки соседних модулей, например {{project}} из YouTrack. Их задаёт
+// страница: хранилище не знает, откуда они берутся.
+let extraValues: Record<string, string> = {};
+
+export function setTemplateValues(values: Record<string, string>) {
+  extraValues = values;
+}
+
 // Текст шаблона с подстановками на эту минуту: {{title}} это имя заметки,
 // куда он пойдёт.
 export async function readTemplate(path: string, title: string) {
-  return fillTemplate(await vaultRead(path), title, new Date(), templatesStore.get());
+  return fillTemplate(await vaultRead(path), title, new Date(), templatesStore.get(), extraValues);
 }

@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { ACTIONS_FOLDER, AgentChat, useActions } from "@/modules/agent";
 import { MarkdownEditor } from "@/modules/editor";
@@ -10,14 +10,16 @@ import {
   NoteTabs,
   NoteView,
   openNote,
+  setTemplateValues,
   TagList,
   useActiveNote,
   useFolderNotes,
+  useNewFromTemplateSet,
   useNoteTexts,
   VaultGate,
   VaultTree,
 } from "@/modules/vault";
-import { TaskDraftForm, useYoutrackCheck } from "@/modules/youtrack";
+import { TASK_TEMPLATES, TaskDraftForm, useDefaultProject, useYoutrackCheck } from "@/modules/youtrack";
 
 export const Route = createFileRoute("/")({ component: Home });
 
@@ -54,6 +56,18 @@ function Home() {
   const youtrack = useYoutrackCheck();
   const check = useMemo(() => ({ youtrack }), [youtrack]);
   const actions = useActions({ notes: useFolderNotes(ACTIONS_FOLDER), context: note, check, onRun: showChat });
+  // «Новая задача» это новый файл из шаблонов задач, а {{project}} в них
+  // это проект по умолчанию из настроек YouTrack.
+  const newTask = useNewFromTemplateSet(TASK_TEMPLATES);
+  const project = useDefaultProject();
+
+  useEffect(() => {
+    setTemplateValues({ project });
+  }, [project]);
+
+  function createMenu(parent: string) {
+    return [{ label: t("youtrack.newTask"), onSelect: () => void newTask(parent) }];
+  }
 
   // Действие из меню заметки в дереве работает с ней, а не с открытой.
   function noteMenu(path: string) {
@@ -70,7 +84,7 @@ function Home() {
       <Workspace
         files={
           <>
-            <VaultTree onCreateStart={showFiles} noteMenu={noteMenu} />
+            <VaultTree onCreateStart={showFiles} noteMenu={noteMenu} createMenu={createMenu} />
             <TagList />
           </>
         }

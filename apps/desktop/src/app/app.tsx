@@ -4,6 +4,7 @@ import "@/core/i18n/i18n";
 import { restoreTheme, useThemeSync } from "@/modules/appearance";
 import { restoreLayout } from "@/modules/layout";
 import { restoreSession } from "@/modules/vault";
+import { restoreDefaultProject } from "@/modules/youtrack";
 import { routeTree } from "@/route-tree.gen";
 
 const queryClient = new QueryClient();
@@ -14,6 +15,7 @@ const router = createRouter({ routeTree });
 restoreTheme();
 restoreLayout();
 restoreSession();
+restoreDefaultProject();
 
 // Без регистрации Link и navigate не знают дерева и принимают любую строку.
 declare module "@tanstack/react-router" {

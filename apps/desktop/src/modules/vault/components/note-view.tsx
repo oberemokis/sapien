@@ -13,7 +13,9 @@ import { useLeftUnsaved } from "../interactions/journal";
 import { useNote } from "../interactions/note";
 import { openSearch, pickTemplate, showTag } from "../interactions/search";
 import { useTagList } from "../interactions/tags";
+import { useTemplateSettings } from "../interactions/templates";
 import { focusDone, insertDone, startCreate, tabKey, useTreeState } from "../interactions/tree";
+import { isTemplate } from "../model/templates";
 import { notePlace, type EditorProps } from "../model/vault";
 import { NoteHistory } from "./note-history";
 
@@ -23,7 +25,8 @@ type Props = {
   // Показывает спрятанное дерево: поле нового файла живёт в нём.
   showFiles: () => void;
   // Что стоит над текстом заметки, например форма черновика задачи. Правит
-  // ту же заметку, что и редактор.
+  // ту же заметку, что и редактор. Над шаблоном его нет: шаблон это
+  // заготовка, а не заметка, и публиковать его нечего.
   above?: ComponentType<{ path: string; text: string; readOnly: boolean; onChange: (text: string) => void }>;
 };
 
@@ -112,6 +115,7 @@ function OpenNote({ path, hidden, focusRequest, insert, tags, editor: Editor, ab
   const note = useNote(path);
   const { title, folders } = notePlace(path);
   const { save } = note;
+  const template = isTemplate(path, useTemplateSettings().folder);
 
   // Ушли на другую вкладку посреди правки: она пишется сразу, не дожидаясь
   // паузы в наборе.
@@ -189,7 +193,7 @@ function OpenNote({ path, hidden, focusRequest, insert, tags, editor: Editor, ab
           </section>
         </>
       )}
-      {note.text !== undefined && Above !== undefined && (
+      {note.text !== undefined && Above !== undefined && !template && (
         <Above path={path} text={note.text} readOnly={note.missing} onChange={note.change} />
       )}
       {note.text !== undefined && (

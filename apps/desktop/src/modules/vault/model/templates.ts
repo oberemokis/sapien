@@ -40,6 +40,22 @@ export function isTemplate(path: string, folder: string) {
   return path.startsWith(`${folder}/`);
 }
 
+// Стандартные шаблоны модуля: подпапка в папке шаблонов и заметки в ней.
+export type TemplateSet = { folder: string; templates: { name: string; text: string }[] };
+
+// Записи о том, какие наборы куда уже клались: строки «хранилище, набор».
+export function parseSeeded(raw: unknown) {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+
+  return raw.filter((entry): entry is string => typeof entry === "string");
+}
+
+export function seededKey(vault: string, set: string) {
+  return `${vault}\n${set}`;
+}
+
 function pad(value: number) {
   return String(value).padStart(2, "0");
 }
@@ -58,8 +74,16 @@ export function formatDate(date: Date, format: string) {
 }
 
 // Подстановки шаблона. Неизвестная, например {{foo}}, остаётся как есть.
-export function fillTemplate(template: string, title: string, now: Date, settings: TemplateSettings) {
+// Свои подстановки соседей (extra) не перекрывают имя, дату и время.
+export function fillTemplate(
+  template: string,
+  title: string,
+  now: Date,
+  settings: TemplateSettings,
+  extra: Record<string, string> = {},
+) {
   const values: Record<string, string> = {
+    ...extra,
     title,
     date: formatDate(now, settings.dateFormat),
     time: formatDate(now, settings.timeFormat),
