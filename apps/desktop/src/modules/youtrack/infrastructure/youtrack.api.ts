@@ -8,8 +8,14 @@ import type {
   Person,
   Published,
   Similar,
+  TaskGraph,
   YoutrackStatus,
 } from "../model/youtrack";
+
+// Граф связей вокруг задач ids на depth связей, от одной до трёх.
+export function youtrackGraph(ids: string[], depth: number) {
+  return invoke<TaskGraph>("youtrack_graph", { ids, depth });
+}
 
 // Rust спрашивает сервер, кто владелец токена: ответ говорит, работает ли
 // подключение прямо сейчас.

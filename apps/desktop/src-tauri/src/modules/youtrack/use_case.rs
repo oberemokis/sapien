@@ -1,13 +1,14 @@
 use super::domain::{
-    ApiError, Checked, Draft, EpicChanges, FeedEvent, IssueDetail, IssueFacts, IssueState, Person,
-    Published, Sent, Similar, YoutrackStatus, date_ms, epic_changes as domain_epic_changes,
-    feed_events, field_command, link_command, missing_fields, parse_host, parse_issue_id,
-    project_assignees, search_words,
+    ApiError, Checked, Draft, EpicChanges, FeedEvent, GraphNode, IssueDetail, IssueFacts,
+    IssueState, Person, Published, Sent, Similar, TaskGraph, YoutrackStatus, date_ms,
+    epic_changes as domain_epic_changes, feed_events, field_command, graph_edges, link_command,
+    missing_fields, parse_host, parse_issue_id, project_assignees, search_words,
 };
 use super::ports::{HostPlace, Ledger, YoutrackApi};
 use crate::error::AppError;
 use crate::secrets::{SecretName, Secrets};
 use serde_json::{Value, json};
+use std::collections::HashSet;
 
 /// Подключает сервер. Адрес и токен сохраняются, только когда YouTrack
 /// по адресу принял токен: неработающее подключение не остаётся.
@@ -566,6 +567,106 @@ customFields(name,value(name,login,fullName)),comments(text,author(fullName),cre
     )?;
 
     Ok(IssueDetail::of(id, format!("{host}/issue/{id}"), &issue))
+}
+
+/// Точек в графе не больше этого: эпик с тысячей подзадач на глубине три
+/// иначе ушёл бы в YouTrack сотнями номеров за раз.
+const GRAPH_LIMIT: usize = 500;
+
+/// Граф связей вокруг задач `ids` на `depth` связей, от одной до трёх.
+/// Каждый шаг это один поиск YouTrack по номерам. Линии остаются только
+/// между точками графа. Ни одной задачи из `ids` нет: отказ
+/// `youtrack_missing`.
+pub async fn graph(
+    api: &impl YoutrackApi,
+    place: &impl HostPlace,
+    secrets: &Secrets,
+    ids: &[String],
+    depth: u8,
+) -> Result<TaskGraph, AppError> {
+    let mut frontier: Vec<String> = ids
+        .iter()
+        .filter_map(|id| parse_issue_id(id))
+        .map(str::to_owned)
+        .collect();
+
+    if frontier.is_empty() {
+        return Ok(TaskGraph::default());
+    }
+
+    let (host, token) = connection(place, secrets)?;
+    let depth = depth.clamp(1, 3);
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut graph = TaskGraph::default();
+    let mut edges = vec![];
+
+    for level in 0..=depth {
+        frontier.retain(|id| seen.insert(id.clone()));
+        frontier.truncate(GRAPH_LIMIT.saturating_sub(graph.nodes.len()));
+
+        if frontier.is_empty() {
+            break;
+        }
+
+        let query = format!("issue id: {}", frontier.join(", "));
+        let top = frontier.len().to_string();
+        let issues = json_of(
+            &api.get(
+                &host,
+                &token,
+                "/api/issues",
+                &[
+                    ("query", query.as_str()),
+                    (
+                        "fields",
+                        "idReadable,summary,resolved,project(shortName),\
+customFields(name,value(name,login,fullName)),\
+links(direction,linkType(name),issues(idReadable))",
+                    ),
+                    ("$top", top.as_str()),
+                ],
+            )
+            .await?,
+        )?;
+        let mut next = vec![];
+
+        for issue in issues.as_array().into_iter().flatten() {
+            let Some(id) = issue["idReadable"].as_str() else {
+                continue;
+            };
+            let found = graph_edges(id, issue);
+
+            if level < depth {
+                next.extend(
+                    found
+                        .iter()
+                        .flat_map(|edge| [edge.from.clone(), edge.to.clone()]),
+                );
+            }
+
+            edges.extend(found);
+            graph
+                .nodes
+                .push(GraphNode::of(id, format!("{host}/issue/{id}"), issue));
+        }
+
+        frontier = next;
+    }
+
+    if graph.nodes.is_empty() {
+        return Err(AppError::not_found("youtrack_missing"));
+    }
+
+    let known: HashSet<&str> = graph.nodes.iter().map(|node| node.id.as_str()).collect();
+    let mut kept = HashSet::new();
+
+    graph.edges = edges
+        .into_iter()
+        .filter(|edge| known.contains(edge.from.as_str()) && known.contains(edge.to.as_str()))
+        .filter(|edge| kept.insert(edge.clone()))
+        .collect();
+
+    Ok(graph)
 }
 
 /// Последние сто задач проекта, свежие первыми: подсказка после «SAP-».
@@ -1572,6 +1673,122 @@ mod tests {
         assert_eq!(
             block_on(assignees(&board, &place, &secrets, "WEB")),
             Err(AppError::invalid("youtrack_project_missing"))
+        );
+    }
+
+    /// YouTrack со связями «зависит от»: поиск по номерам отдаёт только
+    /// названные задачи и записывает, кого спросили.
+    struct Chain {
+        depends: Vec<(&'static str, &'static str)>,
+        asked: Mutex<Vec<String>>,
+    }
+
+    impl YoutrackApi for Chain {
+        async fn me(&self, _host: &str, _token: &str) -> Result<String, ApiError> {
+            Ok("Илья".into())
+        }
+
+        async fn get(
+            &self,
+            _host: &str,
+            _token: &str,
+            _path: &str,
+            query: &[(&str, &str)],
+        ) -> Result<String, ApiError> {
+            let search = query.iter().find(|(key, _)| *key == "query").unwrap().1;
+            let ids: Vec<&str> = search
+                .trim_start_matches("issue id: ")
+                .split(", ")
+                .collect();
+            let link = |direction: &str, others: Vec<&str>| {
+                json!({ "direction": direction, "linkType": { "name": "Depend" },
+                    "issues": others.iter().map(|id| json!({ "idReadable": id })).collect::<Vec<_>>() })
+            };
+            let found: Vec<Value> = ids
+                .iter()
+                .filter(|id| id.starts_with("SAP-"))
+                .map(|id| {
+                    let on = self
+                        .depends
+                        .iter()
+                        .filter(|(from, _)| from == id)
+                        .map(|(_, to)| *to);
+                    let by = self
+                        .depends
+                        .iter()
+                        .filter(|(_, to)| to == id)
+                        .map(|(from, _)| *from);
+
+                    json!({
+                        "idReadable": id,
+                        "summary": format!("Задача {id}"),
+                        "project": { "shortName": "SAP" },
+                        "customFields": [{ "name": "State", "value": { "name": "Open" } }],
+                        "links": [link("OUTWARD", on.collect()), link("INWARD", by.collect())],
+                    })
+                })
+                .collect();
+
+            self.asked.lock().unwrap().push(search.into());
+            Ok(json!(found).to_string())
+        }
+
+        async fn post(
+            &self,
+            _host: &str,
+            _token: &str,
+            _path: &str,
+            _query: &[(&str, &str)],
+            _body: &Value,
+        ) -> Result<String, ApiError> {
+            Ok(String::new())
+        }
+    }
+
+    #[test]
+    fn граф_идёт_по_связям_на_заданную_глубину_и_держит_цикл() {
+        // 1 зависит от 2, 2 от 3, 3 от 4, а 3 ещё и от 1: цикл 1, 2, 3.
+        let chain = Chain {
+            depends: vec![
+                ("SAP-1", "SAP-2"),
+                ("SAP-2", "SAP-3"),
+                ("SAP-3", "SAP-4"),
+                ("SAP-3", "SAP-1"),
+            ],
+            asked: Mutex::new(vec![]),
+        };
+        let (place, secrets) = connected();
+
+        let near = block_on(graph(&chain, &place, &secrets, &["SAP-1".into()], 1)).unwrap();
+        let ids: Vec<&str> = near.nodes.iter().map(|node| node.id.as_str()).collect();
+
+        assert_eq!(ids, ["SAP-1", "SAP-2", "SAP-3"]);
+        assert_eq!(
+            *chain.asked.lock().unwrap(),
+            ["issue id: SAP-1", "issue id: SAP-2, SAP-3"]
+        );
+        // Линия к SAP-4 за краем графа не показывается, а линия между
+        // соседями на краю есть, по разу, хотя её видят обе задачи.
+        assert_eq!(
+            near.edges
+                .iter()
+                .map(|edge| (edge.from.as_str(), edge.to.as_str()))
+                .collect::<Vec<_>>(),
+            [("SAP-2", "SAP-1"), ("SAP-1", "SAP-3"), ("SAP-3", "SAP-2")]
+        );
+        assert_eq!(near.nodes[0].state.as_deref(), Some("Open"));
+        assert_eq!(near.nodes[0].url, "https://acme.youtrack.cloud/issue/SAP-1");
+
+        let deeper = block_on(graph(&chain, &place, &secrets, &["SAP-1".into()], 2)).unwrap();
+
+        assert_eq!(deeper.nodes.len(), 4);
+        assert_eq!(
+            block_on(graph(&chain, &place, &secrets, &["WEB-1".into()], 2)),
+            Err(AppError::not_found("youtrack_missing"))
+        );
+        assert_eq!(
+            block_on(graph(&chain, &place, &secrets, &[], 2)),
+            Ok(TaskGraph::default())
         );
     }
 }

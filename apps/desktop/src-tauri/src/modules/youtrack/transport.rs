@@ -1,5 +1,6 @@
 use super::domain::{
-    Checked, Draft, FeedEvent, IssueDetail, IssueState, Person, Published, Similar, YoutrackStatus,
+    Checked, Draft, FeedEvent, IssueDetail, IssueState, Person, Published, Similar, TaskGraph,
+    YoutrackStatus,
 };
 use super::infrastructure::host_file::HostFile;
 use super::infrastructure::http::Http;
@@ -212,4 +213,16 @@ pub async fn youtrack_issue_detail(
     id: String,
 ) -> Result<IssueDetail, AppError> {
     use_case::issue_detail(&*http, &place(&app)?, &secrets, &id).await
+}
+
+/// Граф связей вокруг задач `ids` на `depth` связей.
+#[tauri::command]
+pub async fn youtrack_graph(
+    app: AppHandle,
+    http: State<'_, Http>,
+    secrets: State<'_, Secrets>,
+    ids: Vec<String>,
+    depth: u8,
+) -> Result<TaskGraph, AppError> {
+    use_case::graph(&*http, &place(&app)?, &secrets, &ids, depth).await
 }

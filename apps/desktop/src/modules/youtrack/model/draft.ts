@@ -192,6 +192,11 @@ export function parseDraft(text: string, title: string): TaskDraft | null {
   };
 }
 
+// Черновик ли задачи заметка с таким текстом: у неё есть граф связей.
+export function isTaskDraft(text: string) {
+  return parseDraft(text, "") !== null;
+}
+
 // Имя заметки по пути: название задачи, у которой нет заголовка.
 export function noteTitle(path: string) {
   return (path.split("/").pop() ?? path).replace(/\.md$/, "");
