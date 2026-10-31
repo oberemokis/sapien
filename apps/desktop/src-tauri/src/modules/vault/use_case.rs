@@ -155,6 +155,43 @@ pub fn write(
     Ok(())
 }
 
+/// Правка агента: заметка пишется целиком, новая создаётся вместе с папками.
+/// Прежний текст уходит в историю всегда, а не раз в пять минут: каждую
+/// правку агента можно откатить. Правку человека, которая ещё не дошла
+/// до файла, она не затирает: запись окна потом увидит спор.
+pub fn put(
+    place: &impl VaultPlace,
+    disk: &impl VaultDisk,
+    history: &impl History,
+    path: &str,
+    text: &str,
+) -> Result<(), AppError> {
+    let root = open_root(place, disk)?;
+    let file = note_at(place, disk, path)?;
+
+    match disk.read(&file) {
+        Ok(current) => snapshot(history, &root, path, &current, Source::Agent),
+        Err(error) if error.code == "note_missing" => {
+            let mut folder = root.clone();
+            let folders = path.rsplit_once('/').map_or("", |(folders, _)| folders);
+
+            for part in folders.split('/').filter(|part| !part.is_empty()) {
+                folder.push(part);
+
+                match disk.create(&folder, EntryKind::Folder) {
+                    Err(error) if error.code != "name_taken" => return Err(error),
+                    _ => {}
+                }
+            }
+
+            disk.create(&file, EntryKind::Note)?;
+        }
+        Err(error) => return Err(error),
+    }
+
+    disk.write(&file, text, None)
+}
+
 /// Правки из журнала, которые можно вернуть. Те, что старше недели,
 /// журнал забывает.
 pub fn unsaved(
@@ -321,8 +358,8 @@ pub fn prune_history(place: &impl VaultPlace, disk: &impl VaultDisk, history: &i
 /// Текст заметки для разбора в интерфейсе: теги и всё, что ищется по тексту.
 #[derive(Debug, PartialEq, Serialize)]
 pub struct NoteText {
-    path: String,
-    text: String,
+    pub path: String,
+    pub text: String,
 }
 
 /// Тексты всех заметок хранилища разом. Заметку, которую не прочитать
@@ -1169,5 +1206,40 @@ mod tests {
 
         assert_eq!(status, Err(AppError::not_found("vault_missing")));
         assert_eq!(place.load(), Some(PathBuf::from("/old")));
+    }
+
+    #[test]
+    fn правка_агента_снимает_каждый_прежний_текст() {
+        let place = chosen("/notes");
+        let disk = Files::with(&[("план.md", "было")]);
+        let history = Album::default();
+
+        put(&place, &disk, &history, "план.md", "стало").unwrap();
+        put(&place, &disk, &history, "план.md", "стало ещё").unwrap();
+
+        assert_eq!(disk.text("план.md").as_deref(), Some("стало ещё"));
+        assert_eq!(
+            history.texts("план.md"),
+            [
+                (Source::Agent, "стало".to_owned()),
+                (Source::Agent, "было".to_owned())
+            ]
+        );
+    }
+
+    #[test]
+    fn агент_создаёт_заметку_вместе_с_папками_но_не_вне_хранилища() {
+        let place = chosen("/notes");
+        let disk = Files::default();
+        let history = Album::default();
+
+        put(&place, &disk, &history, "Встречи/2026/ретро.md", "итоги").unwrap();
+
+        assert_eq!(disk.text("Встречи/2026/ретро.md").as_deref(), Some("итоги"));
+        assert!(history.texts("Встречи/2026/ретро.md").is_empty());
+        assert_eq!(
+            put(&place, &disk, &history, "../чужое.md", "x"),
+            Err(AppError::invalid("path_invalid"))
+        );
     }
 }

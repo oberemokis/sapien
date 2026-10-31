@@ -1,4 +1,4 @@
-use super::domain::{YoutrackStatus, parse_host};
+use super::domain::{YoutrackStatus, parse_host, parse_issue_id};
 use super::ports::{HostPlace, YoutrackApi};
 use crate::error::AppError;
 use crate::secrets::{SecretName, Secrets};
@@ -60,6 +60,62 @@ pub fn disconnect(place: &impl HostPlace, secrets: &Secrets) -> Result<(), AppEr
     place.clear()
 }
 
+// Поля задач для агента: в списке коротко, у одной задачи всё, что нужно
+// прочитать её как человек.
+const BRIEF: &str = "idReadable,summary,resolved,updated,project(shortName)";
+const FULL: &str = "idReadable,summary,description,resolved,created,updated,project(name),\
+reporter(fullName),customFields(name,value(name,fullName,text,presentation)),\
+comments(text,author(fullName),created)";
+
+async fn read(
+    api: &impl YoutrackApi,
+    place: &impl HostPlace,
+    secrets: &Secrets,
+    path: &str,
+    query: &[(&str, &str)],
+) -> Result<String, AppError> {
+    let host = place
+        .load()
+        .ok_or(AppError::not_found("youtrack_not_connected"))?;
+    let token = secrets
+        .get(SecretName::YoutrackToken)
+        .ok_or(AppError::not_found("youtrack_token_missing"))?;
+
+    Ok(api.get(&host, &token, path, query).await?)
+}
+
+/// Задачи по запросу на языке поиска YouTrack, первые двадцать.
+pub async fn search_issues(
+    api: &impl YoutrackApi,
+    place: &impl HostPlace,
+    secrets: &Secrets,
+    query: &str,
+) -> Result<String, AppError> {
+    let query = [("query", query), ("fields", BRIEF), ("$top", "20")];
+
+    read(api, place, secrets, "/api/issues", &query).await
+}
+
+/// Задача по номеру вроде `SAP-12`. Номер встаёт в путь запроса, поэтому
+/// в нём только буквы, цифры, дефис и подчёркивание.
+pub async fn issue(
+    api: &impl YoutrackApi,
+    place: &impl HostPlace,
+    secrets: &Secrets,
+    id: &str,
+) -> Result<String, AppError> {
+    let id = parse_issue_id(id).ok_or(AppError::invalid("youtrack_issue_invalid"))?;
+
+    read(
+        api,
+        place,
+        secrets,
+        &format!("/api/issues/{id}"),
+        &[("fields", FULL)],
+    )
+    .await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -82,6 +138,19 @@ mod tests {
             }
 
             Ok("Илья".into())
+        }
+
+        /// Отвечает тем, о чём спросили: так видно путь и параметры.
+        async fn get(
+            &self,
+            host: &str,
+            token: &str,
+            path: &str,
+            query: &[(&str, &str)],
+        ) -> Result<String, ApiError> {
+            self.me(host, token).await?;
+
+            Ok(format!("{host}{path} {query:?}"))
         }
     }
 
@@ -210,6 +279,40 @@ mod tests {
                 host: "https://acme.youtrack.cloud".into(),
                 code: "youtrack_token_missing",
             }
+        );
+    }
+
+    #[test]
+    fn агент_читает_задачи_только_у_подключённого_сервера() {
+        let place = FakePlace::default();
+        let secrets = Secrets::in_memory();
+
+        assert_eq!(
+            block_on(search_issues(&server(), &place, &secrets, "#Unresolved")),
+            Err(AppError::not_found("youtrack_not_connected"))
+        );
+
+        block_on(connect(
+            &server(),
+            &place,
+            &secrets,
+            "acme.youtrack.cloud",
+            TOKEN,
+        ))
+        .unwrap();
+
+        let found = block_on(search_issues(&server(), &place, &secrets, "#Unresolved")).unwrap();
+        let one = block_on(issue(&server(), &place, &secrets, " SAP-12 ")).unwrap();
+
+        assert!(
+            found.starts_with(
+                "https://acme.youtrack.cloud/api/issues [(\"query\", \"#Unresolved\")"
+            )
+        );
+        assert!(one.starts_with("https://acme.youtrack.cloud/api/issues/SAP-12 "));
+        assert_eq!(
+            block_on(issue(&server(), &place, &secrets, "../admin")),
+            Err(AppError::invalid("youtrack_issue_invalid"))
         );
     }
 

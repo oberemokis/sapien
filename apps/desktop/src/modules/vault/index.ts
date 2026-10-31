@@ -5,5 +5,6 @@ export { TagList } from "./components/tag-list";
 export { VaultGate } from "./components/vault-gate";
 export { VaultSettings } from "./components/vault-settings";
 export { VaultTree } from "./components/vault-tree";
+export { useActiveNote } from "./interactions/active-note";
 export { restoreSession } from "./interactions/tree";
 export { useVaultSync } from "./interactions/vault";
