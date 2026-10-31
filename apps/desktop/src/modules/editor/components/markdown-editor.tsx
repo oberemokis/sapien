@@ -3,7 +3,7 @@ import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { Annotation, Compartment, EditorState, Transaction } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { useEffect, useRef } from "react";
-import { Hashtags } from "@/core/markdown/tags";
+import { Frontmatter, Hashtags } from "@/core/markdown/tags";
 import { textChange } from "../model/text-change";
 import { markdownTheme } from "../ui/markdown-theme";
 import { tagClick, tagCompletion } from "./hashtags";
@@ -35,7 +35,7 @@ function ignore() {
 }
 
 // Исходный текст markdown с подсветкой разметки, GFM: таблицы, чекбоксы,
-// зачёркивание, теги. HTML в тексте остаётся текстом: редактор ничего
+// зачёркивание, теги, шапка заметки. HTML в тексте остаётся текстом: редактор ничего
 // не рисует из заметки и ничего из неё не выполняет. Редактор живёт, пока
 // открыт один файл: страница меняет его ключом при смене файла, а value
 // дальше приходит только как правка снаружи.
@@ -76,7 +76,7 @@ export function MarkdownEditor({
         extensions: [
           history(),
           keymap.of([...defaultKeymap, ...historyKeymap]),
-          markdown({ base: markdownLanguage, extensions: Hashtags }),
+          markdown({ base: markdownLanguage, extensions: [Hashtags, Frontmatter] }),
           tagCompletion(() => tagsRef.current),
           tagClick((tag) => onTagClickRef.current(tag)),
           linkClick((url) => onLinkClickRef.current(url)),

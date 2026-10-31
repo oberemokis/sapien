@@ -1,4 +1,5 @@
 import { currentCompletions } from "@codemirror/autocomplete";
+import { ensureSyntaxTree } from "@codemirror/language";
 import { EditorView } from "@codemirror/view";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
@@ -48,6 +49,20 @@ async function piece(text: string) {
 
     return found;
   });
+}
+
+// Блоки верхнего уровня разобранного текста по порядку.
+function blocks() {
+  const { state } = view();
+  const names: string[] = [];
+  let node = ensureSyntaxTree(state, state.doc.length, 1000)?.topNode.firstChild ?? null;
+
+  while (node !== null) {
+    names.push(node.name);
+    node = node.nextSibling;
+  }
+
+  return names;
 }
 
 describe("редактор markdown", () => {
@@ -169,5 +184,47 @@ describe("редактор markdown", () => {
     await vi.waitFor(() =>
       expect(currentCompletions(view().state).map((option) => option.label)).toEqual(["#работа"]),
     );
+  });
+
+  it("шапка отдельным блоком: под ней не заголовок, черта в середине осталась чертой", () => {
+    render(<MarkdownEditor value={"---\ntags: [работа]\n---\n# План\n\n---\n\nтекст"} onChange={vi.fn()} label="план" />);
+
+    expect(blocks()).toEqual(["Frontmatter", "ATXHeading1", "HorizontalRule", "Paragraph"]);
+  });
+
+  it("шапка без закрывающей строки остаётся обычным текстом", () => {
+    render(<MarkdownEditor value={"---\ntags: [работа]\n# План"} onChange={vi.fn()} label="план" />);
+
+    expect(blocks()).toEqual(["HorizontalRule", "Paragraph", "ATXHeading1"]);
+  });
+
+  it("тег шапки выделен как тег текста и ищется кликом, подсказки с решёткой в шапке нет", async () => {
+    const onTagClick = vi.fn();
+    render(
+      <MarkdownEditor
+        value={"---\ntags: [работа, план]\ntitle: x\n---\n#идея"}
+        onChange={vi.fn()}
+        label="план"
+        tags={["работа"]}
+        onTagClick={onTagClick}
+      />,
+    );
+
+    const tags = await vi.waitFor(() => {
+      const found = [...document.querySelectorAll(".cm-hashtag")];
+
+      expect(found).toHaveLength(3);
+
+      return found;
+    });
+
+    expect(tags.map((tag) => tag.textContent)).toEqual(["работа", "план", "#идея"]);
+    fireEvent.mouseDown(tags[0] as Element);
+    expect(onTagClick).toHaveBeenCalledWith("работа");
+
+    // Конец строки «title: x»: в шапке «#» начинает комментарий YAML.
+    typeWithCursor(view().state.doc.line(3).to, " #р");
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(currentCompletions(view().state)).toEqual([]);
   });
 });
