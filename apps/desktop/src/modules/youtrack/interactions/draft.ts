@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { youtrackIssueState, youtrackPublish } from "../infrastructure/youtrack.api";
+import { youtrackCheck, youtrackIssueState, youtrackPublish, youtrackSimilar } from "../infrastructure/youtrack.api";
 import type { DraftRequest } from "../model/draft";
 
 const ISSUE_KEY = ["youtrack-issue"] as const;
@@ -31,4 +31,17 @@ export function usePublish() {
       }
     },
   });
+}
+
+// Проверка черновика у YouTrack. Ответ держит форма: он про текст на момент
+// проверки, а не общий для окна.
+export function useCheck() {
+  return useMutation({ mutationFn: youtrackCheck });
+}
+
+type SimilarTo = { project: string; summary: string };
+
+// Поиск кандидатов в дубли, по кнопке.
+export function useSimilar() {
+  return useMutation({ mutationFn: ({ project, summary }: SimilarTo) => youtrackSimilar(project, summary) });
 }

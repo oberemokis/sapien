@@ -1,6 +1,7 @@
 use super::domain::{
-    Draft, IssueState, Published, Sent, YoutrackStatus, field_command, field_value, link_command,
-    missing_fields, parse_host, parse_issue_id,
+    ApiError, Checked, Draft, IssueFacts, IssueState, Published, Sent, Similar, YoutrackStatus,
+    field_command, field_value, link_command, missing_fields, parse_host, parse_issue_id,
+    search_words,
 };
 use super::ports::{HostPlace, Ledger, YoutrackApi};
 use crate::error::AppError;
@@ -138,6 +139,24 @@ async fn command(api: &impl YoutrackApi, host: &str, token: &str, id: &str, quer
         .is_ok()
 }
 
+/// Обязательные поля проекта, которых нет в черновике.
+async fn missing_in(
+    api: &impl YoutrackApi,
+    host: &str,
+    token: &str,
+    project: &str,
+    draft: &Draft,
+) -> Result<Vec<String>, AppError> {
+    let query = [
+        ("fields", "field(name),canBeEmpty,defaultValues(name)"),
+        ("$top", "200"),
+    ];
+    let path = format!("/api/admin/projects/{project}/customFields");
+    let fields = json_of(&api.get(host, token, &path, &query).await?)?;
+
+    Ok(missing_fields(&fields, draft))
+}
+
 /// Новая задача: проект по короткому имени, обязательные поля проекта,
 /// потом сама задача с названием и описанием. Номер новой задачи или
 /// обязательные поля, которых не хватило.
@@ -148,13 +167,7 @@ async fn create(
     draft: &Draft,
 ) -> Result<Result<String, Published>, AppError> {
     let project = project_id(api, host, token, &draft.project).await?;
-    let query = [
-        ("fields", "field(name),canBeEmpty,defaultValues(name)"),
-        ("$top", "200"),
-    ];
-    let path = format!("/api/admin/projects/{project}/customFields");
-    let fields = json_of(&api.get(host, token, &path, &query).await?)?;
-    let missing = missing_fields(&fields, draft);
+    let missing = missing_in(api, host, token, &project, draft).await?;
 
     if !missing.is_empty() {
         return Ok(Err(Published::Missing { fields: missing }));
@@ -363,6 +376,90 @@ pub async fn issue(
     .await
 }
 
+/// Проверка черновика у YouTrack: есть ли проект, каких обязательных полей
+/// не хватает и что с задачами, на которые он ссылается. Связи на черновики
+/// окно проверяет само, сюда приходят только номера задач.
+pub async fn check(
+    api: &impl YoutrackApi,
+    place: &impl HostPlace,
+    secrets: &Secrets,
+    draft: &Draft,
+) -> Result<Checked, AppError> {
+    let (host, token) = connection(place, secrets)?;
+    let missing = match project_id(api, &host, &token, &draft.project).await {
+        Ok(project) => Some(missing_in(api, &host, &token, &project, draft).await?),
+        Err(error) if error == AppError::invalid("youtrack_project_missing") => None,
+        Err(error) => return Err(error),
+    };
+    let mut issues: Vec<IssueFacts> = vec![];
+    let query = [("fields", "resolved,customFields(name,value(name))")];
+
+    for id in draft
+        .links
+        .iter()
+        .filter_map(|link| parse_issue_id(&link.id))
+    {
+        if issues.iter().any(|facts| facts.id == id) {
+            continue;
+        }
+
+        let facts = match api
+            .get(&host, &token, &format!("/api/issues/{id}"), &query)
+            .await
+        {
+            Ok(body) => IssueFacts::of(id, &json_of(&body)?),
+            Err(ApiError::Missing) => IssueFacts::missing(id),
+            Err(error) => return Err(error.into()),
+        };
+
+        issues.push(facts);
+    }
+
+    Ok(Checked {
+        project_found: missing.is_some(),
+        missing: missing.unwrap_or_default(),
+        issues,
+    })
+}
+
+/// Задачи проекта, в названии или описании которых есть слова названия
+/// черновика: кандидаты в дубли. Поиск YouTrack, а не модели: он ничего
+/// не стоит и отвечает сразу.
+pub async fn similar(
+    api: &impl YoutrackApi,
+    place: &impl HostPlace,
+    secrets: &Secrets,
+    project: &str,
+    summary: &str,
+) -> Result<Vec<Similar>, AppError> {
+    let project = parse_issue_id(project).ok_or(AppError::invalid("youtrack_project_missing"))?;
+    let words = search_words(summary);
+
+    if words.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let query = format!("project: {{{project}}} ({})", words.join(" or "));
+    let query = [
+        ("query", query.as_str()),
+        ("fields", "idReadable,summary"),
+        ("$top", "20"),
+    ];
+    let found = json_of(&read(api, place, secrets, "/api/issues", &query).await?)?;
+
+    Ok(found
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|issue| {
+            Some(Similar {
+                id: issue["idReadable"].as_str()?.to_owned(),
+                summary: issue["summary"].as_str()?.to_owned(),
+            })
+        })
+        .collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -421,6 +518,10 @@ mod tests {
         commands: Mutex<Vec<String>>,
         /// Команды, которые YouTrack не примет.
         rejected: Vec<&'static str>,
+        /// Решённые задачи.
+        closed: Vec<&'static str>,
+        /// Запросы поиска задач, по порядку.
+        searches: Mutex<Vec<String>>,
     }
 
     impl Board {
@@ -443,9 +544,22 @@ mod tests {
             _host: &str,
             _token: &str,
             path: &str,
-            _query: &[(&str, &str)],
+            query: &[(&str, &str)],
         ) -> Result<String, ApiError> {
             let answer = match path {
+                "/api/issues" => {
+                    let search = query.iter().find(|(key, _)| *key == "query").unwrap().1;
+                    let found: Vec<Value> = self
+                        .issues
+                        .lock()
+                        .unwrap()
+                        .iter()
+                        .map(|(id, (summary, _))| json!({ "idReadable": id, "summary": summary }))
+                        .collect();
+
+                    self.searches.lock().unwrap().push(search.into());
+                    json!(found)
+                }
                 "/api/admin/projects" => json!([{ "id": "0-1", "shortName": "SAP" }]),
                 "/api/admin/projects/0-1/customFields" => json!([
                     { "field": { "name": "Priority" }, "canBeEmpty": false, "defaultValues": [{ "name": "Normal" }] },
@@ -456,12 +570,17 @@ mod tests {
                     let id = path.strip_prefix("/api/issues/").ok_or(ApiError::Missing)?;
                     let (summary, description) = self.issue(id).ok_or(ApiError::Missing)?;
 
+                    let resolved = self.closed.contains(&id).then_some(1_767_225_600_000_i64);
+
                     json!({
                         "summary": summary,
                         "description": description,
+                        "resolved": resolved,
                         "customFields": [
                             { "name": "State", "value": { "name": "Open" } },
                             { "name": "Assignee", "value": { "login": "ilya", "fullName": "Илья Оберемок" } },
+                            { "name": "Sprints", "value": [{ "name": "Sprint 5" }] },
+                            { "name": "Due Date", "value": 1_767_225_600_000_i64 },
                         ],
                     })
                 }
@@ -946,6 +1065,101 @@ mod tests {
         assert_eq!(
             block_on(issue_state(&board, &place, &secrets, "SAP-404")),
             Err(AppError::not_found("youtrack_missing"))
+        );
+    }
+
+    fn with_issues(ids: &[&str], closed: Vec<&'static str>) -> Board {
+        let board = Board {
+            closed,
+            ..Board::default()
+        };
+
+        for id in ids {
+            board
+                .issues
+                .lock()
+                .unwrap()
+                .insert((*id).into(), (format!("Задача {id}"), String::new()));
+        }
+
+        board
+    }
+
+    #[test]
+    fn проверка_знает_связанные_задачи_и_обязательные_поля() {
+        let board = with_issues(&["SAP-90", "SAP-91"], vec!["SAP-90"]);
+        let (place, secrets) = connected();
+        let mut draft = draft(vec![]);
+
+        draft.links.push(Link {
+            kind: LinkKind::RelatesTo,
+            id: "SAP-404".into(),
+        });
+        draft.links.push(Link {
+            kind: LinkKind::Blocks,
+            id: "SAP-91".into(),
+        });
+
+        let checked = block_on(check(&board, &place, &secrets, &draft)).unwrap();
+
+        assert!(checked.project_found);
+        assert_eq!(checked.missing, ["Subsystem"]);
+        assert_eq!(
+            checked.issues,
+            [
+                IssueFacts {
+                    id: "SAP-90".into(),
+                    found: true,
+                    resolved: true,
+                    sprint: Some("Sprint 5".into()),
+                    due: Some(1_767_225_600_000),
+                },
+                IssueFacts {
+                    id: "SAP-91".into(),
+                    found: true,
+                    resolved: false,
+                    sprint: Some("Sprint 5".into()),
+                    due: Some(1_767_225_600_000),
+                },
+                IssueFacts::missing("SAP-404"),
+            ]
+        );
+
+        draft.project = "nope".into();
+
+        let checked = block_on(check(&board, &place, &secrets, &draft)).unwrap();
+
+        assert!(!checked.project_found);
+        assert!(checked.missing.is_empty());
+    }
+
+    #[test]
+    fn похожие_ищутся_по_словам_названия_в_проекте() {
+        let board = with_issues(&["SAP-3"], vec![]);
+        let (place, secrets) = connected();
+
+        let found = block_on(similar(
+            &board,
+            &place,
+            &secrets,
+            "SAP",
+            "Вход по ссылке: SAP-1",
+        ));
+
+        assert_eq!(
+            found,
+            Ok(vec![Similar {
+                id: "SAP-3".into(),
+                summary: "Задача SAP-3".into(),
+            }])
+        );
+        assert_eq!(
+            *board.searches.lock().unwrap(),
+            ["project: {SAP} (вход or ссылке or sap)"]
+        );
+        assert_eq!(
+            block_on(similar(&board, &place, &secrets, "SAP", "по и")),
+            Ok(vec![])
         );
     }
 }

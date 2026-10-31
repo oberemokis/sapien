@@ -29,6 +29,9 @@ export const ISSUE_KEY = "youtrack";
 // Карта своих полей проекта в шапке.
 export const CUSTOM_KEY = "fields";
 
+// Задачи, которые человек отметил «это не дубль». В YouTrack не уходят.
+export const NOT_DUPLICATES_KEY = "not_duplicates";
+
 export type TaskDraft = {
   project: string;
   // Номер задачи, если черновик уже опубликован.
@@ -37,6 +40,7 @@ export type TaskDraft = {
   // Свои поля проекта из карты fields.
   custom: { name: string; value: string }[];
   links: Record<DraftLinkKey, string[]>;
+  notDuplicates: string[];
   summary: string;
   description: string;
 };
@@ -182,13 +186,19 @@ export function parseDraft(text: string, title: string): TaskDraft | null {
       blocks: linkList(yaml, "blocks"),
       relates_to: linkList(yaml, "relates_to"),
     },
+    notDuplicates: linkList(yaml, NOT_DUPLICATES_KEY),
     summary,
     description,
   };
 }
 
+// Имя заметки по пути: название задачи, у которой нет заголовка.
+export function noteTitle(path: string) {
+  return (path.split("/").pop() ?? path).replace(/\.md$/, "");
+}
+
 // Связь на путь заметки, а не на номер: она ведёт на другой черновик.
-function isDraftPath(target: string) {
+export function isDraftPath(target: string) {
   return target.endsWith(".md");
 }
 

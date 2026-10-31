@@ -54,6 +54,8 @@ pub fn run() {
             youtrack::transport::youtrack_disconnect,
             youtrack::transport::youtrack_publish,
             youtrack::transport::youtrack_issue_state,
+            youtrack::transport::youtrack_check,
+            youtrack::transport::youtrack_similar,
             agent::transport::agent_history,
             agent::transport::agent_send,
             agent::transport::agent_stop,

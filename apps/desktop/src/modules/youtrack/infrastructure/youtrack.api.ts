@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { DraftRequest } from "../model/draft";
-import type { IssueState, Published, YoutrackStatus } from "../model/youtrack";
+import type { Checked, IssueState, Published, Similar, YoutrackStatus } from "../model/youtrack";
 
 // Rust спрашивает сервер, кто владелец токена: ответ говорит, работает ли
 // подключение прямо сейчас.
@@ -26,4 +26,14 @@ export function youtrackPublish(path: string, text: string, draft: DraftRequest,
 
 export function youtrackIssueState(id: string) {
   return invoke<IssueState>("youtrack_issue_state", { id });
+}
+
+// Проект, обязательные поля и задачи из связей черновика глазами YouTrack.
+export function youtrackCheck(draft: DraftRequest) {
+  return invoke<Checked>("youtrack_check", { draft });
+}
+
+// Задачи проекта со словами названия черновика: кандидаты в дубли.
+export function youtrackSimilar(project: string, summary: string) {
+  return invoke<Similar[]>("youtrack_similar", { project, summary });
 }

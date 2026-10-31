@@ -212,6 +212,84 @@ pub fn field_value(issue: &Value, name: &str) -> Option<String> {
         .map(str::to_owned)
 }
 
+/// Что проверка черновика узнала у YouTrack о задаче, на которую он ссылается.
+#[derive(Debug, PartialEq, Serialize)]
+pub struct IssueFacts {
+    pub id: String,
+    /// Задача есть: номер верный, её не удалили, и токену она видна.
+    pub found: bool,
+    pub resolved: bool,
+    pub sprint: Option<String>,
+    /// Срок в миллисекундах от начала эпохи, как его хранит YouTrack.
+    pub due: Option<i64>,
+}
+
+impl IssueFacts {
+    pub fn of(id: &str, issue: &Value) -> Self {
+        let field = |names: &[&str]| {
+            issue["customFields"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .find(|field| names.iter().any(|name| field["name"] == *name))
+                .map(|field| field["value"].clone())
+        };
+        // У поля спринтов значений бывает несколько: берётся первое.
+        let sprint = field(&["Sprint", "Sprints"]).and_then(|value| {
+            value["name"]
+                .as_str()
+                .or_else(|| value[0]["name"].as_str())
+                .map(str::to_owned)
+        });
+
+        Self {
+            id: id.to_owned(),
+            found: true,
+            resolved: !issue["resolved"].is_null(),
+            sprint,
+            due: field(&["Due Date"]).and_then(|value| value.as_i64()),
+        }
+    }
+
+    pub fn missing(id: &str) -> Self {
+        Self {
+            id: id.to_owned(),
+            found: false,
+            resolved: false,
+            sprint: None,
+            due: None,
+        }
+    }
+}
+
+/// Итог проверки черновика у YouTrack.
+#[derive(Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Checked {
+    /// Проект с таким коротким именем есть, и токену он виден.
+    pub project_found: bool,
+    /// Обязательные поля проекта, которых в черновике нет.
+    pub missing: Vec<String>,
+    pub issues: Vec<IssueFacts>,
+}
+
+/// Задача проекта, похожая на черновик.
+#[derive(Debug, PartialEq, Serialize)]
+pub struct Similar {
+    pub id: String,
+    pub summary: String,
+}
+
+/// Слова названия для поиска похожих задач: буквы и цифры, от трёх знаков.
+/// Остальное язык запросов YouTrack прочёл бы как свои знаки.
+pub fn search_words(summary: &str) -> Vec<String> {
+    summary
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|word| word.chars().count() > 2)
+        .map(str::to_lowercase)
+        .collect()
+}
+
 /// Подключение к YouTrack, как его видит окно. Токена здесь нет.
 #[derive(Debug, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
