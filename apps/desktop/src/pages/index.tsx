@@ -1,5 +1,4 @@
 import BubbleChatIcon from "@hugeicons/core-free-icons/BubbleChatIcon";
-import Folder01Icon from "@hugeicons/core-free-icons/Folder01Icon";
 import Note01Icon from "@hugeicons/core-free-icons/Note01Icon";
 import type { IconSvgElement } from "@hugeicons/react";
 import { createFileRoute } from "@tanstack/react-router";
@@ -7,6 +6,7 @@ import { useTranslation } from "react-i18next";
 import { Icon } from "@/core/ui/icon";
 import { Workspace } from "@/modules/layout";
 import { SettingsButton } from "@/modules/settings";
+import { VaultGate, VaultTree } from "@/modules/vault";
 
 export const Route = createFileRoute("/")({ component: Home });
 
@@ -28,8 +28,12 @@ function Home() {
 
   return (
     <Workspace
-      files={<Empty icon={Folder01Icon} text={t("files.empty")} />}
-      main={<Empty icon={Note01Icon} text={t("editor.empty")} />}
+      files={<VaultTree />}
+      main={
+        <VaultGate>
+          <Empty icon={Note01Icon} text={t("editor.empty")} />
+        </VaultGate>
+      }
       chat={<Empty icon={BubbleChatIcon} text={t("chat.empty")} />}
       actions={<SettingsButton />}
     />

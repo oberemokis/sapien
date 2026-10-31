@@ -251,10 +251,13 @@ const rules = [
     hint: "кеш и запросы лежат под экраном, а не над ним",
   },
   {
+    // Тест исключён: он подменяет Rust через mockIPC и шлёт его события,
+    // то есть сам стоит на границе процесса.
     name: "api и Tauri живут в infrastructure",
     files: `${UI}/src/**/*.{ts,tsx}`,
     forbidden: (spec, isType, file) =>
       !isType &&
+      !isSpec(file) &&
       !/^apps\/[^/]+\/src\/(core|modules\/[^/]+\/infrastructure)\//.test(
         file,
       ) &&
