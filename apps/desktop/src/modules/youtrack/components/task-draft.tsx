@@ -6,6 +6,7 @@ import { useOnline } from "@/core/network/online";
 import { Button } from "@/core/ui/button";
 import { useYoutrack } from "../interactions/connection";
 import { useCheck, useIssueState, usePublish, useSimilar } from "../interactions/draft";
+import { openTaskGraph } from "../interactions/graph";
 import { breakdownTask } from "../model/breakdown";
 import { duplicateFindings, localFindings, remoteFindings, type Finding } from "../model/check";
 import {
@@ -362,6 +363,7 @@ function DraftForm({
           {issue.data !== undefined && (
             <Button onClick={() => openLink(issue.data.url)}>{t("youtrack.draft.open")}</Button>
           )}
+          <Button onClick={() => openTaskGraph(path)}>{t("youtrack.graph.open")}</Button>
           {onBreakdown !== undefined && (
             // Разбивает агент, а ему нужна сеть.
             <Button disabled={readOnly || !online} onClick={() => onBreakdown(breakdownTask(path, draft.id))}>

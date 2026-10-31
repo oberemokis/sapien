@@ -67,6 +67,25 @@ export type IssueDetail = {
   comments: { author: string | null; text: string; created: number }[];
 };
 
+export const EDGE_KINDS = ["subtask", "blocks", "relates"] as const;
+
+export type EdgeKind = (typeof EDGE_KINDS)[number];
+
+// Граф связей вокруг задачи, как TaskGraph в domain.rs. Подзадача идёт
+// от родителя, «блокирует» от блокирующей задачи к заблокированной.
+export type TaskGraph = {
+  nodes: {
+    id: string;
+    summary: string;
+    state: string | null;
+    resolved: boolean;
+    assignee: string | null;
+    project: string;
+    url: string;
+  }[];
+  edges: { from: string; to: string; kind: EdgeKind }[];
+};
+
 // Коды отказов из domain.rs и use_case.rs, у каждого своя подсказка.
 const PROBLEMS = [
   "youtrack_host_empty",

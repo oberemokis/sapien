@@ -834,6 +834,99 @@ impl IssueDetail {
     }
 }
 
+/// Вид линии графа связей.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EdgeKind {
+    Subtask,
+    Blocks,
+    Relates,
+}
+
+/// Точка графа связей: задача с тем, что нужно для цвета и фильтров.
+#[derive(Debug, PartialEq, Serialize)]
+pub struct GraphNode {
+    pub id: String,
+    pub summary: String,
+    pub state: Option<String>,
+    pub resolved: bool,
+    pub assignee: Option<String>,
+    pub project: String,
+    pub url: String,
+}
+
+impl GraphNode {
+    pub fn of(id: &str, url: String, issue: &Value) -> Self {
+        Self {
+            id: id.to_owned(),
+            summary: issue["summary"].as_str().unwrap_or_default().to_owned(),
+            state: field_value(issue, "State"),
+            resolved: !issue["resolved"].is_null(),
+            assignee: field_value(issue, "Assignee"),
+            project: issue["project"]["shortName"]
+                .as_str()
+                .unwrap_or_default()
+                .to_owned(),
+            url,
+        }
+    }
+}
+
+/// Линия графа. Подзадача идёт от родителя к дочерней, «блокирует» от
+/// блокирующей задачи к заблокированной, «связана с» от меньшего номера
+/// к большему: у неё нет направления, а одна связь видна с обеих сторон.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
+pub struct GraphEdge {
+    pub from: String,
+    pub to: String,
+    pub kind: EdgeKind,
+}
+
+#[derive(Debug, Default, PartialEq, Serialize)]
+pub struct TaskGraph {
+    pub nodes: Vec<GraphNode>,
+    pub edges: Vec<GraphEdge>,
+}
+
+/// Связи задачи `id` линиями графа. Связи других типов (дубль и свои
+/// типы YouTrack) граф не показывает.
+pub fn graph_edges(id: &str, issue: &Value) -> Vec<GraphEdge> {
+    let mut edges = vec![];
+
+    for link in issue["links"].as_array().into_iter().flatten() {
+        let outward = link["direction"] != "INWARD";
+        let kind = match link["linkType"]["name"].as_str() {
+            Some("Subtask") => EdgeKind::Subtask,
+            Some("Depend") => EdgeKind::Blocks,
+            Some("Relates") => EdgeKind::Relates,
+            _ => continue,
+        };
+
+        for other in link["issues"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|issue| issue["idReadable"].as_str())
+        {
+            // Исходящая подзадача это «родитель для», исходящая зависимость
+            // это «зависит от»: блокирует другая задача.
+            let (from, to) = match (kind, outward) {
+                (EdgeKind::Subtask, true) | (EdgeKind::Blocks, false) => (id, other),
+                (EdgeKind::Subtask, false) | (EdgeKind::Blocks, true) => (other, id),
+                (EdgeKind::Relates, _) => (id.min(other), id.max(other)),
+            };
+
+            edges.push(GraphEdge {
+                from: from.to_owned(),
+                to: to.to_owned(),
+                kind,
+            });
+        }
+    }
+
+    edges
+}
+
 /// Подключение к YouTrack, как его видит окно. Токена здесь нет.
 #[derive(Debug, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
@@ -1142,5 +1235,42 @@ mod tests {
         );
         assert_eq!(events[2].author.as_deref(), Some("Анна"));
         assert_eq!(events[6].project, "WEB");
+    }
+
+    #[test]
+    fn связи_задачи_линиями_графа_с_направлением_от_родителя_и_блокирующей() {
+        let link = |direction: &str, kind: &str, ids: &[&str]| {
+            json!({
+                "direction": direction,
+                "linkType": { "name": kind },
+                "issues": ids.iter().map(|id| json!({ "idReadable": id })).collect::<Vec<_>>(),
+            })
+        };
+        let issue = json!({ "links": [
+            link("OUTWARD", "Subtask", &["SAP-2", "SAP-3"]),
+            link("INWARD", "Subtask", &["SAP-1"]),
+            link("OUTWARD", "Depend", &["SAP-4"]),
+            link("INWARD", "Depend", &["SAP-6"]),
+            link("BOTH", "Relates", &["SAP-10", "WEB-1"]),
+            link("BOTH", "Duplicate", &["SAP-9"]),
+        ] });
+        let edge = |from: &str, to: &str, kind| GraphEdge {
+            from: from.into(),
+            to: to.into(),
+            kind,
+        };
+
+        assert_eq!(
+            graph_edges("SAP-5", &issue),
+            vec![
+                edge("SAP-5", "SAP-2", EdgeKind::Subtask),
+                edge("SAP-5", "SAP-3", EdgeKind::Subtask),
+                edge("SAP-1", "SAP-5", EdgeKind::Subtask),
+                edge("SAP-4", "SAP-5", EdgeKind::Blocks),
+                edge("SAP-5", "SAP-6", EdgeKind::Blocks),
+                edge("SAP-10", "SAP-5", EdgeKind::Relates),
+                edge("SAP-5", "WEB-1", EdgeKind::Relates),
+            ]
+        );
     }
 }

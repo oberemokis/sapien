@@ -26,10 +26,13 @@ import {
   BreakdownForm,
   Inbox,
   InboxLink,
+  isTaskDraft,
   MEETING_FOLDER,
   MeetingDrafts,
+  openTaskGraph,
   TASK_TEMPLATES,
   TaskDraftForm,
+  TaskGraph,
   useDefaultProject,
   useInbox,
   useIssueMentions,
@@ -38,7 +41,7 @@ import {
 
 export const Route = createFileRoute("/")({ component: Home });
 
-const NO_NOTES: { text: string }[] = [];
+const NO_NOTES: { path: string; text: string }[] = [];
 
 // Поле имени нового файла и выбор файла живут в дереве: спрятанное дерево
 // показывается.
@@ -154,7 +157,8 @@ function Home() {
   const [meetingPath, setMeetingPath] = useState<string | null>(null);
   // Лента по задачам из запроса и черновиков. «Входящие» открыты, пока
   // человек не откроет заметку: тогда дерево отдаёт новую открытую.
-  const inbox = useInbox(useNoteTexts() ?? NO_NOTES);
+  const notes = useNoteTexts() ?? NO_NOTES;
+  const inbox = useInbox(notes);
   const shown = useNoteShown();
   const [inboxOver, setInboxOver] = useState<typeof shown | undefined>(undefined);
   const inboxOpen = inboxOver === shown;
@@ -192,8 +196,14 @@ function Home() {
       },
     };
 
+    // Граф связей есть только у черновика задачи.
+    const graph = isTaskDraft(notes.find((candidate) => candidate.path === path)?.text ?? "")
+      ? [{ label: t("youtrack.graph.open"), onSelect: () => openTaskGraph(path) }]
+      : [];
+
     return [
       fromMeeting,
+      ...graph,
       ...actions.actions.map((action) => ({
         label: action.name,
         disabled: !actions.online,
@@ -239,6 +249,7 @@ function Home() {
         actions={<SettingsButton />}
       />
       <FileSearch />
+      <TaskGraph notes={notes} onOpenNote={openDraft} />
       {meetingPath !== null && (
         <MeetingWindow path={meetingPath} tasks={meeting.tasks} problem={meetingProblem} onClose={closeMeeting} />
       )}
