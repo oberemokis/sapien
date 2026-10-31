@@ -1,4 +1,4 @@
-use super::domain::{Entry, EntryKind, Unsaved, Version, parse_note_path};
+use super::domain::{self, Entry, EntryKind, Unsaved, Version, parse_note_path};
 use super::infrastructure::config_file::ConfigFile;
 use super::infrastructure::disk::Disk;
 use super::infrastructure::history_dir::HistoryDir;
@@ -7,6 +7,7 @@ use super::infrastructure::watcher::Watch;
 use super::ports::VaultPlace;
 use super::use_case::{self, NoteText, VaultStatus};
 use crate::error::AppError;
+use std::path::PathBuf;
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager, Runtime, State, Url};
 use tauri_plugin_deep_link::DeepLinkExt;
@@ -228,6 +229,30 @@ pub async fn vault_choose(
     follow(&app, &watch, &place);
 
     Ok(status)
+}
+
+// Заметки для агента: те же сценарии, что у команд окна, путь заметки
+// проверяется так же. Удаления среди них нет: агент не удаляет вовсе.
+
+/// Папка хранилища: по ней агент держит свой чат у каждого хранилища.
+pub fn vault_root<R: Runtime>(app: &AppHandle<R>) -> Option<PathBuf> {
+    place(app).ok()?.load()
+}
+
+pub fn note_paths<R: Runtime>(app: &AppHandle<R>) -> Result<Vec<String>, AppError> {
+    Ok(domain::note_paths(&use_case::tree(&place(app)?, &Disk)?))
+}
+
+pub fn note_texts<R: Runtime>(app: &AppHandle<R>) -> Result<Vec<NoteText>, AppError> {
+    use_case::texts(&place(app)?, &Disk)
+}
+
+pub fn read_note<R: Runtime>(app: &AppHandle<R>, path: &str) -> Result<String, AppError> {
+    use_case::read(&place(app)?, &Disk, path)
+}
+
+pub fn put_note<R: Runtime>(app: &AppHandle<R>, path: &str, text: &str) -> Result<(), AppError> {
+    use_case::put(&place(app)?, &Disk, &history(app)?, path, text)
 }
 
 #[cfg(test)]

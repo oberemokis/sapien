@@ -4,9 +4,9 @@ use super::infrastructure::http::Http;
 use super::use_case;
 use crate::error::AppError;
 use crate::secrets::Secrets;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Manager, Runtime, State};
 
-fn place(app: &AppHandle) -> Result<HostFile, AppError> {
+fn place<R: Runtime>(app: &AppHandle<R>) -> Result<HostFile, AppError> {
     app.path()
         .app_config_dir()
         .map(|dir| HostFile::new(&dir))
@@ -37,4 +37,24 @@ pub async fn youtrack_connect(
 #[tauri::command]
 pub fn youtrack_disconnect(app: AppHandle, secrets: State<'_, Secrets>) -> Result<(), AppError> {
     use_case::disconnect(&place(&app)?, &secrets)
+}
+
+// Задачи для агента, только чтение: создаёт и меняет задачи человек
+// через черновик и публикацию.
+
+pub async fn search_issues<R: Runtime>(
+    app: &AppHandle<R>,
+    query: &str,
+) -> Result<String, AppError> {
+    let http = app.state::<Http>();
+    let secrets = app.state::<Secrets>();
+
+    use_case::search_issues(&*http, &place(app)?, &secrets, query).await
+}
+
+pub async fn issue<R: Runtime>(app: &AppHandle<R>, id: &str) -> Result<String, AppError> {
+    let http = app.state::<Http>();
+    let secrets = app.state::<Secrets>();
+
+    use_case::issue(&*http, &place(app)?, &secrets, id).await
 }

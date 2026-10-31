@@ -1,5 +1,4 @@
-use super::file_key;
-use crate::durable;
+use crate::durable::{self, file_key};
 use crate::error::AppError;
 use crate::modules::vault::domain::Unsaved;
 use crate::modules::vault::ports::Journal;

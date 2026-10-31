@@ -1,5 +1,4 @@
-use super::file_key;
-use crate::durable;
+use crate::durable::{self, file_key};
 use crate::error::AppError;
 use crate::modules::vault::domain::{Source, Version};
 use crate::modules::vault::ports::History;
@@ -39,6 +38,7 @@ fn source_name(source: Source) -> &'static str {
         Source::Outside => "outside",
         Source::Restore => "restore",
         Source::Trash => "trash",
+        Source::Agent => "agent",
     }
 }
 
@@ -54,6 +54,7 @@ fn parse_version(name: &str) -> Option<Version> {
         Source::Outside,
         Source::Restore,
         Source::Trash,
+        Source::Agent,
     ]
     .into_iter()
     .find(|known| source_name(*known) == source)?;

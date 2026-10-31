@@ -1,27 +1,11 @@
-import BubbleChatIcon from "@hugeicons/core-free-icons/BubbleChatIcon";
-import type { IconSvgElement } from "@hugeicons/react";
 import { createFileRoute } from "@tanstack/react-router";
-import { useTranslation } from "react-i18next";
-import { Icon } from "@/core/ui/icon";
+import { AgentChat } from "@/modules/agent";
 import { MarkdownEditor } from "@/modules/editor";
 import { showPanel, Workspace } from "@/modules/layout";
 import { SettingsButton } from "@/modules/settings";
-import { FileSearch, NoteTabs, NoteView, TagList, VaultGate, VaultTree } from "@/modules/vault";
+import { FileSearch, NoteTabs, NoteView, TagList, useActiveNote, VaultGate, VaultTree } from "@/modules/vault";
 
 export const Route = createFileRoute("/")({ component: Home });
-
-// Пустая панель до чата: строка серого текста под иконкой, как «Select
-// a note» в MonoCode.
-function Empty({ icon, text }: { icon: IconSvgElement; text: string }) {
-  return (
-    <div className="grid flex-1 place-items-center p-4">
-      <div className="flex flex-col items-center gap-2 text-center text-content/50">
-        <Icon icon={icon} size={20} />
-        <p className="text-sm">{text}</p>
-      </div>
-    </div>
-  );
-}
 
 // Поле имени нового файла и выбор файла живут в дереве: спрятанное дерево
 // показывается.
@@ -30,7 +14,8 @@ function showFiles() {
 }
 
 function Home() {
-  const { t } = useTranslation();
+  // Агент видит, что открыто и выделено: хранилище это знает, чат спрашивает.
+  const note = useActiveNote();
 
   return (
     <>
@@ -47,7 +32,7 @@ function Home() {
             <NoteView editor={MarkdownEditor} showFiles={showFiles} />
           </VaultGate>
         }
-        chat={<Empty icon={BubbleChatIcon} text={t("chat.empty")} />}
+        chat={<AgentChat context={note} />}
         actions={<SettingsButton />}
       />
       <FileSearch />

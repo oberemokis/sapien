@@ -36,6 +36,17 @@ pub fn parse_host(input: &str) -> Result<String, AppError> {
     Ok(url.as_str().trim_end_matches('/').to_owned())
 }
 
+/// Номер задачи вроде `SAP-12` или внутренний `2-345`. Он встаёт в путь
+/// запроса, и `/` или `..` увели бы запрос с токеном на другой адрес API.
+pub fn parse_issue_id(id: &str) -> Option<&str> {
+    let id = id.trim();
+    let plain = id
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+
+    (!id.is_empty() && plain).then_some(id)
+}
+
 /// Почему YouTrack не ответил тем, кем назвался токен.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ApiError {

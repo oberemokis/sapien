@@ -26,6 +26,9 @@ type Props = {
   onTagClick?: (tag: string) => void;
   // ⌘клик по ссылке в тексте.
   onLinkClick?: (url: string) => void;
+  // Выделенный текст, пустая строка без выделения. Выделение помнится
+  // и тогда, когда фокус ушёл из редактора, например в поле чата.
+  onSelectionChange?: (text: string) => void;
 };
 
 const NO_TAGS: string[] = [];
@@ -49,6 +52,7 @@ export function MarkdownEditor({
   tags = NO_TAGS,
   onTagClick = ignore,
   onLinkClick = ignore,
+  onSelectionChange = ignore,
 }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -56,6 +60,7 @@ export function MarkdownEditor({
   const tagsRef = useRef(tags);
   const onTagClickRef = useRef(onTagClick);
   const onLinkClickRef = useRef(onLinkClick);
+  const onSelectionChangeRef = useRef(onSelectionChange);
   const editableRef = useRef(new Compartment());
   const labelRef = useRef(new Compartment());
   const initialRef = useRef({ value, readOnly, label });
@@ -65,7 +70,8 @@ export function MarkdownEditor({
     tagsRef.current = tags;
     onTagClickRef.current = onTagClick;
     onLinkClickRef.current = onLinkClick;
-  }, [onChange, tags, onTagClick, onLinkClick]);
+    onSelectionChangeRef.current = onSelectionChange;
+  }, [onChange, tags, onTagClick, onLinkClick, onSelectionChange]);
 
   useEffect(() => {
     const initial = initialRef.current;
@@ -89,6 +95,12 @@ export function MarkdownEditor({
 
             if (update.docChanged && !fromOutside) {
               onChangeRef.current(update.state.doc.toString());
+            }
+
+            if (update.selectionSet) {
+              const { from, to } = update.state.selection.main;
+
+              onSelectionChangeRef.current(update.state.sliceDoc(from, to));
             }
           }),
         ],

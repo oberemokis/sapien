@@ -7,6 +7,7 @@ import { openLink } from "@/core/links/open-link";
 import { Button } from "@/core/ui/button";
 import { Icon } from "@/core/ui/icon";
 import { IconButton } from "@/core/ui/icon-button";
+import { selectText } from "../interactions/active-note";
 import { openHistory } from "../interactions/history";
 import { useLeftUnsaved } from "../interactions/journal";
 import { useNote } from "../interactions/note";
@@ -195,6 +196,7 @@ function OpenNote({ path, hidden, focusRequest, insert, tags, editor: Editor }: 
           tags={tags}
           onTagClick={showTag}
           onLinkClick={openLink}
+          onSelectionChange={(text) => selectText(path, text)}
         />
       )}
     </div>

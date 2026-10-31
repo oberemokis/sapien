@@ -5,6 +5,7 @@ use reqwest::redirect::Policy;
 use reqwest::{Client, StatusCode};
 use serde::Deserialize;
 use std::time::Duration;
+use url::Url;
 
 /// Клиент REST API YouTrack. Сертификату сервера он верит по корням
 /// системы: свой центр сертификации компании ставится в систему, а не
@@ -33,9 +34,37 @@ struct Me {
 
 impl YoutrackApi for Http {
     async fn me(&self, host: &str, token: &str) -> Result<String, ApiError> {
+        let body = self
+            .get(
+                host,
+                token,
+                "/api/users/me",
+                &[("fields", "login,fullName")],
+            )
+            .await?;
+        let me: Me = serde_json::from_str(&body).map_err(|_| ApiError::NotYoutrack)?;
+
+        if me.full_name.trim().is_empty() {
+            return Ok(me.login);
+        }
+
+        Ok(me.full_name)
+    }
+
+    async fn get(
+        &self,
+        host: &str,
+        token: &str,
+        path: &str,
+        query: &[(&str, &str)],
+    ) -> Result<String, ApiError> {
+        let mut url = Url::parse(&format!("{host}{path}")).map_err(|_| ApiError::NotYoutrack)?;
+
+        url.query_pairs_mut().extend_pairs(query);
+
         let response = self
             .0
-            .get(format!("{host}/api/users/me?fields=login,fullName"))
+            .get(url)
             .bearer_auth(token)
             .header(ACCEPT, "application/json")
             .send()
@@ -56,13 +85,11 @@ impl YoutrackApi for Http {
             return Err(ApiError::NotYoutrack);
         }
 
-        let me: Me = response.json().await.map_err(|_| ApiError::NotYoutrack)?;
+        let body = response.text().await.map_err(|_| ApiError::Unreachable)?;
 
-        if me.full_name.trim().is_empty() {
-            return Ok(me.login);
-        }
+        serde_json::from_str::<serde_json::Value>(&body).map_err(|_| ApiError::NotYoutrack)?;
 
-        Ok(me.full_name)
+        Ok(body)
     }
 }
 
@@ -114,7 +141,7 @@ mod tests {
         assert_eq!(me(&host).as_deref(), Ok("Илья Оберемок"));
 
         let request = requests.recv().unwrap();
-        assert!(request.starts_with("GET /youtrack/api/users/me?fields=login,fullName "));
+        assert!(request.starts_with("GET /youtrack/api/users/me?fields=login%2CfullName "));
         assert!(
             request
                 .to_lowercase()
@@ -123,6 +150,26 @@ mod tests {
 
         let (host, _) = serve("200 OK", "application/json", r#"{"login":"ilya"}"#);
         assert_eq!(me(&host).as_deref(), Ok("ilya"));
+    }
+
+    #[test]
+    fn параметры_запроса_кодируются_а_ответ_идёт_как_есть() {
+        let (host, requests) = serve("200 OK", "application/json", r#"[{"idReadable":"SAP-1"}]"#);
+
+        let body = block_on(Http::default().get(
+            &host,
+            "perm:токен",
+            "/api/issues",
+            &[("query", "for: me #Unresolved"), ("$top", "20")],
+        ));
+
+        assert_eq!(body.as_deref(), Ok(r#"[{"idReadable":"SAP-1"}]"#));
+        assert!(
+            requests
+                .recv()
+                .unwrap()
+                .starts_with("GET /youtrack/api/issues?query=for%3A+me+%23Unresolved&%24top=20 ")
+        );
     }
 
     #[test]

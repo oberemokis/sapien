@@ -6,6 +6,16 @@ pub trait YoutrackApi {
     /// Имя владельца токена. Этим же запросом проверяется, что по адресу
     /// YouTrack и что токен он принимает.
     fn me(&self, host: &str, token: &str) -> impl Future<Output = Result<String, ApiError>> + Send;
+
+    /// Чтение по пути API, ответ JSON-текстом как есть: агенту он понятен
+    /// и без разбора.
+    fn get(
+        &self,
+        host: &str,
+        token: &str,
+        path: &str,
+        query: &[(&str, &str)],
+    ) -> impl Future<Output = Result<String, ApiError>> + Send;
 }
 
 /// Где приложение помнит адрес подключённого сервера. Токен лежит не здесь,
