@@ -1,11 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { TaskDraftForm, YoutrackSettings } from "@/modules/youtrack";
 import type { DraftRequest, LinkedNote } from "./model/draft";
-import type { Published } from "./model/youtrack";
+import type { Checked, Published, Similar } from "./model/youtrack";
 
 const TOKEN = "perm:очень-секретно";
 
@@ -123,16 +123,23 @@ type: Feature
 
 type Sent = { text: string; draft: DraftRequest; id: string | null; force: boolean };
 
+// Что YouTrack ответит на проверку и на поиск похожих.
+type Server = { checked?: Checked; similar?: Similar[] };
+
 // Подключённый YouTrack. Публикация отвечает по очереди заданными ответами,
 // потом созданной задачей SAP-12. Строка вместо ответа это отказ с таким
 // кодом, как AppError из error.rs.
-function fakeYoutrack(answers: (Published | string)[] = []) {
+function fakeYoutrack(answers: (Published | string)[] = [], server: Server = {}) {
   const sent: Sent[] = [];
 
   mockIPC((command, args) => {
     switch (command) {
       case "youtrack_status":
         return { kind: "connected", host: "https://acme.youtrack.cloud", name: "Илья" };
+      case "youtrack_check":
+        return server.checked ?? { projectFound: true, missing: [], issues: [] };
+      case "youtrack_similar":
+        return server.similar ?? [];
       case "youtrack_publish": {
         sent.push(args as Sent);
         const answer = answers.shift() ?? { kind: "done", id: "SAP-12", failed: [] };
@@ -334,5 +341,93 @@ describe("черновик задачи", () => {
     fireEvent.keyDown(assignee, { key: "Enter" });
 
     expect(note.text).toContain("assignee: ilya");
+  });
+});
+
+// Находки проверки текстом, как их видит человек.
+function findings() {
+  return within(screen.getByRole("region", { name: "Проверка" }))
+    .queryAllByRole("listitem")
+    .map((item) => item.textContent);
+}
+
+describe("проверка связей", () => {
+  it("цикл через три черновика: все три названы, публикация недоступна", async () => {
+    fakeYoutrack();
+    const opened: string[] = [];
+
+    openDraft(DRAFT.replace("type: Feature", "type: Feature\ndepends_on: [Задачи/Почта.md]"), {
+      notes: [
+        { path: "Задачи/Почта.md", text: "---\nproject: SAP\ndepends_on: [Задачи/Письмо.md]\n---\n" },
+        { path: "Задачи/Письмо.md", text: "---\nproject: SAP\ndepends_on: [Задачи/Вход.md]\n---\n" },
+      ],
+      onOpen: (path) => opened.push(path),
+    });
+
+    await screen.findByRole("region", { name: "Проверка" });
+    expect(findings()[0]).toContain("Цикл зависимостей: Вход → Почта → Письмо → Вход.");
+    expect(screen.getByLabelText("Зависит от").getAttribute("aria-invalid")).toBe("true");
+
+    fireEvent.click(screen.getByRole("button", { name: "Открыть «Письмо»" }));
+
+    expect(opened).toEqual(["Задачи/Письмо.md"]);
+    await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Опубликовать в YouTrack" }).disabled).toBe(true);
+  });
+
+  it("без сети проверки YouTrack пропущены с пометкой, локальные работают", async () => {
+    vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+    fakeYoutrack();
+    openDraft(DRAFT.replace("type: Feature", "type: Feature\nrelates_to: [Задачи/Нет.md]"));
+
+    expect(await screen.findByText(/Без сети проверено только то, что видно в заметках/)).toBeDefined();
+    expect(findings()).toEqual([
+      "ОшибкаСвязь ведёт на черновик, которого нет: Задачи/Нет.md.",
+      "ПредупреждениеНет раздела «Проверка» с критериями приёмки, или он пуст.",
+    ]);
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Проверить" }).disabled).toBe(true);
+  });
+
+  it("находка YouTrack уходит после правки без новой проверки, а с ней задача не публикуется", async () => {
+    const sent = fakeYoutrack([], {
+      checked: {
+        projectFound: true,
+        missing: [],
+        issues: [{ id: "SAP-404", found: false, resolved: false, sprint: null, due: null }],
+      },
+    });
+    openDraft(DRAFT.replace("type: Feature", "type: Feature\nrelates_to: [SAP-404]"));
+
+    fireEvent.click(await ready("Опубликовать в YouTrack"));
+
+    await waitFor(() => expect(findings()[0]).toContain("Задачи SAP-404 нет в YouTrack"));
+    expect(sent).toHaveLength(0);
+
+    const relates = screen.getByLabelText("Связана с");
+
+    fireEvent.change(relates, { target: { value: "" } });
+    fireEvent.blur(relates);
+
+    expect(findings().join()).not.toContain("SAP-404");
+    await ready("Опубликовать в YouTrack");
+  });
+
+  it("кандидат в дубли не держит публикацию, «это не дубль» убирает его насовсем", async () => {
+    fakeYoutrack([], { similar: [{ id: "SAP-5", summary: "Вход по ссылке из письма" }] });
+    const note = openDraft(DRAFT);
+
+    fireEvent.click(await ready("Искать дубли"));
+
+    await waitFor(() =>
+      expect(findings().join()).toContain(
+        "Похожая задача SAP-5 «Вход по ссылке из письма»: общие слова вход, ссылке.",
+      ),
+    );
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Опубликовать в YouTrack" }).disabled).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "Это не дубль" }));
+
+    expect(note.text).toContain("not_duplicates: [SAP-5]");
+    expect(findings().join()).not.toContain("SAP-5");
   });
 });

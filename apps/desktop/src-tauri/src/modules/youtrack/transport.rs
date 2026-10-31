@@ -1,4 +1,4 @@
-use super::domain::{Draft, IssueState, Published, YoutrackStatus};
+use super::domain::{Checked, Draft, IssueState, Published, Similar, YoutrackStatus};
 use super::infrastructure::host_file::HostFile;
 use super::infrastructure::http::Http;
 use super::infrastructure::sent_file::SentFile;
@@ -58,6 +58,27 @@ pub async fn youtrack_issue_state(
     id: String,
 ) -> Result<IssueState, AppError> {
     use_case::issue_state(&*http, &place(&app)?, &secrets, &id).await
+}
+
+#[tauri::command]
+pub async fn youtrack_check(
+    app: AppHandle,
+    http: State<'_, Http>,
+    secrets: State<'_, Secrets>,
+    draft: Draft,
+) -> Result<Checked, AppError> {
+    use_case::check(&*http, &place(&app)?, &secrets, &draft).await
+}
+
+#[tauri::command]
+pub async fn youtrack_similar(
+    app: AppHandle,
+    http: State<'_, Http>,
+    secrets: State<'_, Secrets>,
+    project: String,
+    summary: String,
+) -> Result<Vec<Similar>, AppError> {
+    use_case::similar(&*http, &place(&app)?, &secrets, &project, &summary).await
 }
 
 #[tauri::command]

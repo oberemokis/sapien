@@ -18,6 +18,15 @@ export type Published =
 // Плашка опубликованной задачи.
 export type IssueState = { id: string; state: string | null; assignee: string | null; url: string };
 
+// Что проверка узнала у YouTrack, как Checked и IssueFacts в domain.rs.
+// due это срок в миллисекундах.
+export type IssueFacts = { id: string; found: boolean; resolved: boolean; sprint: string | null; due: number | null };
+
+export type Checked = { projectFound: boolean; missing: string[]; issues: IssueFacts[] };
+
+// Задача проекта, похожая на черновик.
+export type Similar = { id: string; summary: string };
+
 // Коды отказов из domain.rs и use_case.rs, у каждого своя подсказка.
 const PROBLEMS = [
   "youtrack_host_empty",
