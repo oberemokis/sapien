@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from "./pages/__root";
 import { Route as IndexRouteImport } from "./pages/index";
 import { Route as SettingsRouteImport } from "./pages/settings";
 import { Route as SettingsIndexRouteImport } from "./pages/settings.index";
+import { Route as SettingsAboutRouteImport } from "./pages/settings.about";
 import { Route as SettingsActionsRouteImport } from "./pages/settings.actions";
 import { Route as SettingsAgentRouteImport } from "./pages/settings.agent";
 import { Route as SettingsAppearanceRouteImport } from "./pages/settings.appearance";
@@ -31,6 +32,11 @@ const SettingsRoute = SettingsRouteImport.update({
 const SettingsIndexRoute = SettingsIndexRouteImport.update({
   id: "/",
   path: "/",
+  getParentRoute: () => SettingsRoute,
+} as any);
+const SettingsAboutRoute = SettingsAboutRouteImport.update({
+  id: "/about",
+  path: "/about",
   getParentRoute: () => SettingsRoute,
 } as any);
 const SettingsActionsRoute = SettingsActionsRouteImport.update({
@@ -62,6 +68,7 @@ const SettingsVaultRoute = SettingsVaultRouteImport.update({
 export interface FileRoutesByFullPath {
   "/": typeof IndexRoute;
   "/settings": typeof SettingsRouteWithChildren;
+  "/settings/about": typeof SettingsAboutRoute;
   "/settings/actions": typeof SettingsActionsRoute;
   "/settings/agent": typeof SettingsAgentRoute;
   "/settings/appearance": typeof SettingsAppearanceRoute;
@@ -71,6 +78,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   "/": typeof IndexRoute;
+  "/settings/about": typeof SettingsAboutRoute;
   "/settings/actions": typeof SettingsActionsRoute;
   "/settings/agent": typeof SettingsAgentRoute;
   "/settings/appearance": typeof SettingsAppearanceRoute;
@@ -82,6 +90,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport;
   "/": typeof IndexRoute;
   "/settings": typeof SettingsRouteWithChildren;
+  "/settings/about": typeof SettingsAboutRoute;
   "/settings/actions": typeof SettingsActionsRoute;
   "/settings/agent": typeof SettingsAgentRoute;
   "/settings/appearance": typeof SettingsAppearanceRoute;
@@ -94,6 +103,7 @@ export interface FileRouteTypes {
   fullPaths:
     | "/"
     | "/settings"
+    | "/settings/about"
     | "/settings/actions"
     | "/settings/agent"
     | "/settings/appearance"
@@ -103,6 +113,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo;
   to:
     | "/"
+    | "/settings/about"
     | "/settings/actions"
     | "/settings/agent"
     | "/settings/appearance"
@@ -113,6 +124,7 @@ export interface FileRouteTypes {
     | "__root__"
     | "/"
     | "/settings"
+    | "/settings/about"
     | "/settings/actions"
     | "/settings/agent"
     | "/settings/appearance"
@@ -147,6 +159,13 @@ declare module "@tanstack/react-router" {
       path: "/";
       fullPath: "/settings/";
       preLoaderRoute: typeof SettingsIndexRouteImport;
+      parentRoute: typeof SettingsRoute;
+    };
+    "/settings/about": {
+      id: "/settings/about";
+      path: "/about";
+      fullPath: "/settings/about";
+      preLoaderRoute: typeof SettingsAboutRouteImport;
       parentRoute: typeof SettingsRoute;
     };
     "/settings/actions": {
@@ -188,6 +207,7 @@ declare module "@tanstack/react-router" {
 }
 
 interface SettingsRouteChildren {
+  SettingsAboutRoute: typeof SettingsAboutRoute;
   SettingsActionsRoute: typeof SettingsActionsRoute;
   SettingsAgentRoute: typeof SettingsAgentRoute;
   SettingsAppearanceRoute: typeof SettingsAppearanceRoute;
@@ -197,6 +217,7 @@ interface SettingsRouteChildren {
 }
 
 const SettingsRouteChildren: SettingsRouteChildren = {
+  SettingsAboutRoute: SettingsAboutRoute,
   SettingsActionsRoute: SettingsActionsRoute,
   SettingsAgentRoute: SettingsAgentRoute,
   SettingsAppearanceRoute: SettingsAppearanceRoute,

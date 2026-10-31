@@ -1,6 +1,7 @@
 [package]
 name = "sapien"
-version = "0.0.0"
+# Версии здесь нет: версия приложения одна, в apps/desktop/package.json,
+# tauri.conf.json берёт её оттуда.
 edition = "2024"
 
 [lib]
@@ -25,6 +26,9 @@ tauri-plugin-deep-link = "2.4.10"
 tauri-plugin-dialog = "2"
 tauri-plugin-log = "2.9.2"
 tauri-plugin-opener = "2.5.5"
+# Без zip: он распаковывает только архивы обновлений старого формата
+# (v1Compatible), а createUpdaterArtifacts пишет установщик и AppImage как есть.
+tauri-plugin-updater = { version = "2.12.0", default-features = false, features = ["native-tls", "system-proxy"] }
 tokio = { version = "1.54.1", features = ["macros", "sync"] }
 trash = "5.2.9"
 url = "2"

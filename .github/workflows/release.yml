@@ -1,0 +1,155 @@
+# Релиз по тегу версии: черновик релиза, сборки под три системы с файлами
+# обновления и подписью, публикация. Приложение берёт обновление из
+# latest.json последнего релиза (plugins.updater в tauri.conf.json).
+#
+# Выпустить версию: поднять version в apps/desktop/package.json пул-реквестом,
+# после слияния поставить на этот коммит тег v<версия> и запушить его.
+#
+# Ключ подписи обновлений и его пароль лежат в секретах окружения release:
+# TAURI_SIGNING_PRIVATE_KEY и TAURI_SIGNING_PRIVATE_KEY_PASSWORD. Его пару,
+# открытый ключ, держит tauri.conf.json. Потерянный ключ не восстановить:
+# установленные копии примут только обновление, подписанное им.
+name: Релиз
+
+on:
+  push:
+    tags: ["v*"]
+
+concurrency:
+  group: release-${{ github.ref }}
+
+permissions:
+  contents: write
+
+jobs:
+  draft:
+    name: черновик релиза
+    runs-on: ubuntu-latest
+    outputs:
+      id: ${{ steps.draft.outputs.id }}
+      notes: ${{ steps.draft.outputs.notes }}
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # Версия живёт в одном месте, тег её только называет. Сборка с тегом
+      # не той версии считала бы себя другой и предлагала бы обновиться
+      # сама на себя.
+      - run: |
+          version=$(jq -r .version apps/desktop/package.json)
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Тег $GITHUB_REF_NAME не совпал с версией $version в apps/desktop/package.json"
+            exit 1
+          fi
+
+      # Что изменилось, собирает GitHub по пул-реквестам с прошлого тега.
+      # Это же окно показывает в «Что нового», а описание релиза
+      # начинается ещё и с первого запуска без подписи Apple и Microsoft.
+      - id: draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FIRST_LAUNCH: |
+            Сборки без подписи Apple и Microsoft, поэтому при первом запуске система предупреждает:
+
+            - macOS: открыть sapien, закрыть предупреждение, затем «Системные настройки» → «Конфиденциальность и безопасность» → «Всё равно открыть». На macOS 14 и раньше хватает «Открыть» в контекстном меню Finder.
+            - Windows: в окне SmartScreen «Подробнее» → «Выполнить в любом случае».
+            - Linux: сам обновляется только AppImage, пакеты deb и rpm ставятся заново руками.
+
+            Дальше приложение обновляется само: спрашивает согласия и сверяет подпись обновления.
+        run: |
+          notes=$(gh api -X POST "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
+            -f tag_name="$GITHUB_REF_NAME" --jq .body)
+          id=$(gh api -X POST "repos/$GITHUB_REPOSITORY/releases" \
+            -f tag_name="$GITHUB_REF_NAME" -f name="$GITHUB_REF_NAME" -F draft=true \
+            -f body="$FIRST_LAUNCH
+          $notes" --jq .id)
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+          {
+            echo "notes<<NOTES_END"
+            echo "$notes"
+            echo "NOTES_END"
+          } >> "$GITHUB_OUTPUT"
+
+  # Кеши сборки здесь не берутся: в работе ключ подписи, а кеш пишут и
+  # другие прогоны.
+  build:
+    name: сборка ${{ matrix.name }}
+    needs: draft
+    environment: release
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Одна сборка на Apple Silicon и Intel.
+          - name: macOS
+            os: macos-latest
+            targets: aarch64-apple-darwin,x86_64-apple-darwin
+            args: --target universal-apple-darwin
+          # AppImage со старой glibc запускается на большем числе систем.
+          - name: Linux
+            os: ubuntu-22.04
+          - name: Windows
+            os: windows-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # Список из https://tauri.app/start/prerequisites/, patchelf для AppImage.
+      - if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev \
+            libssl-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.targets }}
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - run: pnpm ci
+
+      # Окно Windows ставит установщик NSIS: он умеет тихое обновление
+      # (installMode passive) и не просит прав администратора.
+      - uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: apps/desktop
+          releaseId: ${{ needs.draft.outputs.id }}
+          releaseBody: ${{ needs.draft.outputs.notes }}
+          updaterJsonPreferNsis: true
+          args: ${{ matrix.args }}
+
+  publish:
+    name: публикация
+    needs: [draft, build]
+    runs-on: ubuntu-latest
+
+    steps:
+      # Сборки дописывают latest.json по очереди, и две одновременные теряют
+      # одна другую. Без любой системы релиз не выходит: перезапуск её
+      # сборки допишет её.
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          ID: ${{ needs.draft.outputs.id }}
+        run: |
+          asset=$(gh api "repos/$GITHUB_REPOSITORY/releases/$ID/assets" \
+            --jq '.[] | select(.name == "latest.json") | .id')
+          gh api -H "Accept: application/octet-stream" \
+            "repos/$GITHUB_REPOSITORY/releases/assets/$asset" > latest.json
+          for platform in darwin-aarch64 darwin-x86_64 linux-x86_64 windows-x86_64; do
+            if ! jq -e --arg platform "$platform" '.platforms[$platform]' latest.json > /dev/null; then
+              echo "::error::В latest.json нет $platform, перезапусти её сборку"
+              exit 1
+            fi
+          done
+          gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$ID" \
+            -F draft=false -f make_latest=true > /dev/null
