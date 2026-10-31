@@ -99,6 +99,33 @@ export function parseTabs(raw: unknown): Tabs {
   return { tabs, active: tabs[0] ?? null };
 }
 
+// Вкладки в режиме чтения по пути файла. Режим принадлежит вкладке:
+// вкладка, в которой сменился файл, кликом в дереве или переименованием
+// снаружи, читает и новый. Закрытая вкладка режим забывает.
+export function followReading(reading: string[], before: string[], after: string[]) {
+  const kept = reading.filter((path) => after.includes(path));
+
+  if (before.length !== after.length) {
+    return kept;
+  }
+
+  const replaced = after.filter(
+    (path, at) => !before.includes(path) && reading.includes(before[at] ?? "") && !after.includes(before[at] ?? ""),
+  );
+
+  return [...kept, ...replaced];
+}
+
+export function parseReading(raw: unknown, tabs: string[]) {
+  const saved: unknown = typeof raw === "object" && raw !== null && "reading" in raw && raw.reading;
+
+  if (!Array.isArray(saved)) {
+    return [];
+  }
+
+  return tabs.filter((path) => saved.includes(path));
+}
+
 // Подпись вкладки: имя файла, а когда такое же имя открыто ещё в одной
 // вкладке, и папка рядом.
 export function tabLabels(tabs: string[]) {

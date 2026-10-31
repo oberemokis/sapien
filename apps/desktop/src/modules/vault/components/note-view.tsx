@@ -1,12 +1,14 @@
+import BookOpen01Icon from "@hugeicons/core-free-icons/BookOpen01Icon";
 import FilePasteIcon from "@hugeicons/core-free-icons/FilePasteIcon";
 import HistoryIcon from "@hugeicons/core-free-icons/HistoryIcon";
 import Note01Icon from "@hugeicons/core-free-icons/Note01Icon";
-import { Fragment, useEffect, useMemo, type ComponentType, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState, type ComponentType, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { openLink } from "@/core/links/open-link";
 import { Button } from "@/core/ui/button";
 import { Icon } from "@/core/ui/icon";
 import { IconButton } from "@/core/ui/icon-button";
+import { hasModKey, shortcutLabel } from "@/core/ui/keys";
 import { selectText } from "../interactions/active-note";
 import { openHistory } from "../interactions/history";
 import { useLeftUnsaved } from "../interactions/journal";
@@ -14,14 +16,27 @@ import { useNote } from "../interactions/note";
 import { openSearch, pickTemplate, showTag } from "../interactions/search";
 import { useTagList } from "../interactions/tags";
 import { useTemplateSettings } from "../interactions/templates";
-import { focusDone, insertDone, startCreate, tabKey, useTreeState } from "../interactions/tree";
+import {
+  focusDone,
+  insertDone,
+  openNote,
+  startCreate,
+  tabKey,
+  toggleReading,
+  useReading,
+  useTreeState,
+} from "../interactions/tree";
+import { useVaultTree } from "../interactions/vault";
+import { findNoteLink, notesOf, type NoteItem } from "../model/search";
 import { isTemplate } from "../model/templates";
-import { notePlace, type EditorProps } from "../model/vault";
+import { notePlace, type EditorProps, type ReaderProps } from "../model/vault";
 import { NoteHistory } from "./note-history";
 
 type Props = {
   // Редактор текста. Его ставит страница, хранилище знает только, что ему отдать.
   editor: ComponentType<EditorProps>;
+  // Режим чтения: заметка отрисована целиком. Без него нет ни кнопки, ни ⌘E.
+  reader?: ComponentType<ReaderProps>;
   // Показывает спрятанное дерево: поле нового файла живёт в нём.
   showFiles: () => void;
   // Что стоит над текстом заметки, например форма черновика задачи. Правит
@@ -100,22 +115,68 @@ function NoNote({ showFiles }: Pick<Props, "showFiles">) {
   );
 }
 
+// ⌘E переключает активную вкладку между правкой и чтением. Код клавиши,
+// а не символ: в русской раскладке та же клавиша печатает «у».
+function useReadingShortcut(active: string | null, enabled: boolean) {
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.defaultPrevented || event.code !== "KeyE" || event.shiftKey || event.altKey || !hasModKey(event)) {
+        return;
+      }
+
+      if (active !== null) {
+        event.preventDefault();
+        toggleReading(active);
+      }
+    }
+
+    if (!enabled) {
+      return undefined;
+    }
+
+    window.addEventListener("keydown", onKeyDown);
+
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [active, enabled]);
+}
+
 type OpenNoteProps = {
   path: string;
   hidden: boolean;
   focusRequest: number;
   insert: string | null;
   tags: string[];
+  notes: NoteItem[];
   editor: Props["editor"];
+  reader: Props["reader"];
   above: Props["above"];
 };
 
-function OpenNote({ path, hidden, focusRequest, insert, tags, editor: Editor, above: Above }: OpenNoteProps) {
+function OpenNote({
+  path,
+  hidden,
+  focusRequest,
+  insert,
+  tags,
+  notes,
+  editor: Editor,
+  reader: Reader,
+  above: Above,
+}: OpenNoteProps) {
   const { t } = useTranslation();
   const note = useNote(path);
   const { title, folders } = notePlace(path);
   const { save } = note;
   const template = isTemplate(path, useTemplateSettings().folder);
+  const reading = useReading(path) && Reader !== undefined;
+  const findNote = useCallback((target: string) => findNoteLink(notes, target, path), [notes, path]);
+  // Чтение, раз показанное, остаётся рядом с редактором спрятанным:
+  // так оно помнит, докуда его прокрутили.
+  const [readerSeen, setReaderSeen] = useState(reading);
+
+  if (reading && !readerSeen) {
+    setReaderSeen(true);
+  }
 
   // Ушли на другую вкладку посреди правки: она пишется сразу, не дожидаясь
   // паузы в наборе.
@@ -154,11 +215,20 @@ function OpenNote({ path, hidden, focusRequest, insert, tags, editor: Editor, ab
         ))}
         <h1 className="truncate font-medium">{title}</h1>
         <div className="ml-auto flex gap-0.5">
-          {!note.missing && (
+          {!note.missing && !reading && (
             <IconButton
               icon={FilePasteIcon}
               label={t("vault.templates.insert")}
               onClick={() => pickTemplate({ kind: "insertTemplate", path })}
+            />
+          )}
+          {Reader !== undefined && (
+            <IconButton
+              icon={BookOpen01Icon}
+              label={t("vault.reading")}
+              shortcut={shortcutLabel("E")}
+              pressed={reading}
+              onClick={() => toggleReading(path)}
             />
           )}
           <IconButton icon={HistoryIcon} label={t("vault.history.open")} onClick={() => openHistory(path)} />
@@ -196,18 +266,37 @@ function OpenNote({ path, hidden, focusRequest, insert, tags, editor: Editor, ab
       {note.text !== undefined && Above !== undefined && !template && (
         <Above path={path} text={note.text} readOnly={note.missing} onChange={note.change} />
       )}
+      {/* Редактор остаётся на месте и в чтении: с ним курсор, история
+          правок и прокрутка. Просьбу о курсоре в чтении получает чтение,
+          иначе набор ушёл бы в спрятанный текст. */}
       {note.text !== undefined && (
-        <Editor
+        <div hidden={reading} className="flex min-h-0 flex-1 flex-col">
+          <Editor
+            value={note.text}
+            onChange={note.change}
+            readOnly={note.missing}
+            focusRequest={reading ? 0 : focusRequest}
+            insert={insert}
+            label={title}
+            tags={tags}
+            onTagClick={showTag}
+            onLinkClick={openLink}
+            onSelectionChange={(text) => selectText(path, text)}
+          />
+        </div>
+      )}
+      {note.text !== undefined && Reader !== undefined && readerSeen && (
+        <Reader
           value={note.text}
           onChange={note.change}
           readOnly={note.missing}
-          focusRequest={focusRequest}
-          insert={insert}
           label={title}
-          tags={tags}
+          hidden={!reading}
+          focusRequest={focusRequest}
           onTagClick={showTag}
           onLinkClick={openLink}
-          onSelectionChange={(text) => selectText(path, text)}
+          findNote={findNote}
+          onNoteClick={openNote}
         />
       )}
     </div>
@@ -217,10 +306,14 @@ function OpenNote({ path, hidden, focusRequest, insert, tags, editor: Editor, ab
 // Середина окна: открытые заметки или пустой экран. Заметки всех вкладок
 // живут, на экране только активная: у каждой своя история правок
 // и прокрутка, и они переживают переключение вкладок.
-export function NoteView({ editor, showFiles, above }: Props) {
+export function NoteView({ editor, reader, showFiles, above }: Props) {
   const { tabs, active, focus, insert } = useTreeState();
   const tagList = useTagList();
   const tags = useMemo(() => tagList.map((tag) => tag.name), [tagList]);
+  const tree = useVaultTree().data;
+  const notes = useMemo(() => notesOf(tree ?? []), [tree]);
+
+  useReadingShortcut(active, reader !== undefined);
 
   if (active === null) {
     return (
@@ -244,7 +337,9 @@ export function NoteView({ editor, showFiles, above }: Props) {
           focusRequest={focus?.path === path ? focus.request : 0}
           insert={insert?.path === path ? insert.text : null}
           tags={tags}
+          notes={notes}
           editor={editor}
+          reader={reader}
           above={above}
         />
       ))}

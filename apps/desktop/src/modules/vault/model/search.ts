@@ -25,6 +25,27 @@ export function notesOf(tree: VaultEntry[]): NoteItem[] {
   });
 }
 
+// Заметка из [[ссылки]] по имени или пути без «.md», как в Obsidian.
+// Регистр не важен, «#заголовок» в конце не мешает. Одно имя в разных
+// папках: ближе заметка из папки той, что ссылается, потом с коротким путём.
+export function findNoteLink(notes: NoteItem[], target: string, from: string): string | null {
+  const name = noteTitle(target.split("#")[0]?.trim() ?? "").toLowerCase();
+
+  if (name === "") {
+    return null;
+  }
+
+  const found = notes.filter(
+    (note) => noteTitle(note.path).toLowerCase() === name || note.title.toLowerCase() === name,
+  );
+  const near = parentOf(from);
+  const [best] = found.toSorted(
+    (a, b) => Number(b.folder === near) - Number(a.folder === near) || a.path.length - b.path.length,
+  );
+
+  return best?.path ?? null;
+}
+
 // По букве на букву, чтобы номера совпавших букв указывали в исходное имя.
 // Регистр и «ё» на совпадение не влияют.
 function fold(text: string) {

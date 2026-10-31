@@ -2,8 +2,9 @@ import { currentCompletions } from "@codemirror/autocomplete";
 import { ensureSyntaxTree } from "@codemirror/language";
 import { EditorView } from "@codemirror/view";
 import { act, fireEvent, render, screen } from "@testing-library/react";
+import type { ComponentProps } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { MarkdownEditor } from "@/modules/editor";
+import { MarkdownEditor, MarkdownReader } from "@/modules/editor";
 import type { IssueMention, IssueMentions } from "./components/issues";
 import { setEditorMode } from "./interactions/editor-mode";
 import { editorModeStore } from "./store/editor-mode.store";
@@ -343,6 +344,12 @@ describe("Live Preview", () => {
     expect(lines()).toContain("| а | б |");
   });
 
+  it("квадратные скобки без адреса остаются текстом", async () => {
+    render(<MarkdownEditor value={"начало\n[x] и [1], а [доки](https://tauri.app)"} onChange={vi.fn()} label="план" />);
+
+    await vi.waitFor(() => expect(lines()[1]).toBe("[x] и [1], а доки"));
+  });
+
   it("исходный текст во «Внешнем виде» показывает разметку везде, переключение без нового редактора", async () => {
     setEditorMode("source");
     render(<MarkdownEditor value={note} onChange={vi.fn()} label="план" />);
@@ -354,6 +361,133 @@ describe("Live Preview", () => {
 
     await vi.waitFor(() => expect(lines()[1]).toBe("жирный, курсив, старое и код"));
     expect(view()).toBe(before);
+  });
+});
+
+function reader(value: string, props: Partial<ComponentProps<typeof MarkdownReader>> = {}) {
+  const handlers = {
+    onChange: vi.fn(),
+    onTagClick: vi.fn(),
+    onLinkClick: vi.fn(),
+    onNoteClick: vi.fn(),
+    findNote: (target: string) => ({ Идеи: "Идеи.md" })[target] ?? null,
+  };
+  const result = render(
+    <MarkdownReader value={value} readOnly={false} label="план" hidden={false} focusRequest={0} {...handlers} {...props} />,
+  );
+
+  return { ...result, ...handlers };
+}
+
+describe("режим чтения", () => {
+  it("заметка отрисована целиком: шапка, заголовки, списки, задачи, таблица, код, цитата, ссылки", () => {
+    const { container } = reader(
+      [
+        "---",
+        "tags: [работа, план]",
+        "title: Итоги",
+        "---",
+        "# Заголовок",
+        "",
+        "Текст с **жирным**, _курсивом_, ~~старым~~ и `кодом`, тег #идея.",
+        "",
+        "- пункт",
+        "- [x] сделано",
+        "",
+        "3. третий",
+        "",
+        "> цитата",
+        "",
+        "| а | б |",
+        "| - | - |",
+        "| 1 | **2** |",
+        "",
+        "```ts",
+        "const x = 1;",
+        "```",
+        "",
+        "---",
+      ].join("\n"),
+    );
+
+    expect(screen.getByRole("heading", { level: 1, name: "Заголовок" })).toBeDefined();
+    expect([...container.querySelectorAll("dt, dd")].map((cell) => cell.textContent)).toEqual([
+      "tags",
+      "работа, план",
+      "title",
+      "Итоги",
+    ]);
+    expect(container.querySelector("strong")?.textContent).toBe("жирным");
+    expect(container.querySelector("em")?.textContent).toBe("курсивом");
+    expect(container.querySelector("s")?.textContent).toBe("старым");
+    expect(container.querySelector("p code")?.textContent).toBe("кодом");
+    expect(screen.getAllByRole("listitem").map((item) => item.textContent)).toEqual(["пункт", "сделано", "третий"]);
+    expect(container.querySelector("ol")?.getAttribute("start")).toBe("3");
+    expect(screen.getByRole<HTMLInputElement>("checkbox", { name: "сделано" }).checked).toBe(true);
+    expect(container.querySelector("blockquote")?.textContent).toBe("цитата");
+    expect(screen.getAllByRole("cell").map((cell) => cell.textContent)).toEqual(["1", "2"]);
+    expect(screen.getAllByRole("columnheader").map((cell) => cell.textContent)).toEqual(["а", "б"]);
+    expect(container.querySelector("pre")?.textContent).toBe("const x = 1;");
+    expect(container.querySelectorAll("hr")).toHaveLength(1);
+  });
+
+  it("HTML и javascript: из заметки остаются текстом и ничего не выполняют", () => {
+    const { container, onLinkClick } = reader(
+      '<script>window.hacked = 1</script>\n\n<img src=x onerror="window.hacked = 2">\n\nтекст <b onclick="window.hacked = 4">жирный</b>\n\n[жми](javascript:window.hacked=3)',
+    );
+
+    fireEvent.click(screen.getByRole("link", { name: "жми" }));
+
+    expect(container.querySelector("script, img, iframe, b")).toBeNull();
+    expect(container.textContent).toContain('<img src=x onerror="window.hacked = 2">');
+    expect(screen.getByRole("link", { name: "жми" }).getAttribute("href")).toBe("#");
+    expect("hacked" in window).toBe(false);
+    // Адрес уходит наружу как есть: в браузер его не пустит Rust.
+    expect(onLinkClick).toHaveBeenCalledWith("javascript:window.hacked=3");
+  });
+
+  it("ссылка на сайт открывается щелчком, тег ищется, [[заметка]] открывает её, а без заметки это текст", () => {
+    const { onLinkClick, onTagClick, onNoteClick } = reader(
+      "[доки](https://tauri.app), https://example.com, #идея, [[Идеи]], [[Идеи|мысли]], [[Нет]] и [x]",
+    );
+
+    fireEvent.click(screen.getByRole("link", { name: "доки" }));
+    fireEvent.click(screen.getByRole("link", { name: "https://example.com" }));
+    fireEvent.click(screen.getByRole("button", { name: "#идея" }));
+    fireEvent.click(screen.getByRole("button", { name: "Идеи" }));
+    fireEvent.click(screen.getByRole("button", { name: "мысли" }));
+
+    expect(onLinkClick.mock.calls).toEqual([["https://tauri.app"], ["https://example.com"]]);
+    expect(onTagClick).toHaveBeenCalledWith("идея");
+    expect(onNoteClick.mock.calls).toEqual([["Идеи.md"], ["Идеи.md"]]);
+    expect(screen.queryByRole("button", { name: "Нет" })).toBeNull();
+    expect(screen.getByTitle("Такой заметки нет").textContent).toBe("Нет");
+    expect(screen.getByRole("document", { name: "план" }).textContent).toContain("Нет и [x]");
+  });
+
+  it("флажок задачи пишет в текст, в пропавшем файле не нажимается", () => {
+    const { onChange, unmount } = reader("- [ ] купить\n- [x] готово");
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "купить" }));
+    expect(onChange).toHaveBeenLastCalledWith("- [x] купить\n- [x] готово");
+    fireEvent.click(screen.getByRole("checkbox", { name: "готово" }));
+    expect(onChange).toHaveBeenLastCalledWith("- [ ] купить\n- [ ] готово");
+    unmount();
+
+    reader("- [ ] купить", { readOnly: true });
+    expect(screen.getByRole<HTMLInputElement>("checkbox", { name: "купить" }).disabled).toBe(true);
+  });
+
+  it("спрятанное чтение не разбирает новый текст, на экране показывает свежий и забирает фокус", () => {
+    const { rerender, onChange, onTagClick, onLinkClick, onNoteClick, findNote } = reader("# Было");
+    const props = { readOnly: false, label: "план", focusRequest: 0, onChange, onTagClick, onLinkClick, onNoteClick, findNote };
+
+    rerender(<MarkdownReader value="# Стало" hidden {...props} />);
+    expect(screen.getByRole("heading", { hidden: true }).textContent).toBe("Было");
+
+    rerender(<MarkdownReader value="# Стало" hidden={false} {...props} />);
+    expect(screen.getByRole("heading").textContent).toBe("Стало");
+    expect(document.activeElement).toBe(screen.getByRole("document", { name: "план" }));
   });
 });
 

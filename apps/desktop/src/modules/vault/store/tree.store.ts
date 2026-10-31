@@ -14,6 +14,8 @@ export type TreeState = {
   // Выделение папки в дереве их не трогает.
   tabs: string[];
   active: string | null;
+  // Вкладки, открытые в режиме чтения, по пути файла.
+  reading: string[];
   // Просьба поставить курсор в текст заметки: только что созданной или
   // открытой поиском. Номер растёт с каждой просьбой, и редактор, уже
   // открытый во вкладке, узнаёт о новой.
@@ -30,6 +32,7 @@ export const EMPTY_TREE: TreeState = {
   draft: null,
   tabs: [],
   active: null,
+  reading: [],
   focus: null,
   insert: null,
   recent: [],
