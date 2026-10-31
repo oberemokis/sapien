@@ -1,14 +1,16 @@
-use crate::durable::{self, file_key};
+use crate::durable::file_key;
 use crate::error::AppError;
 use crate::modules::vault::domain::Unsaved;
 use crate::modules::vault::ports::Journal;
+use crate::sealed;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 /// Журнал лежит в папке данных приложения, а не в хранилище: облачный диск
 /// не унесёт чужие недописанные правки на другой компьютер. Папка на каждое
-/// хранилище, файл на каждую заметку, имена из хеша пути.
+/// хранилище, файл на каждую заметку, имена из хеша пути, текст зашифрован
+/// (sealed.rs).
 pub struct JournalDir {
     dir: PathBuf,
 }
@@ -36,7 +38,7 @@ impl Journal for JournalDir {
             serde_json::to_vec(unsaved).map_err(|_| AppError::unavailable("journal_unwritable"))?;
 
         fs::create_dir_all(self.vault_dir(vault))
-            .and_then(|()| durable::write(&self.file(vault, &unsaved.path), &json))
+            .and_then(|()| sealed::write(&self.file(vault, &unsaved.path), &json))
             .map_err(|_| AppError::unavailable("journal_unwritable"))
     }
 
@@ -55,7 +57,7 @@ impl Journal for JournalDir {
             .flatten()
             .filter(|item| item.path().extension().is_some_and(|ext| ext == "json"))
             .filter_map(|item| {
-                let unsaved = serde_json::from_slice(&fs::read(item.path()).ok()?).ok()?;
+                let unsaved = serde_json::from_slice(&sealed::read(&item.path()).ok()?).ok()?;
                 let age = item
                     .metadata()
                     .ok()?

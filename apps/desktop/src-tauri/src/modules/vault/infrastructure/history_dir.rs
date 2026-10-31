@@ -1,7 +1,8 @@
-use crate::durable::{self, file_key};
+use crate::durable::file_key;
 use crate::error::AppError;
 use crate::modules::vault::domain::{Source, Version};
 use crate::modules::vault::ports::History;
+use crate::sealed;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -11,7 +12,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 const PATH_FILE: &str = "path";
 
 /// Версии лежат в папке данных приложения, а не в хранилище. Папка
-/// на хранилище, в ней папка на заметку, в ней файл на версию.
+/// на хранилище, в ней папка на заметку, в ней файл на версию. Текст
+/// версий и путь заметки зашифрованы (sealed.rs), имена файлов нет:
+/// в них только хеш пути, время и источник.
 pub struct HistoryDir {
     dir: PathBuf,
 }
@@ -99,8 +102,8 @@ impl History for HistoryDir {
         };
 
         fs::create_dir_all(&dir)
-            .and_then(|()| durable::write(&dir.join(PATH_FILE), path.as_bytes()))
-            .and_then(|()| durable::write(&dir.join(file_name(version)), text.as_bytes()))
+            .and_then(|()| sealed::write(&dir.join(PATH_FILE), path.as_bytes()))
+            .and_then(|()| sealed::write(&dir.join(file_name(version)), text.as_bytes()))
             .map_err(|_| AppError::unavailable("history_unwritable"))
     }
 
@@ -121,7 +124,7 @@ impl History for HistoryDir {
             .find(|version| version.id == id)
             .ok_or(AppError::not_found("version_missing"))?;
 
-        fs::read_to_string(dir.join(file_name(version)))
+        sealed::read_to_string(&dir.join(file_name(version)))
             .map_err(|_| AppError::unavailable("version_unreadable"))
     }
 
@@ -132,7 +135,7 @@ impl History for HistoryDir {
 
         items
             .flatten()
-            .filter_map(|item| fs::read_to_string(item.path().join(PATH_FILE)).ok())
+            .filter_map(|item| sealed::read_to_string(&item.path().join(PATH_FILE)).ok())
             .collect()
     }
 

@@ -1,14 +1,14 @@
-use crate::durable;
 use crate::error::AppError;
 use crate::modules::youtrack::domain::Sent;
 use crate::modules::youtrack::ports::Ledger;
+use crate::sealed;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 /// Опубликованное лежит одним файлом в папке данных приложения: номер
 /// задачи и что в неё ушло. В хранилище его нет, это память приложения,
-/// а не заметки.
+/// а не заметки. На диске файл зашифрован (sealed.rs).
 pub struct SentFile {
     file: PathBuf,
 }
@@ -23,7 +23,7 @@ impl SentFile {
     /// Испорченный или пропавший файл это пустая память: задачи сверятся
     /// с YouTrack так, будто их публиковали с другого устройства.
     fn all(&self) -> BTreeMap<String, Sent> {
-        fs::read(&self.file)
+        sealed::read(&self.file)
             .ok()
             .and_then(|bytes| serde_json::from_slice(&bytes).ok())
             .unwrap_or_default()
@@ -48,7 +48,7 @@ impl Ledger for SentFile {
         let bytes = serde_json::to_vec(&all)
             .map_err(|_| AppError::unavailable("youtrack_sent_unwritable"))?;
 
-        durable::write(&self.file, &bytes).map_err(unwritable)
+        sealed::write(&self.file, &bytes).map_err(unwritable)
     }
 }
 

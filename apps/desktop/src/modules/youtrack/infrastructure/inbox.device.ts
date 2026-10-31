@@ -1,13 +1,15 @@
+import { appStorage } from "@/core/storage/app-storage";
 import { DEFAULT_TRACKED, EMPTY_INBOX, type Inbox } from "../model/inbox";
 
 const INBOX_KEY = "sapien.youtrack.inbox";
 const TRACKED_KEY = "sapien.youtrack.tracked";
 
-// Хранилище окна бывает закрыто политикой или испорчено: тогда лента
-// начинается заново с недели назад, а приложение не падает.
+// Лента несёт текст комментариев, поэтому лежит в хранилище приложения,
+// зашифрованной. Испорченная или пропавшая начинается заново с недели
+// назад, а приложение не падает.
 export function readInbox(): Inbox {
   try {
-    const inbox: Partial<Inbox> | null = JSON.parse(localStorage.getItem(INBOX_KEY) ?? "null");
+    const inbox: Partial<Inbox> | null = JSON.parse(appStorage.getItem(INBOX_KEY) ?? "null");
 
     return { polled: inbox?.polled ?? null, events: inbox?.events ?? [], read: inbox?.read ?? [] };
   } catch {
@@ -16,11 +18,7 @@ export function readInbox(): Inbox {
 }
 
 export function writeInbox(inbox: Inbox) {
-  try {
-    localStorage.setItem(INBOX_KEY, JSON.stringify(inbox));
-  } catch {
-    // Лента уже в окне, без записи она только не переживёт перезапуск.
-  }
+  appStorage.setItem(INBOX_KEY, JSON.stringify(inbox));
 }
 
 // Запрос отслеживаемых задач из настроек.

@@ -6,8 +6,11 @@ mod links;
 #[cfg(target_os = "macos")]
 mod menu;
 mod modules;
+mod sealed;
 mod secrets;
+mod security;
 mod updates;
+mod window_store;
 
 use modules::{agent, vault, youtrack};
 use tauri::Manager;
@@ -44,11 +47,22 @@ pub fn run() {
         .manage(youtrack::Http::default())
         .manage(agent::Anthropic::default())
         .manage(agent::Running::default())
+        .manage(window_store::WindowStore::default())
         .setup(|app| {
+            let data = app.path().app_data_dir()?;
+
+            // Ключ данных первым: и перенос, и всё остальное читают файлы
+            // приложения через sealed.rs. Пропавший ключ запуск не держит,
+            // окно предложит начать с чистыми данными.
+            let sealed = sealed::start(&secrets::SystemKeychain, &data);
+            if !matches!(sealed, sealed::State::Sealed | sealed::State::Plain) {
+                log::warn!("данные приложения не читаются: {sealed:?}");
+            }
+
             // До окна и слежения за хранилищем: никто не должен прочитать
             // файлы приложения в прежнем формате. Отказ не держит запуск,
             // шаг повторится при следующем.
-            if let Err(error) = data_format::migrate(&app.path().app_data_dir()?) {
+            if let Err(error) = data_format::migrate(&data) {
                 log::error!("перенос данных приложения не закончен: {error}");
             }
             links::main_window(app)?;
@@ -60,6 +74,10 @@ pub fn run() {
             updates::app_version,
             updates::app_update_check,
             updates::app_update_install,
+            security::security_status,
+            security::security_reset,
+            window_store::window_store_read,
+            window_store::window_store_write,
             secrets::secret_status,
             secrets::secret_set,
             secrets::secret_delete,
