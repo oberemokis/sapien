@@ -1,7 +1,9 @@
 import type { Run } from "../model/actions";
 import type { AgentModel } from "../model/chat";
+import type { AgentMethod } from "../model/method";
 
 const STORAGE_KEY = "sapien.agent.model";
+const METHOD_KEY = "sapien.agent.method";
 const RUNS_KEY = "sapien.actions.runs";
 
 // Когда действия по расписанию последний раз запускались, по путям
@@ -38,5 +40,21 @@ export function writeAgentModel(model: AgentModel) {
     localStorage.setItem(STORAGE_KEY, model);
   } catch {
     // Выбор уже действует, без записи он только не переживёт перезапуск.
+  }
+}
+
+export function readAgentMethod(): string | null {
+  try {
+    return localStorage.getItem(METHOD_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function writeAgentMethod(method: AgentMethod) {
+  try {
+    localStorage.setItem(METHOD_KEY, method);
+  } catch {
+    // Как с моделью: выбор действует до закрытия окна.
   }
 }

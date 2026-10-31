@@ -1,9 +1,9 @@
 use super::domain::{
-    Assembler, Chat, Context, Entry, Event, MAX_STEPS, MeetingTask, ModelError, Tool,
-    meeting_request, meeting_tasks, parse_model, push_user, replace_once, request, search, touch,
-    transcript, turns, undo_plan, user_blocks,
+    Assembler, Chat, Context, Entry, Event, MAX_STEPS, MEETING, MeetingTask, ModelError, Tool,
+    meeting_message, meeting_request, meeting_schema, meeting_tasks, parse_model, push_user,
+    replace_once, request, search, touch, transcript, turns, undo_plan, user_blocks,
 };
-use super::ports::{ChatStore, Model, Notes, Tracker};
+use super::ports::{ChatStore, Claude, Model, Notes, Tracker};
 use crate::error::AppError;
 use crate::secrets::{SecretName, Secrets};
 use serde_json::{Value, json};
@@ -304,10 +304,42 @@ pub async fn meeting(
     meeting_tasks(&answer).ok_or(AppError::invalid("agent_bad_answer"))
 }
 
+/// «Задачи из встречи» через подписку Claude: то же, что `meeting`, только
+/// запрос идёт через Claude Code на устройстве, а не с ключом API.
+pub async fn meeting_via_claude(
+    claude: &impl Claude,
+    notes: &impl Notes,
+    model_name: &str,
+    path: &str,
+    today: &str,
+) -> Result<Vec<MeetingTask>, AppError> {
+    let model_id = parse_model(model_name).ok_or(AppError::invalid("agent_model_unknown"))?;
+
+    if !notes.open(path) {
+        return Err(AppError::invalid("note_closed"));
+    }
+
+    if let Some(problem) = claude.status().await.state.problem() {
+        return Err(problem);
+    }
+
+    let text = notes.read(path)?;
+    let answer = claude
+        .structured(
+            model_id,
+            MEETING,
+            &meeting_schema(),
+            &meeting_message(path, &text, today),
+        )
+        .await?;
+
+    meeting_tasks(&answer.to_string()).ok_or(AppError::invalid("agent_bad_answer"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::modules::agent::domain::Change;
+    use crate::modules::agent::domain::{Change, ClaudeState, ClaudeStatus};
     use std::collections::{BTreeMap, VecDeque};
     use std::sync::{Arc, Mutex};
     use tauri::async_runtime::block_on;
@@ -986,5 +1018,112 @@ mod tests {
             meeting_with(&model, &notes, "Личное/встреча.md"),
             Err(AppError::invalid("note_closed")),
         );
+    }
+
+    /// Claude Code в заданном состоянии, который отвечает одно и то же
+    /// и помнит запросы: модель, системный промпт и сообщение.
+    struct FakeClaude {
+        state: ClaudeState,
+        answer: Value,
+        asked: Mutex<Vec<(String, String, String)>>,
+    }
+
+    impl FakeClaude {
+        fn with(state: ClaudeState, answer: Value) -> Self {
+            Self {
+                state,
+                answer,
+                asked: Mutex::default(),
+            }
+        }
+
+        fn asked(&self) -> Vec<(String, String, String)> {
+            self.asked.lock().unwrap().clone()
+        }
+    }
+
+    impl Claude for FakeClaude {
+        async fn status(&self) -> ClaudeStatus {
+            ClaudeStatus::of_state(self.state)
+        }
+
+        async fn structured(
+            &self,
+            model: &str,
+            system: &str,
+            _schema: &Value,
+            message: &str,
+        ) -> Result<Value, AppError> {
+            self.asked
+                .lock()
+                .unwrap()
+                .push((model.into(), system.into(), message.into()));
+
+            Ok(self.answer.clone())
+        }
+    }
+
+    fn via_claude(
+        claude: &FakeClaude,
+        notes: &FakeNotes,
+        path: &str,
+    ) -> Result<Vec<MeetingTask>, AppError> {
+        block_on(meeting_via_claude(
+            claude,
+            notes,
+            "claude-sonnet-5-5",
+            path,
+            "2026-10-31",
+        ))
+    }
+
+    #[test]
+    fn задачи_из_встречи_через_подписку() {
+        let notes = FakeNotes::with(&[
+            ("Встречи/планёрка.md", "Илья пишет письмо."),
+            ("Личное/встреча.md", "Секрет."),
+        ]);
+        let claude = FakeClaude::with(
+            ClaudeState::Ready,
+            json!({ "tasks": [task("Написать письмо", "Илья")] }),
+        );
+
+        let tasks = via_claude(&claude, &notes, "Встречи/планёрка.md").unwrap();
+
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].assignee, "Илья");
+
+        let (model, system, message) = claude.asked()[0].clone();
+
+        assert_eq!(model, "claude-sonnet-5-5");
+        assert_eq!(system, MEETING);
+        assert!(message.starts_with("Сегодня 2026-10-31. Заметка «Встречи/планёрка.md»"));
+        assert!(message.contains("Илья пишет письмо."));
+
+        assert_eq!(
+            via_claude(&claude, &notes, "Личное/встреча.md"),
+            Err(AppError::invalid("note_closed")),
+        );
+        assert_eq!(claude.asked().len(), 1);
+    }
+
+    #[test]
+    fn без_входа_по_подписке_запроса_нет() {
+        let notes = FakeNotes::with(&[("Встречи/кофе.md", "Поболтали.")]);
+
+        for (state, code) in [
+            (ClaudeState::Missing, "claude_missing"),
+            (ClaudeState::Outdated, "claude_outdated"),
+            (ClaudeState::LoggedOut, "claude_logged_out"),
+            (ClaudeState::NotSubscription, "claude_not_subscription"),
+        ] {
+            let claude = FakeClaude::with(state, json!({ "tasks": [] }));
+
+            assert_eq!(
+                via_claude(&claude, &notes, "Встречи/кофе.md").map_err(|error| error.code),
+                Err(code),
+            );
+            assert!(claude.asked().is_empty());
+        }
     }
 }

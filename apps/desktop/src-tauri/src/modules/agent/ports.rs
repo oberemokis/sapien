@@ -1,6 +1,21 @@
-use super::domain::{Change, Chat, ModelError};
+use super::domain::{Change, Chat, ClaudeStatus, ModelError};
 use crate::error::AppError;
 use serde_json::Value;
+
+/// Claude Code на устройстве со входом пользователя, отгороженный от его
+/// настроек, инструментов и памяти.
+pub trait Claude {
+    fn status(&self) -> impl Future<Output = ClaudeStatus> + Send;
+    /// Один запрос без инструментов и без сохранённой сессии. Ответ JSON
+    /// по схеме `schema`.
+    fn structured(
+        &self,
+        model: &str,
+        system: &str,
+        schema: &Value,
+        message: &str,
+    ) -> impl Future<Output = Result<Value, AppError>> + Send;
+}
 
 /// Messages API провайдера модели.
 pub trait Model {

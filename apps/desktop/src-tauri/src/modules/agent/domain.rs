@@ -136,7 +136,7 @@ pub fn request(model: &str, messages: &[Value]) -> Value {
     body
 }
 
-const MEETING: &str = "Ты разбираешь запись встречи в приложении заметок sapien и находишь \
+pub const MEETING: &str = "Ты разбираешь запись встречи в приложении заметок sapien и находишь \
 договорённости и действия: что кто-то должен сделать после встречи. Из каждого действия \
 человек сделает черновик задачи YouTrack.
 
@@ -160,9 +160,8 @@ const MEETING: &str = "Ты разбираешь запись встречи в 
 
 Пиши на языке записи.";
 
-/// Запрос «Задачи из встречи»: запись встречи целиком одним сообщением,
-/// ответ JSON по схеме. Инструментов нет, поэтому запрос один.
-pub fn meeting_request(model: &str, path: &str, text: &str, today: &str) -> Value {
+/// Схема ответа «Задачи из встречи».
+pub fn meeting_schema() -> Value {
     let string = json!({ "type": "string" });
     let fields = [
         "summary",
@@ -185,23 +184,35 @@ pub fn meeting_request(model: &str, path: &str, text: &str, today: &str) -> Valu
         "required": fields,
         "additionalProperties": false,
     });
-    let schema = json!({
+
+    json!({
         "type": "object",
         "properties": { "tasks": { "type": "array", "items": task } },
         "required": ["tasks"],
         "additionalProperties": false,
-    });
-    let message = format!("Сегодня {today}. Заметка «{path}»:\n\n<meeting>\n{text}\n</meeting>");
+    })
+}
 
+/// Сообщение с записью встречи целиком.
+pub fn meeting_message(path: &str, text: &str, today: &str) -> String {
+    format!("Сегодня {today}. Заметка «{path}»:\n\n<meeting>\n{text}\n</meeting>")
+}
+
+/// Запрос «Задачи из встречи» к Messages API: ответ JSON по схеме.
+/// Инструментов нет, поэтому запрос один.
+pub fn meeting_request(model: &str, path: &str, text: &str, today: &str) -> Value {
     json!({
         "model": model,
         "max_tokens": MAX_TOKENS,
         "stream": true,
         "system": [{ "type": "text", "text": MEETING }],
-        "messages": [{ "role": "user", "content": [{ "type": "text", "text": message }] }],
+        "messages": [{
+            "role": "user",
+            "content": [{ "type": "text", "text": meeting_message(path, text, today) }],
+        }],
         "output_config": {
             "effort": "medium",
-            "format": { "type": "json_schema", "schema": schema },
+            "format": { "type": "json_schema", "schema": meeting_schema() },
         },
     })
 }
@@ -359,6 +370,128 @@ impl From<ModelError> for AppError {
             }
             _ => AppError::invalid(error.code()),
         }
+    }
+}
+
+/// Чем идёт агент: подпиской Claude через Claude Code или ключом API.
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Method {
+    Subscription,
+    Key,
+}
+
+/// Claude Code на устройстве: через него агент расходует подписку Claude,
+/// а не ключ API.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ClaudeState {
+    /// Пока только macOS.
+    Unsupported,
+    Missing,
+    /// Старше версии, которая знает все флаги изоляции, или версию не разобрать.
+    Outdated,
+    LoggedOut,
+    /// Вход ключом API или через облако: расходовал бы не подписку.
+    NotSubscription,
+    Ready,
+}
+
+impl ClaudeState {
+    /// Почему через Claude Code сейчас не пойти.
+    pub fn problem(self) -> Option<AppError> {
+        match self {
+            Self::Ready => None,
+            Self::Unsupported => Some(AppError::invalid("claude_unsupported")),
+            Self::Missing => Some(AppError::not_found("claude_missing")),
+            Self::Outdated => Some(AppError::invalid("claude_outdated")),
+            Self::LoggedOut => Some(AppError::invalid("claude_logged_out")),
+            Self::NotSubscription => Some(AppError::invalid("claude_not_subscription")),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ClaudeStatus {
+    pub state: ClaudeState,
+    pub version: Option<String>,
+}
+
+/// Самая ранняя версия Claude Code, которая знает все флаги изоляции.
+const CLAUDE_MIN: [u32; 3] = [2, 1, 299];
+
+/// Номер из вывода `claude --version`, например «2.1.316 (Claude Code)».
+fn claude_version(output: &str) -> Option<(&str, [u32; 3])> {
+    let text = output.split_whitespace().next()?;
+    let mut parts = text.split('.').map(|part| part.parse::<u32>().ok());
+    let number = [parts.next()??, parts.next()??, parts.next()??];
+
+    parts.next().is_none().then_some((text, number))
+}
+
+impl ClaudeStatus {
+    pub fn of_state(state: ClaudeState) -> Self {
+        Self {
+            state,
+            version: None,
+        }
+    }
+
+    /// По выводу `claude --version` и JSON из `claude auth status`. Без входа
+    /// команда входа кончается ошибкой, и JSON нет.
+    pub fn of(version: &str, auth: Option<&Value>) -> Self {
+        let Some((text, number)) = claude_version(version) else {
+            return Self::of_state(ClaudeState::Outdated);
+        };
+        let state = if number < CLAUDE_MIN {
+            ClaudeState::Outdated
+        } else {
+            match auth.and_then(|auth| auth["authMethod"].as_str()) {
+                Some("claude.ai" | "oauth_token") => ClaudeState::Ready,
+                None | Some("none") => ClaudeState::LoggedOut,
+                Some(_) => ClaudeState::NotSubscription,
+            }
+        };
+
+        Self {
+            state,
+            version: Some(text.to_owned()),
+        }
+    }
+}
+
+/// Почему Claude Code не ответил, по тексту его ошибки. Тексты взяты
+/// из справочника ошибок Claude Code, незнакомый это `claude_failed`.
+pub fn claude_failure(text: &str) -> AppError {
+    let text = text.to_lowercase();
+    let has = |markers: &[&str]| markers.iter().any(|marker| text.contains(marker));
+
+    // Запертая связка ключей тоже просит войти заново, поэтому она первая.
+    if has(&["keychain"]) {
+        AppError::invalid("claude_keychain_locked")
+    } else if has(&["hit your", "usage limit", "spend limit"]) {
+        AppError::unavailable("claude_limit")
+    } else if has(&[
+        "not logged in",
+        "/login",
+        "sign in again",
+        "login expired",
+        "oauth token",
+    ]) {
+        AppError::invalid("claude_logged_out")
+    } else if has(&[
+        "unable to connect",
+        "timed out",
+        "no response from api",
+        "connection lost",
+        "connection closed",
+        "went to sleep",
+    ]) {
+        ModelError::Unreachable.into()
+    } else if has(&["unknown option", "unknown command", "unexpected argument"]) {
+        AppError::invalid("claude_incompatible")
+    } else {
+        AppError::unavailable("claude_failed")
     }
 }
 
@@ -1261,5 +1394,83 @@ mod tests {
         assert_eq!(body["fallbacks"], "default");
         assert_eq!(request("claude-haiku-5-5", &[]).get("fallbacks"), None);
         assert_eq!(parse_model("claude-fable-5-1"), None);
+    }
+
+    #[test]
+    fn claude_code_годится_с_новой_версией_и_входом_по_подписке() {
+        let state = |version: &str, auth: Option<Value>| ClaudeStatus::of(version, auth.as_ref());
+        let method = |name: &str| Some(json!({ "loggedIn": true, "authMethod": name }));
+
+        assert_eq!(
+            state("2.1.316 (Claude Code)", method("claude.ai")),
+            ClaudeStatus {
+                state: ClaudeState::Ready,
+                version: Some("2.1.316".into()),
+            }
+        );
+        assert_eq!(
+            state("2.1.299", method("oauth_token")).state,
+            ClaudeState::Ready
+        );
+        assert_eq!(
+            state("3.0.0", method("api_key")).state,
+            ClaudeState::NotSubscription
+        );
+        assert_eq!(
+            state("2.1.316", method("none")).state,
+            ClaudeState::LoggedOut
+        );
+        assert_eq!(state("2.1.316", None).state, ClaudeState::LoggedOut);
+        assert_eq!(
+            state("2.1.298 (Claude Code)", method("claude.ai")),
+            ClaudeStatus {
+                state: ClaudeState::Outdated,
+                version: Some("2.1.298".into()),
+            }
+        );
+        assert_eq!(
+            state("Claude Code", method("claude.ai")).state,
+            ClaudeState::Outdated
+        );
+        assert_eq!(
+            state("2.1.316.1", method("claude.ai")).state,
+            ClaudeState::Outdated
+        );
+    }
+
+    #[test]
+    fn ошибка_claude_code_разобрана_по_тексту() {
+        let code = |text: &str| claude_failure(text).code;
+
+        assert_eq!(
+            code("You've hit your session limit · resets 3:45pm"),
+            "claude_limit"
+        );
+        assert_eq!(
+            code("Not logged in · Please run /login"),
+            "claude_logged_out"
+        );
+        assert_eq!(
+            code("Login expired · Please run /login"),
+            "claude_logged_out"
+        );
+        assert_eq!(
+            code(
+                "Couldn't save your login. If your Mac's keychain is locked, unlock it and log in again."
+            ),
+            "claude_keychain_locked"
+        );
+        assert_eq!(
+            code("Unable to connect to API. Check your internet connection"),
+            "agent_unreachable"
+        );
+        assert_eq!(
+            code("error: unknown option '--restricted'"),
+            "claude_incompatible"
+        );
+        assert_eq!(
+            code("API Error: 500 Internal server error"),
+            "claude_failed"
+        );
     }
 }
