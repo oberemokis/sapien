@@ -4,8 +4,11 @@ import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { Annotation, Compartment, EditorState, Transaction } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { useEffect, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { IssueIds } from "@/core/markdown/issues";
 import { Frontmatter, Hashtags } from "@/core/markdown/tags";
+import { useEditorMode } from "../interactions/editor-mode";
+import type { EditorMode } from "../model/mode";
 import { textChange } from "../model/text-change";
 import { markdownTheme } from "../ui/markdown-theme";
 import { tagClick, tagCompletion } from "./hashtags";
@@ -18,6 +21,7 @@ import {
   refreshIssues,
 } from "./issues";
 import { linkClick } from "./links";
+import { livePreview } from "./live-preview";
 
 // Пометка правки, пришедшей снаружи: её не возвращают обратно через onChange.
 const external = Annotation.define<boolean>();
@@ -49,9 +53,19 @@ function ignore() {
   // Без обработчика клик по тегу или ссылке просто ничего не делает.
 }
 
-// Исходный текст markdown с подсветкой разметки, GFM: таблицы, чекбоксы,
-// зачёркивание, теги, шапка заметки. HTML в тексте остаётся текстом: редактор ничего
-// не рисует из заметки и ничего из неё не выполняет. Редактор живёт, пока
+function preview(mode: EditorMode, taskLabel: string) {
+  if (mode === "source") {
+    return [];
+  }
+
+  return livePreview(taskLabel);
+}
+
+// Текст markdown с подсветкой разметки, GFM: таблицы, чекбоксы,
+// зачёркивание, теги, шапка заметки. В Live Preview разметка прячется вне
+// строки с курсором, режим выбирают во «Внешнем виде». HTML в тексте
+// остаётся текстом: редактор ничего не рисует из заметки как HTML и ничего
+// из неё не выполняет. Редактор живёт, пока
 // открыт один файл: страница меняет его ключом при смене файла, а value
 // дальше приходит только как правка снаружи.
 export function MarkdownEditor({
@@ -67,6 +81,9 @@ export function MarkdownEditor({
   onSelectionChange = ignore,
   issues = null,
 }: Props) {
+  const { t } = useTranslation();
+  const mode = useEditorMode();
+  const taskLabel = t("editor.task");
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const onChangeRef = useRef(onChange);
@@ -77,7 +94,8 @@ export function MarkdownEditor({
   const issuesRef = useRef(issues);
   const editableRef = useRef(new Compartment());
   const labelRef = useRef(new Compartment());
-  const initialRef = useRef({ value, readOnly, label });
+  const previewRef = useRef(new Compartment());
+  const initialRef = useRef({ value, readOnly, label, mode, taskLabel });
 
   useEffect(() => {
     onChangeRef.current = onChange;
@@ -116,6 +134,7 @@ export function MarkdownEditor({
           EditorView.lineWrapping,
           labelRef.current.of(EditorView.contentAttributes.of({ "aria-label": initial.label })),
           editableRef.current.of(EditorView.editable.of(!initial.readOnly)),
+          previewRef.current.of(preview(initial.mode, initial.taskLabel)),
           markdownTheme,
           EditorView.updateListener.of((update) => {
             const fromOutside = update.transactions.some((transaction) => transaction.annotation(external));
@@ -187,6 +206,10 @@ export function MarkdownEditor({
       effects: editableRef.current.reconfigure(EditorView.editable.of(!readOnly)),
     });
   }, [readOnly]);
+
+  useEffect(() => {
+    viewRef.current?.dispatch({ effects: previewRef.current.reconfigure(preview(mode, taskLabel)) });
+  }, [mode, taskLabel]);
 
   // Файл переименовали снаружи, а редактор с курсором остался прежним.
   useEffect(() => {
