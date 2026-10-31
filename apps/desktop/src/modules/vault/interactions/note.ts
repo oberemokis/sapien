@@ -80,7 +80,7 @@ async function write(queryClient: QueryClient, path: string) {
 
 // Пишет правку заметки сейчас, не дожидаясь паузы. Записи одного файла идут
 // по очереди: поздняя не обгонит раннюю и не оставит на диске старый текст.
-function saveNote(queryClient: QueryClient, path: string) {
+export function saveNote(queryClient: QueryClient, path: string) {
   clearTimeout(timers.get(path));
   timers.delete(path);
 
@@ -158,6 +158,16 @@ export function forgetNotes() {
 // Текст открытой заметки и его сохранение. Пока правка человека не на диске,
 // изменение файла снаружи её не заменяет. Запись правки его тоже не затрёт:
 // Rust ответит спором, и человек выберет версию сам.
+// Текст заметки, как его видит человек: правка, если она есть, иначе файл.
+// Только для показа рядом, например в истории версий: без записи и сохранения
+// при уходе.
+export function useNoteText(path: string) {
+  const disk = useQuery({ queryKey: noteKey(path), queryFn: () => vaultRead(path), retry: false });
+  const unsaved = useSelector(notesStore, (state) => state.unsaved[path]);
+
+  return { text: unsaved ?? disk.data, loading: disk.isPending };
+}
+
 export function useNote(path: string) {
   const queryClient = useQueryClient();
   const disk = useQuery({ queryKey: noteKey(path), queryFn: () => vaultRead(path), retry: false });

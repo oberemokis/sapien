@@ -17,6 +17,10 @@ export type NoteText = { path: string; text: string };
 // которую человек решил записать поверх правки снаружи.
 export type Unsaved = { path: string; base: string | null; text: string };
 
+// Версия заметки из истории: текст перед тем, как его заменили. Номер это
+// время снимка в миллисекундах, источник говорит, что его заменило.
+export type Version = { id: number; source: "edit" | "outside" | "restore" | "trash" };
+
 // Что середина окна отдаёт редактору открытой заметки. Сам редактор
 // ставит страница.
 export type EditorProps = {

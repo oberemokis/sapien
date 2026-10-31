@@ -1,8 +1,8 @@
 use super::domain::{
-    Entry, EntryKind, JOURNAL_KEEP, Unsaved, check_name, note_file_name, note_paths,
-    parse_folder_path, parse_note_path,
+    Entry, EntryKind, HISTORY_EVERY, HISTORY_KEEP, JOURNAL_KEEP, Source, Unsaved, Version,
+    check_name, is_within, note_file_name, note_paths, parse_folder_path, parse_note_path,
 };
-use super::ports::{Journal, VaultDisk, VaultPlace};
+use super::ports::{History, Journal, VaultDisk, VaultPlace};
 use crate::error::AppError;
 use serde::Serialize;
 use std::path::{Path, PathBuf};
@@ -101,19 +101,53 @@ pub fn read(
     disk.read(&note_at(place, disk, path)?)
 }
 
+/// Снимает текст заметки перед тем, как его заменят. Правка человека
+/// снимается не чаще раза в `HISTORY_EVERY`, остальное всегда. Пустой текст
+/// и тот, что уже лежит последней версией, не снимаются. История запись
+/// не держит: не вышло снять версию, заметка всё равно пишется.
+fn snapshot(history: &impl History, root: &Path, path: &str, text: &str, source: Source) {
+    let last = history.list(root, path).into_iter().next();
+    let recent = last.is_some_and(|(_, age)| age < HISTORY_EVERY);
+    let same = last.is_some_and(|(version, _)| {
+        history
+            .read(root, path, version.id)
+            .is_ok_and(|kept| kept == text)
+    });
+
+    if text.is_empty() || same || (source == Source::Edit && recent) {
+        return;
+    }
+
+    let _ = history.put(root, path, source, text);
+}
+
 /// Правка сначала ложится в журнал восстановления, потом в файл, и только
 /// после записи файла уходит из журнала. Упало приложение посреди записи,
 /// отказал диск, файл изменили снаружи: правка остаётся в журнале.
 /// Журнал запись не держит: не вышло записать в него, файл всё равно пишется.
+/// Текст, который правка заменит, уходит в историю версий.
 pub fn write(
     place: &impl VaultPlace,
     disk: &impl VaultDisk,
     journal: &impl Journal,
+    history: &impl History,
     unsaved: &Unsaved,
 ) -> Result<(), AppError> {
     let root = open_root(place, disk)?;
     let file = note_at(place, disk, &unsaved.path)?;
     let _ = journal.put(&root, unsaved);
+
+    // Правка без base пишется поверх правки снаружи: та уходит в историю
+    // всегда. Со спором запись не пройдёт, и снимать нечего.
+    if let Ok(current) = disk.read(&file) {
+        match unsaved.base.as_deref() {
+            None => snapshot(history, &root, &unsaved.path, &current, Source::Outside),
+            Some(base) if base == current => {
+                snapshot(history, &root, &unsaved.path, &current, Source::Edit);
+            }
+            Some(_) => {}
+        }
+    }
 
     disk.write(&file, &unsaved.text, unsaved.base.as_deref())?;
     journal.remove(&root, &unsaved.path);
@@ -158,14 +192,130 @@ pub fn forget_unsaved(
 }
 
 /// Убирает заметку или папку в системную корзину. Корень хранилища
-/// и путь наружу до диска не доходят.
-pub fn trash(place: &impl VaultPlace, disk: &impl VaultDisk, path: &str) -> Result<(), AppError> {
+/// и путь наружу до диска не доходят. Заметки внутри удалённого остаются
+/// в истории версий: их можно восстановить и после очистки корзины.
+pub fn trash(
+    place: &impl VaultPlace,
+    disk: &impl VaultDisk,
+    history: &impl History,
+    path: &str,
+) -> Result<(), AppError> {
     let root = open_root(place, disk)?;
     let path = parse_note_path(path)
         .or_else(|| parse_folder_path(path).filter(|folder| !folder.is_empty()))
         .ok_or(AppError::invalid("path_invalid"))?;
+    let notes = disk
+        .list(&root)
+        .map(|tree| note_paths(&tree))
+        .unwrap_or_default();
+
+    for note in notes.iter().filter(|note| is_within(note, path)) {
+        if let Ok(text) = disk.read(&root.join(note)) {
+            snapshot(history, &root, note, &text, Source::Trash);
+        }
+    }
 
     disk.trash(&root.join(path))
+}
+
+/// Версии заметки, свежие первыми. Версии старше срока уже не показываются,
+/// а с диска их убирает `prune_history`.
+pub fn versions(
+    place: &impl VaultPlace,
+    disk: &impl VaultDisk,
+    history: &impl History,
+    path: &str,
+) -> Result<Vec<Version>, AppError> {
+    let root = open_root(place, disk)?;
+    let path = parse_note_path(path).ok_or(AppError::invalid("path_invalid"))?;
+
+    Ok(history
+        .list(&root, path)
+        .into_iter()
+        .filter(|(_, age)| *age <= HISTORY_KEEP)
+        .map(|(version, _)| version)
+        .collect())
+}
+
+pub fn version(
+    place: &impl VaultPlace,
+    disk: &impl VaultDisk,
+    history: &impl History,
+    path: &str,
+    id: u64,
+) -> Result<String, AppError> {
+    let root = open_root(place, disk)?;
+    let path = parse_note_path(path).ok_or(AppError::invalid("path_invalid"))?;
+
+    history.read(&root, path, id)
+}
+
+/// Возвращает заметке прежнюю версию. Текущий текст перед этим уходит
+/// в историю, и восстановление само обратимо. Удалённую заметку
+/// восстановление создаёт заново, вместе с папками над ней.
+pub fn restore(
+    place: &impl VaultPlace,
+    disk: &impl VaultDisk,
+    history: &impl History,
+    path: &str,
+    id: u64,
+) -> Result<(), AppError> {
+    let root = open_root(place, disk)?;
+    let path = parse_note_path(path).ok_or(AppError::invalid("path_invalid"))?;
+    let text = history.read(&root, path, id)?;
+    let file = root.join(path);
+
+    match disk.read(&file) {
+        Ok(current) => snapshot(history, &root, path, &current, Source::Restore),
+        Err(error) if error == AppError::not_found("note_missing") => {
+            recreate(disk, &root, path)?;
+        }
+        Err(error) => return Err(error),
+    }
+
+    disk.write(&file, &text, None)
+}
+
+fn recreate(disk: &impl VaultDisk, root: &Path, path: &str) -> Result<(), AppError> {
+    let (folders, _) = path.rsplit_once('/').unwrap_or(("", path));
+    let mut folder = root.to_path_buf();
+
+    for part in folders.split('/').filter(|part| !part.is_empty()) {
+        folder.push(part);
+
+        match disk.create(&folder, EntryKind::Folder) {
+            Err(error) if error != AppError::conflict("name_taken") => return Err(error),
+            _ => {}
+        }
+    }
+
+    disk.create(&root.join(path), EntryKind::Note)
+}
+
+/// Удалённые заметки, у которых остались версии, по алфавиту.
+pub fn deleted(
+    place: &impl VaultPlace,
+    disk: &impl VaultDisk,
+    history: &impl History,
+) -> Result<Vec<String>, AppError> {
+    let root = open_root(place, disk)?;
+    let existing = note_paths(&disk.list(&root)?);
+    let mut paths: Vec<_> = history
+        .notes(&root)
+        .into_iter()
+        .filter(|path| !existing.contains(path))
+        .collect();
+
+    paths.sort();
+    Ok(paths)
+}
+
+/// Убирает с диска версии старше срока. Зовётся при запуске: заметку,
+/// которую месяц не открывали, иначе никто бы не почистил.
+pub fn prune_history(place: &impl VaultPlace, disk: &impl VaultDisk, history: &impl History) {
+    if let Ok(root) = open_root(place, disk) {
+        history.prune(&root, HISTORY_KEEP);
+    }
 }
 
 /// Текст заметки для разбора в интерфейсе: теги и всё, что ищется по тексту.
@@ -211,6 +361,7 @@ pub fn choose(
 mod tests {
     use super::*;
     use std::cell::RefCell;
+    use std::collections::BTreeMap;
     use std::path::PathBuf;
     use std::time::Duration;
 
@@ -360,6 +511,364 @@ mod tests {
         Place(RefCell::new(Some(path.into())))
     }
 
+    /// Хранилище `/notes` в памяти: текст заметок по пути от корня. Папки
+    /// здесь подразумеваются путями заметок.
+    #[derive(Default)]
+    struct Files(RefCell<BTreeMap<String, String>>);
+
+    impl Files {
+        fn with(notes: &[(&str, &str)]) -> Self {
+            Self(RefCell::new(
+                notes
+                    .iter()
+                    .map(|(path, text)| ((*path).into(), (*text).into()))
+                    .collect(),
+            ))
+        }
+
+        fn text(&self, path: &str) -> Option<String> {
+            self.0.borrow().get(path).cloned()
+        }
+
+        fn change(&self, path: &str, text: &str) {
+            self.0.borrow_mut().insert(path.into(), text.into());
+        }
+    }
+
+    fn inside(path: &Path) -> String {
+        path.strip_prefix("/notes")
+            .unwrap()
+            .to_string_lossy()
+            .into()
+    }
+
+    impl VaultDisk for Files {
+        fn is_dir(&self, path: &Path) -> bool {
+            path == Path::new("/notes")
+        }
+
+        fn list(&self, _root: &Path) -> Result<Vec<Entry>, AppError> {
+            Ok(self
+                .0
+                .borrow()
+                .keys()
+                .map(|path| Entry::Note {
+                    name: path.rsplit('/').next().unwrap_or(path).into(),
+                    path: path.clone(),
+                })
+                .collect())
+        }
+
+        fn create(&self, path: &Path, kind: EntryKind) -> Result<(), AppError> {
+            if kind == EntryKind::Note {
+                self.0.borrow_mut().entry(inside(path)).or_default();
+            }
+
+            Ok(())
+        }
+
+        fn read(&self, path: &Path) -> Result<String, AppError> {
+            self.text(&inside(path))
+                .ok_or(AppError::not_found("note_missing"))
+        }
+
+        fn write(&self, path: &Path, text: &str, base: Option<&str>) -> Result<(), AppError> {
+            let current = self.read(path)?;
+
+            if base.is_some_and(|base| base != current) {
+                return Err(AppError::conflict("note_conflict"));
+            }
+
+            self.change(&inside(path), text);
+            Ok(())
+        }
+
+        fn trash(&self, path: &Path) -> Result<(), AppError> {
+            let entry = inside(path);
+
+            self.0
+                .borrow_mut()
+                .retain(|path, _| !is_within(path, &entry));
+            Ok(())
+        }
+    }
+
+    /// История в памяти: путь, версия, возраст и текст. Номера идут
+    /// по порядку снимков.
+    #[derive(Default)]
+    struct Album(RefCell<Vec<(String, Version, Duration, String)>>);
+
+    impl Album {
+        /// Время прошло для всех версий разом.
+        fn wait(&self, time: Duration) {
+            for (_, _, age, _) in self.0.borrow_mut().iter_mut() {
+                *age += time;
+            }
+        }
+
+        fn texts(&self, path: &str) -> Vec<(Source, String)> {
+            self.list(Path::new("/notes"), path)
+                .into_iter()
+                .map(|(version, _)| {
+                    let text = self.read(Path::new("/notes"), path, version.id).unwrap();
+
+                    (version.source, text)
+                })
+                .collect()
+        }
+    }
+
+    impl History for Album {
+        fn put(
+            &self,
+            _vault: &Path,
+            path: &str,
+            source: Source,
+            text: &str,
+        ) -> Result<(), AppError> {
+            let id = self.0.borrow().len() as u64 + 1;
+
+            self.0.borrow_mut().push((
+                path.into(),
+                Version { id, source },
+                Duration::ZERO,
+                text.into(),
+            ));
+            Ok(())
+        }
+
+        fn list(&self, _vault: &Path, path: &str) -> Vec<(Version, Duration)> {
+            let mut versions: Vec<_> = self
+                .0
+                .borrow()
+                .iter()
+                .filter(|(note, ..)| note == path)
+                .map(|(_, version, age, _)| (*version, *age))
+                .collect();
+
+            versions.reverse();
+            versions
+        }
+
+        fn read(&self, _vault: &Path, path: &str, id: u64) -> Result<String, AppError> {
+            self.0
+                .borrow()
+                .iter()
+                .find(|(note, version, ..)| note == path && version.id == id)
+                .map(|(.., text)| text.clone())
+                .ok_or(AppError::not_found("version_missing"))
+        }
+
+        fn notes(&self, _vault: &Path) -> Vec<String> {
+            let mut paths: Vec<_> = self
+                .0
+                .borrow()
+                .iter()
+                .map(|(path, ..)| path.clone())
+                .collect();
+
+            paths.dedup();
+            paths
+        }
+
+        fn prune(&self, _vault: &Path, keep: Duration) {
+            self.0.borrow_mut().retain(|(_, _, age, _)| *age <= keep);
+        }
+    }
+
+    fn based(path: &str, base: Option<&str>, text: &str) -> Unsaved {
+        Unsaved {
+            path: path.into(),
+            base: base.map(Into::into),
+            text: text.into(),
+        }
+    }
+
+    #[test]
+    fn правка_снимает_прежний_текст_не_чаще_раза_в_пять_минут() {
+        let place = chosen("/notes");
+        let disk = Files::with(&[("план.md", "было")]);
+        let history = Album::default();
+        let save = |base: &str, text: &str| {
+            write(
+                &place,
+                &disk,
+                &Memo::default(),
+                &history,
+                &based("план.md", Some(base), text),
+            )
+        };
+
+        save("было", "раз").unwrap();
+        save("раз", "два").unwrap();
+        history.wait(HISTORY_EVERY);
+        save("два", "три").unwrap();
+
+        assert_eq!(
+            history.texts("план.md"),
+            [(Source::Edit, "два".into()), (Source::Edit, "было".into())]
+        );
+        assert_eq!(disk.text("план.md"), Some("три".into()));
+    }
+
+    #[test]
+    fn правка_снаружи_уходит_в_историю_когда_её_перекрывают() {
+        let place = chosen("/notes");
+        let disk = Files::with(&[("план.md", "было")]);
+        let history = Album::default();
+        let journal = Memo::default();
+
+        write(
+            &place,
+            &disk,
+            &journal,
+            &history,
+            &based("план.md", Some("было"), "раз"),
+        )
+        .unwrap();
+        disk.change("план.md", "снаружи");
+
+        // Спор: файл не тронут, снимать нечего.
+        assert_eq!(
+            write(
+                &place,
+                &disk,
+                &journal,
+                &history,
+                &based("план.md", Some("раз"), "два")
+            ),
+            Err(AppError::conflict("note_conflict"))
+        );
+        assert_eq!(history.texts("план.md").len(), 1);
+
+        // Человек оставил свою: правка снаружи снимается, хоть пять минут
+        // и не прошли. Тот же текст второй раз не снимается.
+        write(
+            &place,
+            &disk,
+            &journal,
+            &history,
+            &based("план.md", None, "два"),
+        )
+        .unwrap();
+        disk.change("план.md", "снаружи");
+        write(
+            &place,
+            &disk,
+            &journal,
+            &history,
+            &based("план.md", None, "два"),
+        )
+        .unwrap();
+
+        assert_eq!(
+            history.texts("план.md"),
+            [
+                (Source::Outside, "снаружи".into()),
+                (Source::Edit, "было".into())
+            ]
+        );
+    }
+
+    #[test]
+    fn пустая_заметка_не_снимается() {
+        let place = chosen("/notes");
+        let disk = Files::with(&[("план.md", "")]);
+        let history = Album::default();
+
+        write(
+            &place,
+            &disk,
+            &Memo::default(),
+            &history,
+            &based("план.md", None, "шаблон"),
+        )
+        .unwrap();
+
+        assert!(history.texts("план.md").is_empty());
+    }
+
+    #[test]
+    fn восстановление_обратимо_и_возвращает_удалённую_заметку() {
+        let place = chosen("/notes");
+        let disk = Files::with(&[("Проекты/план.md", "было"), ("идеи.md", "идеи")]);
+        let history = Album::default();
+        let restore_first = || {
+            let first = versions(&place, &disk, &history, "Проекты/план.md").unwrap();
+
+            restore(
+                &place,
+                &disk,
+                &history,
+                "Проекты/план.md",
+                first.last().unwrap().id,
+            )
+        };
+
+        write(
+            &place,
+            &disk,
+            &Memo::default(),
+            &history,
+            &based("Проекты/план.md", Some("было"), "стало"),
+        )
+        .unwrap();
+        restore_first().unwrap();
+
+        assert_eq!(disk.text("Проекты/план.md"), Some("было".into()));
+        assert_eq!(
+            history.texts("Проекты/план.md")[0],
+            (Source::Restore, "стало".into())
+        );
+
+        trash(&place, &disk, &history, "Проекты").unwrap();
+
+        assert_eq!(disk.text("Проекты/план.md"), None);
+        assert_eq!(
+            history.texts("Проекты/план.md")[0],
+            (Source::Trash, "было".into())
+        );
+        assert_eq!(
+            deleted(&place, &disk, &history),
+            Ok(vec!["Проекты/план.md".into()])
+        );
+
+        restore_first().unwrap();
+
+        assert_eq!(disk.text("Проекты/план.md"), Some("было".into()));
+        assert_eq!(deleted(&place, &disk, &history), Ok(vec![]));
+        assert_eq!(
+            restore(&place, &disk, &history, "../план.md", 1),
+            Err(AppError::invalid("path_invalid"))
+        );
+        assert_eq!(
+            restore(&place, &disk, &history, "идеи.md", 1),
+            Err(AppError::not_found("version_missing"))
+        );
+    }
+
+    #[test]
+    fn версии_старше_месяца_не_видны_и_убираются() {
+        let place = chosen("/notes");
+        let disk = Files::with(&[("план.md", "было")]);
+        let history = Album::default();
+
+        write(
+            &place,
+            &disk,
+            &Memo::default(),
+            &history,
+            &based("план.md", None, "стало"),
+        )
+        .unwrap();
+        history.wait(HISTORY_KEEP + Duration::from_secs(1));
+
+        assert_eq!(versions(&place, &disk, &history, "план.md"), Ok(vec![]));
+
+        prune_history(&place, &disk, &history);
+        assert!(history.0.borrow().is_empty());
+    }
+
     /// Хранилище `/notes`: заметка в папке и заметка в корне, которую
     /// не прочитать.
     struct Shelf;
@@ -472,7 +981,13 @@ mod tests {
             Ok("/notes/Проекты/план.md".into())
         );
         assert_eq!(
-            write(&place, &disk, &Memo::default(), &edit("план.md", "текст")),
+            write(
+                &place,
+                &disk,
+                &Memo::default(),
+                &Album::default(),
+                &edit("план.md", "текст")
+            ),
             Ok(())
         );
         assert_eq!(disk.0.borrow()[0].0, PathBuf::from("/notes/план.md"));
@@ -488,12 +1003,26 @@ mod tests {
             read(&place, &disk, "../../.ssh/id_rsa"),
             Err(AppError::invalid("path_invalid"))
         );
+        let history = Album::default();
+
         assert_eq!(
-            write(&place, &disk, &journal, &edit("../соседи/план.md", "текст")),
+            write(
+                &place,
+                &disk,
+                &journal,
+                &history,
+                &edit("../соседи/план.md", "текст")
+            ),
             Err(AppError::invalid("path_invalid"))
         );
         assert_eq!(
-            write(&place, &disk, &journal, &edit(".obsidian/app.json", "{}")),
+            write(
+                &place,
+                &disk,
+                &journal,
+                &history,
+                &edit(".obsidian/app.json", "{}")
+            ),
             Err(AppError::invalid("path_invalid"))
         );
         assert!(disk.0.borrow().is_empty());
@@ -505,10 +1034,13 @@ mod tests {
         let journal = Memo::default();
         let place = chosen("/notes");
 
+        let history = Album::default();
+
         write(
             &place,
             &Recorder::default(),
             &journal,
+            &history,
             &edit("план.md", "раз"),
         )
         .unwrap();
@@ -519,6 +1051,7 @@ mod tests {
                 &place,
                 &Changed::default(),
                 &journal,
+                &history,
                 &edit("план.md", "два")
             ),
             Err(AppError::conflict("note_conflict"))
@@ -556,15 +1089,16 @@ mod tests {
     fn в_корзину_уходит_заметка_или_папка_но_не_корень_и_не_путь_наружу() {
         let disk = Changed::default();
         let place = chosen("/notes");
+        let history = Album::default();
 
-        assert_eq!(trash(&place, &disk, "Проекты/план.md"), Ok(()));
-        assert_eq!(trash(&place, &disk, "Проекты"), Ok(()));
+        assert_eq!(trash(&place, &disk, &history, "Проекты/план.md"), Ok(()));
+        assert_eq!(trash(&place, &disk, &history, "Проекты"), Ok(()));
         assert_eq!(
-            trash(&place, &disk, ""),
+            trash(&place, &disk, &history, ""),
             Err(AppError::invalid("path_invalid"))
         );
         assert_eq!(
-            trash(&place, &disk, ".."),
+            trash(&place, &disk, &history, ".."),
             Err(AppError::invalid("path_invalid"))
         );
         assert_eq!(

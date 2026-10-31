@@ -10,12 +10,13 @@ import { useTranslation } from "react-i18next";
 import { FileTypeIcon } from "@/core/ui/file-type-icon";
 import { Icon } from "@/core/ui/icon";
 import { hasModKey } from "@/core/ui/keys";
+import { openHistory, useDeletedNotes } from "../interactions/history";
 import { closeSearch, openSearch, useSearchMode, useSearchOpen, useSearchStartQuery } from "../interactions/search";
 import { useNoteTags } from "../interactions/tags";
 import { useTemplateSettings } from "../interactions/templates";
 import { insertTemplate, openNote, startCreate, useTreeState } from "../interactions/tree";
 import { useCreateEntry, useVaultStatus, useVaultTree } from "../interactions/vault";
-import { highlight, notesOf, recentNotes, searchNotes, type Found } from "../model/search";
+import { highlight, noteItem, notesOf, recentNotes, searchNotes, type Found } from "../model/search";
 import { splitQuery } from "../model/tags";
 import { isTemplate } from "../model/templates";
 import { checkName } from "../model/vault";
@@ -79,15 +80,19 @@ function SearchDialog() {
   const listId = useId();
 
   const notes = useMemo(() => notesOf(tree.data ?? []), [tree.data]);
-  // Шаблоны это заметки папки шаблонов, все сразу по алфавиту.
+  // Шаблоны это заметки папки шаблонов, все сразу по алфавиту. Удалённые
+  // есть только в истории версий, их список даёт Rust.
   const picking = mode.kind !== "files";
+  const deleted = useDeletedNotes(mode.kind === "deleted");
   const templates = useMemo(() => notes.filter((note) => isTemplate(note.path, folder)), [notes, folder]);
+  const deletedNotes = useMemo(() => (deleted.data ?? []).map(noteItem), [deleted.data]);
+  const choices = mode.kind === "deleted" ? deletedNotes : templates;
   const { tags, name } = splitQuery(query);
   const empty = tags.length === 0 && name === "";
   let found: Found[];
 
   if (picking) {
-    found = searchNotes(templates, query);
+    found = searchNotes(choices, query);
   } else if (empty) {
     found = recentNotes(notes, recent);
   } else {
@@ -134,6 +139,8 @@ function SearchDialog() {
       startCreate("note", mode.parent, path);
     } else if (mode.kind === "insertTemplate") {
       void insertTemplate(mode.path, path);
+    } else if (mode.kind === "deleted") {
+      openHistory(path);
     } else {
       openNote(path, { focus: true, newTab });
     }
@@ -180,7 +187,18 @@ function SearchDialog() {
     createHint = t("vault.create.failed");
   }
 
-  const title = picking ? t("vault.templates.pick") : t("vault.search.title");
+  let title: string = t("vault.search.title");
+  let placeholder: string = t("vault.search.placeholder");
+  let noChoices: string = t("vault.templates.empty", { folder });
+
+  if (mode.kind === "deleted") {
+    title = t("vault.history.deleted");
+    placeholder = t("vault.history.placeholder");
+    noChoices = t("vault.history.noDeleted");
+  } else if (picking) {
+    title = t("vault.templates.pick");
+    placeholder = t("vault.templates.placeholder");
+  }
 
   return (
     // Нажатие на затемнение вокруг окна закрывает поиск, как Escape.
@@ -209,7 +227,7 @@ function SearchDialog() {
           aria-controls={listId}
           aria-autocomplete="list"
           aria-activedescendant={count > 0 ? `${listId}-${active}` : undefined}
-          placeholder={picking ? t("vault.templates.placeholder") : t("vault.search.placeholder")}
+          placeholder={placeholder}
           className="h-full min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-content/40"
           value={query}
           onChange={(event) => {
@@ -223,10 +241,10 @@ function SearchDialog() {
         {!picking && empty && found.length > 0 && (
           <p className="px-2 pt-1 pb-1.5 text-[12px] text-content/50">{t("vault.search.recent")}</p>
         )}
-        {picking && templates.length === 0 && (
-          <p className="px-2 py-1.5 text-[13px] text-content/50">{t("vault.templates.empty", { folder })}</p>
+        {picking && choices.length === 0 && !deleted.isLoading && (
+          <p className="px-2 py-1.5 text-[13px] text-content/50">{noChoices}</p>
         )}
-        {!empty && found.length === 0 && (!picking || templates.length > 0) && (
+        {!empty && found.length === 0 && (!picking || choices.length > 0) && (
           <p className="px-2 pt-1 pb-1.5 text-[13px] text-content/50">{t("vault.search.nothing")}</p>
         )}
         <div id={listId} role="listbox" aria-label={title}>

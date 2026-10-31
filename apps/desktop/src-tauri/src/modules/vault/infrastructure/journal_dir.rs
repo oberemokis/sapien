@@ -1,3 +1,4 @@
+use super::file_key;
 use crate::durable;
 use crate::error::AppError;
 use crate::modules::vault::domain::Unsaved;
@@ -21,22 +22,13 @@ impl JournalDir {
     }
 
     fn vault_dir(&self, vault: &Path) -> PathBuf {
-        self.dir.join(key(&vault.to_string_lossy()))
+        self.dir.join(file_key(&vault.to_string_lossy()))
     }
 
     fn file(&self, vault: &Path, path: &str) -> PathBuf {
-        self.vault_dir(vault).join(format!("{}.json", key(path)))
+        self.vault_dir(vault)
+            .join(format!("{}.json", file_key(path)))
     }
-}
-
-/// FNV-1a: хеш стандартной библиотеки меняется от версии к версии Rust,
-/// и после обновления приложение потеряло бы свой журнал.
-fn key(text: &str) -> String {
-    let hash = text.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| {
-        (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
-    });
-
-    format!("{hash:016x}")
 }
 
 impl Journal for JournalDir {

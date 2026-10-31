@@ -31,6 +31,10 @@ pub fn run() {
             vault::transport::vault_unsaved,
             vault::transport::vault_forget_unsaved,
             vault::transport::vault_trash,
+            vault::transport::vault_versions,
+            vault::transport::vault_version,
+            vault::transport::vault_restore,
+            vault::transport::vault_deleted,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

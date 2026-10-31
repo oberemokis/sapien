@@ -17,6 +17,36 @@ pub struct Unsaved {
 /// отказались, дольше хранить незачем.
 pub const JOURNAL_KEEP: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 
+/// Почему снята версия заметки. Снимается текст перед тем, как его заменят.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Source {
+    /// Перед правкой человека.
+    Edit,
+    /// Текст, который изменили снаружи, а человек записал свой поверх.
+    Outside,
+    /// Перед восстановлением прежней версии.
+    Restore,
+    /// Перед удалением в корзину.
+    Trash,
+}
+
+/// Версия заметки в истории. Номер это время снимка в миллисекундах
+/// от начала эпохи Unix: по нему версию и показывают, и находят.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub struct Version {
+    pub id: u64,
+    pub source: Source,
+}
+
+/// Правка человека снимается не чаще этого: иначе история заметки была бы
+/// снимком каждой паузы в наборе.
+pub const HISTORY_EVERY: Duration = Duration::from_secs(5 * 60);
+
+/// Сколько хранится версия. Месяц покрывает «на прошлой неделе было лучше»,
+/// а место на диске не растёт без конца.
+pub const HISTORY_KEEP: Duration = Duration::from_secs(30 * 24 * 60 * 60);
+
 /// Что создают в дереве.
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -77,6 +107,13 @@ pub fn parse_note_path(path: &str) -> Option<&str> {
     let valid = parse_folder_path(folder).is_some() && check_name(name).is_ok() && is_note(name);
 
     valid.then_some(path)
+}
+
+/// Путь это сам элемент или что-то внутри папки с этим путём. «Проекты 2»
+/// не внутри «Проекты»: граница по `/`.
+pub fn is_within(path: &str, entry: &str) -> bool {
+    path.strip_prefix(entry)
+        .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
 }
 
 /// Строка дерева хранилища. Путь относительный от корня хранилища и всегда
@@ -226,5 +263,13 @@ mod tests {
         assert_eq!(parse_note_path("Проекты/схема.png"), None);
         assert_eq!(parse_note_path(".obsidian/app.md"), None);
         assert_eq!(parse_note_path(""), None);
+    }
+
+    #[test]
+    fn внутри_папки_только_её_содержимое() {
+        assert!(is_within("Проекты/sapien/план.md", "Проекты"));
+        assert!(is_within("план.md", "план.md"));
+        assert!(!is_within("Проекты 2/план.md", "Проекты"));
+        assert!(!is_within("Проекты.md", "Проекты"));
     }
 }

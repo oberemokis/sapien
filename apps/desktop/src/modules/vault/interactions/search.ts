@@ -26,8 +26,13 @@ export function showTag(tag: string) {
 
 // Окно со списком шаблонов: для нового файла в папке или для вставки
 // в открытую заметку.
-export function pickTemplate(mode: Exclude<SearchMode, { kind: "files" }>) {
+export function pickTemplate(mode: Extract<SearchMode, { kind: "newFromTemplate" | "insertTemplate" }>) {
   searchStore.setState(() => ({ open: true, query: "", mode }));
+}
+
+// Окно со списком удалённых заметок, у которых есть история версий.
+export function showDeleted() {
+  searchStore.setState(() => ({ open: true, query: "", mode: { kind: "deleted" } }));
 }
 
 export function closeSearch() {

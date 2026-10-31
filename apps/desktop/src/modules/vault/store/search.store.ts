@@ -1,11 +1,13 @@
 import { createStore } from "@tanstack/react-store";
 
-// Что выбирают в окне: файл, который откроется, или шаблон для нового
-// файла в папке либо для вставки в открытую заметку.
+// Что выбирают в окне: файл, который откроется, шаблон для нового
+// файла в папке либо для вставки в открытую заметку или удалённую заметку,
+// чью историю версий открыть.
 export type SearchMode =
   | { kind: "files" }
   | { kind: "newFromTemplate"; parent: string }
-  | { kind: "insertTemplate"; path: string };
+  | { kind: "insertTemplate"; path: string }
+  | { kind: "deleted" };
 
 export const FILES: SearchMode = { kind: "files" };
 

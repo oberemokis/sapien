@@ -1,6 +1,7 @@
 import ArrowRight01Icon from "@hugeicons/core-free-icons/ArrowRight01Icon";
 import FileAddIcon from "@hugeicons/core-free-icons/FileAddIcon";
 import FolderAddIcon from "@hugeicons/core-free-icons/FolderAddIcon";
+import RestoreBinIcon from "@hugeicons/core-free-icons/RestoreBinIcon";
 import Search01Icon from "@hugeicons/core-free-icons/Search01Icon";
 import {
   useCallback,
@@ -26,7 +27,7 @@ import {
   toggleFolder,
   useTreeState,
 } from "../interactions/tree";
-import { openSearch, pickTemplate } from "../interactions/search";
+import { openSearch, pickTemplate, showDeleted } from "../interactions/search";
 import { useCreateEntry, useTrashEntry, useVaultStatus, useVaultTree } from "../interactions/vault";
 import {
   checkName,
@@ -357,6 +358,7 @@ export function VaultTree({ onCreateStart }: Props) {
           onClick={createNote}
         />
         <IconButton icon={FolderAddIcon} label={t("vault.create.folder")} onClick={() => create("folder")} />
+        <IconButton icon={RestoreBinIcon} label={t("vault.history.deleted")} onClick={showDeleted} />
       </div>
       {trash.isError && (
         <p role="alert" className="px-3 pb-1 text-[12px] text-diff-del-fg">
@@ -385,7 +387,9 @@ export function VaultTree({ onCreateStart }: Props) {
               onSelect: () => pickTemplate({ kind: "newFromTemplate", parent: menu.parent }),
             },
             { label: t("vault.create.folder"), onSelect: () => create("folder", menu.parent) },
-            ...(menuEntry === null ? [] : [{ label: t("vault.trash.action"), onSelect: () => trash.mutate(menuEntry) }]),
+            menuEntry === null
+              ? { label: t("vault.history.deleted"), onSelect: showDeleted }
+              : { label: t("vault.trash.action"), onSelect: () => trash.mutate(menuEntry) },
           ]}
           onClose={closeMenu}
         />

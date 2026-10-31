@@ -9,6 +9,11 @@ export type Found = NoteItem & { hits: number[] };
 export const SEARCH_LIMIT = 50;
 export const RECENT_LIMIT = 20;
 
+// Заметка по пути: удалённые есть только путём, без строки дерева.
+export function noteItem(path: string): NoteItem {
+  return { path, title: noteTitle(path.split("/").at(-1) ?? path), folder: parentOf(path) };
+}
+
 // Все заметки дерева одним списком.
 export function notesOf(tree: VaultEntry[]): NoteItem[] {
   return tree.flatMap((entry) => {
@@ -16,7 +21,7 @@ export function notesOf(tree: VaultEntry[]): NoteItem[] {
       return notesOf(entry.children);
     }
 
-    return [{ path: entry.path, title: noteTitle(entry.name), folder: parentOf(entry.path) }];
+    return [noteItem(entry.path)];
   });
 }
 

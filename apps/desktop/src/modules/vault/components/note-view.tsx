@@ -1,16 +1,19 @@
 import FilePasteIcon from "@hugeicons/core-free-icons/FilePasteIcon";
+import HistoryIcon from "@hugeicons/core-free-icons/HistoryIcon";
 import Note01Icon from "@hugeicons/core-free-icons/Note01Icon";
 import { Fragment, useEffect, useMemo, type ComponentType, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/core/ui/button";
 import { Icon } from "@/core/ui/icon";
 import { IconButton } from "@/core/ui/icon-button";
+import { openHistory } from "../interactions/history";
 import { useLeftUnsaved } from "../interactions/journal";
 import { useNote } from "../interactions/note";
 import { openSearch, pickTemplate, showTag } from "../interactions/search";
 import { useTagList } from "../interactions/tags";
 import { focusDone, insertDone, startCreate, useTreeState } from "../interactions/tree";
 import { notePlace, type EditorProps } from "../model/vault";
+import { NoteHistory } from "./note-history";
 
 type Props = {
   // Редактор текста. Его ставит страница, хранилище знает только, что ему отдать.
@@ -140,15 +143,16 @@ function OpenNote({ path, hidden, focusRequest, insert, tags, editor: Editor }: 
           </Fragment>
         ))}
         <h1 className="truncate font-medium">{title}</h1>
-        {!note.missing && (
-          <div className="ml-auto">
+        <div className="ml-auto flex gap-0.5">
+          {!note.missing && (
             <IconButton
               icon={FilePasteIcon}
               label={t("vault.templates.insert")}
               onClick={() => pickTemplate({ kind: "insertTemplate", path })}
             />
-          </div>
-        )}
+          )}
+          <IconButton icon={HistoryIcon} label={t("vault.history.open")} onClick={() => openHistory(path)} />
+        </div>
       </nav>
       {note.missing && <Notice>{t("editor.missing")}</Notice>}
       {note.unreadable && !note.missing && <Notice>{t("editor.unreadable")}</Notice>}
@@ -208,6 +212,7 @@ export function NoteView({ editor, showFiles }: Props) {
       <>
         <LeftUnsaved />
         <NoNote showFiles={showFiles} />
+        <NoteHistory />
       </>
     );
   }
@@ -215,6 +220,7 @@ export function NoteView({ editor, showFiles }: Props) {
   return (
     <>
       <LeftUnsaved />
+      <NoteHistory />
       {tabs.map((path) => (
         <OpenNote
           key={path}

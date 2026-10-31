@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { EntryKind, NoteText, Unsaved, VaultEntry, VaultStatus } from "../model/vault";
+import type { EntryKind, NoteText, Unsaved, VaultEntry, VaultStatus, Version } from "../model/vault";
 
 export function vaultStatus() {
   return invoke<VaultStatus>("vault_status");
@@ -42,9 +42,30 @@ export function vaultForgetUnsaved(path: string) {
   return invoke<null>("vault_forget_unsaved", { path });
 }
 
-// В системную корзину, откуда файл или папку можно вернуть.
+// В системную корзину, откуда файл или папку можно вернуть. Заметки внутри
+// Rust перед этим снимает в историю версий.
 export function vaultTrash(path: string) {
   return invoke<null>("vault_trash", { path });
+}
+
+// Версии заметки, свежие первыми.
+export function vaultVersions(path: string) {
+  return invoke<Version[]>("vault_versions", { path });
+}
+
+export function vaultVersion(path: string, id: number) {
+  return invoke<string>("vault_version", { path, id });
+}
+
+// Текущий текст Rust перед этим снимает версией, удалённую заметку создаёт
+// заново.
+export function vaultRestore(path: string, id: number) {
+  return invoke<null>("vault_restore", { path, id });
+}
+
+// Удалённые заметки, у которых остались версии.
+export function vaultDeleted() {
+  return invoke<string[]>("vault_deleted");
 }
 
 // Тексты всех заметок разом. Непрочитанные Rust пропускает.
