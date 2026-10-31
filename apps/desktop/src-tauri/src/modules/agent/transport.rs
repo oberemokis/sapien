@@ -1,4 +1,4 @@
-use super::domain::{Context, Entry, Event};
+use super::domain::{Context, Entry, Event, MeetingTask};
 use super::infrastructure::anthropic::Anthropic;
 use super::infrastructure::chat_file::ChatFile;
 use super::infrastructure::neighbours::{VaultNotes, YoutrackIssues};
@@ -116,6 +116,28 @@ pub async fn agent_send(
             // Окно закрыли посреди ответа: ответ всё равно дойдёт до истории.
             let _ = on_event.send(event);
         },
+    )
+    .await
+}
+
+/// «Задачи из встречи» по заметке `path`. Ключ берётся в Rust, как у чата,
+/// а чат при этом свободен: ответ не идёт в его историю.
+#[tauri::command]
+pub async fn agent_meeting_tasks(
+    app: AppHandle,
+    model_api: State<'_, Anthropic>,
+    secrets: State<'_, Secrets>,
+    model: String,
+    path: String,
+    today: String,
+) -> Result<Vec<MeetingTask>, AppError> {
+    use_case::meeting(
+        &*model_api,
+        &VaultNotes(app),
+        &secrets,
+        &model,
+        &path,
+        &today,
     )
     .await
 }

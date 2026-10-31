@@ -1,5 +1,6 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import type { ChatContext, ChatEntry, ChatEvent } from "../model/chat";
+import type { MeetingTask } from "../model/meeting";
 
 export function agentHistory() {
   return invoke<ChatEntry[]>("agent_history");
@@ -21,4 +22,10 @@ export function agentClear() {
 
 export function agentUndo(turn: number) {
   return invoke<null>("agent_undo", { turn });
+}
+
+// Rust сам читает заметку со встречи и спрашивает модель. today нужен,
+// чтобы посчитать срок «к пятнице».
+export function agentMeetingTasks(model: string, path: string, today: string) {
+  return invoke<MeetingTask[]>("agent_meeting_tasks", { model, path, today });
 }

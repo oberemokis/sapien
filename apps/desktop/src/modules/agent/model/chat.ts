@@ -88,6 +88,8 @@ const PROBLEMS = [
   "agent_too_long",
   "agent_too_many_steps",
   "agent_busy",
+  "agent_bad_answer",
+  "note_closed",
   "chat_unreadable",
   "chat_unwritable",
 ] as const;
