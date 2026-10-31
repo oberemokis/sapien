@@ -1,3 +1,4 @@
+import AiChat02Icon from "@hugeicons/core-free-icons/AiChat02Icon";
 import Folder01Icon from "@hugeicons/core-free-icons/Folder01Icon";
 import PaintBoardIcon from "@hugeicons/core-free-icons/PaintBoardIcon";
 
@@ -9,6 +10,7 @@ export const SETTINGS_GROUPS = [
     sections: [
       { to: "/settings/appearance", label: "appearance.title", icon: PaintBoardIcon },
       { to: "/settings/vault", label: "vault.settings.title", icon: Folder01Icon },
+      { to: "/settings/agent", label: "agent.settings.title", icon: AiChat02Icon },
     ],
   },
 ] as const;

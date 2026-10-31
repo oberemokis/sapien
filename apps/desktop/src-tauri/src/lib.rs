@@ -4,6 +4,7 @@ mod links;
 #[cfg(target_os = "macos")]
 mod menu;
 mod modules;
+mod secrets;
 
 use modules::vault;
 
@@ -26,6 +27,7 @@ pub fn run() {
         )
         .manage(vault::Watch::default())
         .manage(vault::Opened::default())
+        .manage(secrets::Secrets::default())
         .setup(|app| {
             links::main_window(app)?;
             vault::start(app.handle());
@@ -33,6 +35,9 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             links::open_link,
+            secrets::secret_status,
+            secrets::secret_set,
+            secrets::secret_delete,
             vault::transport::vault_opened,
             vault::transport::vault_status,
             vault::transport::vault_tree,
