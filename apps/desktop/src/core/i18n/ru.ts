@@ -11,6 +11,12 @@ export const ru = {
   files: {
     empty: "Файлов пока нет",
   },
+  tabs: {
+    list: "Открытые файлы",
+    new: "Новый файл",
+    close: "Закрыть «{{title}}»",
+    missing: "Файла больше нет на диске",
+  },
   vault: {
     choose: "Выбрать папку",
     retry: "Повторить",

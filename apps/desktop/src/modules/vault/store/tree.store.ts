@@ -9,13 +9,26 @@ export type TreeState = {
   // отличает новое поле от прежнего в той же папке: ответ на прежнее
   // не должен закрыть новое.
   draft: { id: number; parent: string; kind: EntryKind } | null;
-  // Заметка в редакторе. Выделение папки её не закрывает. Только что
-  // созданную открывают с курсором в тексте.
-  open: { path: string; focus: boolean } | null;
+  // Вкладки с открытыми заметками по пути файла и активная из них.
+  // Выделение папки в дереве их не трогает.
+  tabs: string[];
+  active: string | null;
+  // Просьба поставить курсор в текст заметки: только что созданной или
+  // открытой поиском. Номер растёт с каждой просьбой, и редактор, уже
+  // открытый во вкладке, узнаёт о новой.
+  focus: { path: string; request: number } | null;
   // Недавно открытые заметки, свежие первыми: их показывает пустой поиск.
   recent: string[];
 };
 
-export const EMPTY_TREE: TreeState = { selected: null, expanded: [], draft: null, open: null, recent: [] };
+export const EMPTY_TREE: TreeState = {
+  selected: null,
+  expanded: [],
+  draft: null,
+  tabs: [],
+  active: null,
+  focus: null,
+  recent: [],
+};
 
 export const treeStore = createStore<TreeState>(EMPTY_TREE);

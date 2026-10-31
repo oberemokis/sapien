@@ -3,17 +3,17 @@ import { RouterProvider, createRouter } from "@tanstack/react-router";
 import "@/core/i18n/i18n";
 import { restoreTheme, useThemeSync } from "@/modules/appearance";
 import { restoreLayout } from "@/modules/layout";
-import { restoreRecent } from "@/modules/vault";
+import { restoreSession } from "@/modules/vault";
 import { routeTree } from "@/route-tree.gen";
 
 const queryClient = new QueryClient();
 const router = createRouter({ routeTree });
 
-// Тема и раскладка до первой отрисовки, иначе окно мигнёт чужой темой
-// и панели прыгнут из значений по умолчанию в сохранённые.
+// Тема, раскладка и вкладки до первой отрисовки, иначе окно мигнёт чужой
+// темой, а панели и вкладки прыгнут из пустых значений в сохранённые.
 restoreTheme();
 restoreLayout();
-restoreRecent();
+restoreSession();
 
 // Без регистрации Link и navigate не знают дерева и принимают любую строку.
 declare module "@tanstack/react-router" {

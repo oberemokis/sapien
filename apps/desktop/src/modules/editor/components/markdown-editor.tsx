@@ -13,19 +13,20 @@ type Props = {
   value: string;
   onChange: (text: string) => void;
   readOnly?: boolean;
-  focusOnMount?: boolean;
+  // Каждый новый номер больше нуля ставит курсор в текст.
+  focusRequest?: number;
   label: string;
 };
 
 // Исходный текст markdown с подсветкой разметки, GFM: таблицы, чекбоксы,
 // зачёркивание. Редактор живёт, пока открыт один файл: страница меняет его
 // ключом при смене файла, а value дальше приходит только как правка снаружи.
-export function MarkdownEditor({ value, onChange, readOnly = false, focusOnMount = false, label }: Props) {
+export function MarkdownEditor({ value, onChange, readOnly = false, focusRequest = 0, label }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const onChangeRef = useRef(onChange);
   const editableRef = useRef(new Compartment());
-  const initialRef = useRef({ value, readOnly, focusOnMount, label });
+  const initialRef = useRef({ value, readOnly, label });
 
   useEffect(() => {
     onChangeRef.current = onChange;
@@ -58,12 +59,14 @@ export function MarkdownEditor({ value, onChange, readOnly = false, focusOnMount
 
     viewRef.current = view;
 
-    if (initial.focusOnMount) {
-      view.focus();
-    }
-
     return () => view.destroy();
   }, []);
+
+  useEffect(() => {
+    if (focusRequest > 0) {
+      viewRef.current?.focus();
+    }
+  }, [focusRequest]);
 
   // Файл поменяли снаружи. Правка не попадает в историю: Cmd+Z отменяет
   // только своё.

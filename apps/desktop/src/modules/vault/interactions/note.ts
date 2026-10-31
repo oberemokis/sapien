@@ -110,13 +110,14 @@ export function useNote(path: string) {
     [queryClient, path],
   );
 
-  const retry = useCallback(() => void saveNote(queryClient, path), [queryClient, path]);
+  // Пишет правку сейчас: повтор после ошибки, уход на другую вкладку.
+  const save = useCallback(() => void saveNote(queryClient, path), [queryClient, path]);
   const readError = errorCodeOf(disk.error);
 
   return {
     text: unsaved ?? disk.data,
     change,
-    retry,
+    save,
     // Файл пропал: показывается последний известный текст.
     missing: readError === "note_missing" || failed === "note_missing",
     unreadable: disk.isError && readError !== "note_missing",

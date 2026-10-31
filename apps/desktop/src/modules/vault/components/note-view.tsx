@@ -1,11 +1,11 @@
 import Note01Icon from "@hugeicons/core-free-icons/Note01Icon";
-import { Fragment, type ComponentType, type ReactNode } from "react";
+import { Fragment, useEffect, type ComponentType, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/core/ui/button";
 import { Icon } from "@/core/ui/icon";
 import { useNote } from "../interactions/note";
 import { openSearch } from "../interactions/search";
-import { startCreate, useTreeState } from "../interactions/tree";
+import { focusDone, startCreate, useTreeState } from "../interactions/tree";
 import { notePlace, type EditorProps } from "../model/vault";
 
 type Props = {
@@ -49,13 +49,35 @@ function NoNote({ showFiles }: Pick<Props, "showFiles">) {
   );
 }
 
-function OpenNote({ path, focus, editor: Editor }: { path: string; focus: boolean; editor: Props["editor"] }) {
+type OpenNoteProps = { path: string; hidden: boolean; focusRequest: number; editor: Props["editor"] };
+
+function OpenNote({ path, hidden, focusRequest, editor: Editor }: OpenNoteProps) {
   const { t } = useTranslation();
   const note = useNote(path);
   const { title, folders } = notePlace(path);
+  const { save } = note;
+
+  // Ушли на другую вкладку посреди правки: она пишется сразу, не дожидаясь
+  // паузы в наборе.
+  useEffect(() => {
+    if (hidden) {
+      save();
+    }
+  }, [hidden, save]);
+
+  // Редактор появляется, когда пришёл текст, и в этот же проход забирает
+  // курсор. После этого просьба снимается: заметка, открытая заново,
+  // не заберёт курсор у того, кто держит его сейчас.
+  const loaded = note.text !== undefined;
+
+  useEffect(() => {
+    if (focusRequest > 0 && loaded) {
+      focusDone(path);
+    }
+  }, [focusRequest, loaded, path]);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div hidden={hidden} className="flex min-h-0 flex-1 flex-col">
       <nav aria-label={t("editor.path")} className="flex h-10 shrink-0 items-center gap-1.5 px-4 text-[13px]">
         {folders.map((folder, index) => (
           <Fragment key={folders.slice(0, index + 1).join("/")}>
@@ -70,7 +92,7 @@ function OpenNote({ path, focus, editor: Editor }: { path: string; focus: boolea
       {note.saveFailed && !note.missing && (
         <Notice
           action={
-            <button type="button" className="shrink-0 underline underline-offset-2" onClick={note.retry}>
+            <button type="button" className="shrink-0 underline underline-offset-2" onClick={save}>
               {t("editor.retry")}
             </button>
           }
@@ -79,20 +101,39 @@ function OpenNote({ path, focus, editor: Editor }: { path: string; focus: boolea
         </Notice>
       )}
       {note.text !== undefined && (
-        <Editor value={note.text} onChange={note.change} readOnly={note.missing} focusOnMount={focus} label={title} />
+        <Editor
+          value={note.text}
+          onChange={note.change}
+          readOnly={note.missing}
+          focusRequest={focusRequest}
+          label={title}
+        />
       )}
     </div>
   );
 }
 
-// Середина окна: открытая заметка или пустой экран.
+// Середина окна: открытые заметки или пустой экран. Заметки всех вкладок
+// живут, на экране только активная: у каждой своя история правок
+// и прокрутка, и они переживают переключение вкладок.
 export function NoteView({ editor, showFiles }: Props) {
-  const { open } = useTreeState();
+  const { tabs, active, focus } = useTreeState();
 
-  if (open === null) {
+  if (active === null) {
     return <NoNote showFiles={showFiles} />;
   }
 
-  // Ключ по пути: у каждого файла свой редактор со своей историей правок.
-  return <OpenNote key={open.path} path={open.path} focus={open.focus} editor={editor} />;
+  return (
+    <>
+      {tabs.map((path) => (
+        <OpenNote
+          key={path}
+          path={path}
+          hidden={path !== active}
+          focusRequest={focus?.path === path ? focus.request : 0}
+          editor={editor}
+        />
+      ))}
+    </>
+  );
 }
