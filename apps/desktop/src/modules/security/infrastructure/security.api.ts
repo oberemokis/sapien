@@ -9,3 +9,9 @@ export function securityStatus() {
 export function securityReset() {
   return invoke<DataState>("security_reset");
 }
+
+// Touch ID, Windows Hello или пароль учётной записи системы. Отвечает,
+// когда человек прошёл проверку или закрыл её.
+export function appUnlock() {
+  return invoke<null>("app_unlock");
+}

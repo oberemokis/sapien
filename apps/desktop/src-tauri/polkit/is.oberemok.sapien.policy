@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC
+ "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<!-- Разблокировка окна sapien паролем учётной записи (src/unlock.rs).
+     auth_self без _keep: пароль спрашивается при каждой разблокировке. -->
+<policyconfig>
+  <vendor>sapien</vendor>
+  <action id="is.oberemok.sapien.unlock">
+    <description>Unlock sapien</description>
+    <description xml:lang="ru">Разблокировать sapien</description>
+    <message>Enter your password to unlock sapien</message>
+    <message xml:lang="ru">Введите пароль, чтобы разблокировать sapien</message>
+    <defaults>
+      <allow_any>auth_self</allow_any>
+      <allow_inactive>auth_self</allow_inactive>
+      <allow_active>auth_self</allow_active>
+    </defaults>
+  </action>
+</policyconfig>

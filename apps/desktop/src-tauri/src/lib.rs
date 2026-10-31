@@ -9,6 +9,7 @@ mod modules;
 mod sealed;
 mod secrets;
 mod security;
+mod unlock;
 mod updates;
 mod window_store;
 
@@ -76,6 +77,7 @@ pub fn run() {
             updates::app_update_install,
             security::security_status,
             security::security_reset,
+            unlock::app_unlock,
             window_store::window_store_read,
             window_store::window_store_write,
             secrets::secret_status,

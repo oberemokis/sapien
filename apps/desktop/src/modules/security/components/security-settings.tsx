@@ -2,6 +2,7 @@ import { useTranslation } from "react-i18next";
 import { SettingsGroup, SettingsRow, SettingsSection } from "@/core/ui/settings";
 import { useSecurityStatus } from "../interactions/security";
 import { diskState } from "../model/security";
+import { LockSettings } from "./lock-settings";
 
 const BADGE = "rounded-md border border-stroke px-2 py-1 text-[13px]";
 
@@ -41,6 +42,7 @@ export function SecuritySettings() {
           <span className={disk === "on" ? BADGE : `${BADGE} text-diff-del-fg`}>{t(`security.disk.badge.${disk}`)}</span>
         </SettingsRow>
       </SettingsGroup>
+      <LockSettings system={status.system} />
     </SettingsSection>
   );
 }

@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/core/ui/button";
+import { useLocked } from "../interactions/lock";
 import { useResetData, useSecurityStatus } from "../interactions/security";
 import { isUnreadable, type DataState } from "../model/security";
 
@@ -46,8 +47,11 @@ function UnreadableDialog({ state }: { state: DataState }) {
 // предлагает начать с чистыми данными приложения. Заметки это не трогает.
 export function DataKeyNotice() {
   const status = useSecurityStatus();
+  const locked = useLocked();
 
-  if (status === undefined || !isUnreadable(status.data)) {
+  // Модальное окно, открытое позже заглушки блокировки, встало бы поверх
+  // неё, поэтому оно ждёт разблокировки.
+  if (locked || status === undefined || !isUnreadable(status.data)) {
     return null;
   }
 

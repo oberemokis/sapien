@@ -5,8 +5,9 @@ import { Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Icon } from "@/core/ui/icon";
 import { AppearanceSettings } from "@/modules/appearance";
+import { LockSettings } from "@/modules/security";
 
-// Настройки телефона. Разделов пока один, поэтому они идут одним списком
+// Настройки телефона. Разделов мало, поэтому они идут одним списком
 // на экране, а не отдельными экранами, как на окне.
 export default function Settings() {
   const { t } = useTranslation();
@@ -40,6 +41,7 @@ export default function Settings() {
       </View>
       <ScrollView contentContainerClassName="gap-8 p-4" contentContainerStyle={{ paddingBottom: insets.bottom + 16 }}>
         <AppearanceSettings />
+        <LockSettings />
       </ScrollView>
     </View>
   );
