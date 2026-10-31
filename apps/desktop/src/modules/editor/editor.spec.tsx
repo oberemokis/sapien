@@ -2,9 +2,11 @@ import { currentCompletions } from "@codemirror/autocomplete";
 import { ensureSyntaxTree } from "@codemirror/language";
 import { EditorView } from "@codemirror/view";
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { MarkdownEditor } from "@/modules/editor";
 import type { IssueMention, IssueMentions } from "./components/issues";
+import { setEditorMode } from "./interactions/editor-mode";
+import { editorModeStore } from "./store/editor-mode.store";
 
 function view() {
   const content = screen.getByRole("textbox", { name: "план" });
@@ -99,7 +101,9 @@ describe("редактор markdown", () => {
 
     fireEvent.mouseDown(await piece("жми"), mod);
 
-    expect(container.querySelector("script, img, iframe")).toBeNull();
+    // cm-widgetBuffer это пустая картинка самого CodeMirror рядом со
+    // спрятанной разметкой, из заметки она не берётся.
+    expect(container.querySelector("script, img:not(.cm-widgetBuffer), iframe")).toBeNull();
     expect(view().state.doc.line(3).text).toBe('<img src=x onerror="window.hacked = 2">');
     expect("hacked" in window).toBe(false);
     // Адрес уходит наружу как есть: в браузер его не пустит Rust.
@@ -227,6 +231,129 @@ describe("редактор markdown", () => {
     typeWithCursor(view().state.doc.line(3).to, " #р");
     await new Promise((resolve) => setTimeout(resolve, 200));
     expect(currentCompletions(view().state)).toEqual([]);
+  });
+});
+
+// Строки редактора так, как их видит человек: спрятанная разметка
+// в текст строки не попадает, точка списка попадает.
+function lines() {
+  return [...document.querySelectorAll(".cm-line")].map((line) => line.textContent);
+}
+
+function moveCursor(anchor: number) {
+  act(() => {
+    view().dispatch({ selection: { anchor } });
+  });
+}
+
+describe("Live Preview", () => {
+  afterEach(() => {
+    editorModeStore.setState(() => "preview");
+  });
+
+  const note = [
+    "# Заголовок",
+    "**жирный**, _курсив_, ~~старое~~ и `код`",
+    "[ссылка](https://tauri.app) и [[Планы|подпись]] и [[Встречи]]",
+    "> цитата",
+    "- пункт",
+    "конец",
+  ].join("\n");
+
+  it("прячет разметку вне строки с курсором и показывает на строке с курсором", async () => {
+    render(<MarkdownEditor value={note} onChange={vi.fn()} label="план" />);
+
+    await vi.waitFor(() =>
+      expect(lines()).toEqual([
+        "# Заголовок",
+        "жирный, курсив, старое и код",
+        "ссылка и подпись и Встречи",
+        "цитата",
+        "• пункт",
+        "конец",
+      ]),
+    );
+
+    moveCursor(view().state.doc.line(2).from);
+
+    expect(lines().slice(0, 3)).toEqual([
+      "Заголовок",
+      "**жирный**, _курсив_, ~~старое~~ и `код`",
+      "ссылка и подпись и Встречи",
+    ]);
+    // Текст файла не меняется, меняется только вид.
+    expect(view().state.doc.toString()).toBe(note);
+  });
+
+  it("⌘клик по спрятанной ссылке всё ещё отдаёт адрес", async () => {
+    const onLinkClick = vi.fn();
+    render(<MarkdownEditor value={note} onChange={vi.fn()} label="план" onLinkClick={onLinkClick} />);
+
+    fireEvent.mouseDown(await piece("ссылка"), mod);
+
+    expect(onLinkClick).toHaveBeenCalledWith("https://tauri.app");
+  });
+
+  it("флажок задачи отмечается щелчком и пишет в текст, курсор не двигается", async () => {
+    const onChange = vi.fn();
+    render(<MarkdownEditor value={"- [ ] купить\n- [x] готово\nконец"} onChange={onChange} label="план" />);
+    moveCursor(view().state.doc.length);
+
+    const boxes = await vi.waitFor(() => {
+      const found = screen.getAllByRole("checkbox", { name: "Задача выполнена" });
+
+      expect(found).toHaveLength(2);
+
+      return found;
+    });
+
+    expect(boxes.map((box) => (box as HTMLInputElement).checked)).toEqual([false, true]);
+    expect(lines()).toEqual([" купить", " готово", "конец"]);
+
+    fireEvent.mouseDown(boxes[0] as Element);
+    expect(onChange).toHaveBeenLastCalledWith("- [x] купить\n- [x] готово\nконец");
+
+    fireEvent.mouseDown(screen.getAllByRole("checkbox", { name: "Задача выполнена" })[1] as Element);
+    expect(onChange).toHaveBeenLastCalledWith("- [x] купить\n- [ ] готово\nконец");
+    expect(view().state.selection.main.head).toBe(view().state.doc.length);
+  });
+
+  it("в пропавшем файле флажок не нажимается", async () => {
+    const onChange = vi.fn();
+    render(<MarkdownEditor value={"конец\n- [ ] купить"} onChange={onChange} label="план" readOnly />);
+
+    const box = await screen.findByRole("checkbox", { name: "Задача выполнена" });
+    fireEvent.mouseDown(box);
+
+    expect((box as HTMLInputElement).disabled).toBe(true);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("код, картинки и таблицы остаются исходным текстом", async () => {
+    render(
+      <MarkdownEditor
+        value={"начало\n\n```\n**не жирный** [[не ссылка]]\n```\n\n![схема](x.png)\n\n| а | б |\n| - | - |\n| 1 | 2 |"}
+        onChange={vi.fn()}
+        label="план"
+      />,
+    );
+
+    await vi.waitFor(() => expect(lines()).toContain("**не жирный** [[не ссылка]]"));
+    expect(lines()).toContain("![схема](x.png)");
+    expect(lines()).toContain("| а | б |");
+  });
+
+  it("исходный текст во «Внешнем виде» показывает разметку везде, переключение без нового редактора", async () => {
+    setEditorMode("source");
+    render(<MarkdownEditor value={note} onChange={vi.fn()} label="план" />);
+    const before = view();
+
+    expect(lines()).toEqual(note.split("\n"));
+
+    act(() => setEditorMode("preview"));
+
+    await vi.waitFor(() => expect(lines()[1]).toBe("жирный, курсив, старое и код"));
+    expect(view()).toBe(before);
   });
 });
 

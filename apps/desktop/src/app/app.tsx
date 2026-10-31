@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider, createRouter } from "@tanstack/react-router";
 import "@/core/i18n/i18n";
 import { restoreTheme, useThemeSync } from "@/modules/appearance";
+import { restoreEditorMode } from "@/modules/editor";
 import { restoreLayout } from "@/modules/layout";
 import { restoreLock } from "@/modules/security";
 import { restoreSession } from "@/modules/vault";
@@ -18,6 +19,7 @@ const router = createRouter({ routeTree });
 export function restoreDevice() {
   restoreLock();
   restoreTheme();
+  restoreEditorMode();
   restoreLayout();
   restoreSession();
   restoreDefaultProject();
