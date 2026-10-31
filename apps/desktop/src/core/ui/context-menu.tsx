@@ -1,9 +1,22 @@
+import Tick02Icon from "@hugeicons/core-free-icons/Tick02Icon";
 import { Fragment, useEffect, useLayoutEffect, useRef, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
+import { Icon } from "./icon";
 
 // Недоступный пункт виден серым с пометкой справа, почему. separated
-// отделяет пункт и следующие за ним чертой сверху.
-export type MenuItem = { label: string; onSelect: () => void; disabled?: boolean; hint?: string; separated?: boolean };
+// отделяет пункт и следующие за ним чертой сверху, heading подписывает
+// группу над пунктом. checked делает пункт выбором из нескольких с галочкой.
+// id нужен, когда подписи пунктов повторяются в разных группах.
+export type MenuItem = {
+  label: string;
+  onSelect: () => void;
+  disabled?: boolean;
+  hint?: string;
+  separated?: boolean;
+  heading?: string;
+  checked?: boolean;
+  id?: string;
+};
 
 type Props = {
   // Точка, где нажали правую кнопку, в координатах окна.
@@ -11,14 +24,21 @@ type Props = {
   y: number;
   items: MenuItem[];
   onClose: () => void;
+  // Меню встаёт над точкой, а не под ней: так открывается меню у поля ввода
+  // внизу панели.
+  above?: boolean;
+  // Нажатие на этот элемент меню не закрывает: его кнопка закрывает сама.
+  anchor?: HTMLElement | null;
 };
 
 // Отступ меню от края окна, когда у точки нажатия ему не хватает места.
 const EDGE = 4;
 
+const ITEM = '[role="menuitem"]:not(:disabled), [role="menuitemradio"]:not(:disabled)';
+
 // Стрелки ходят по кругу: вниз с последнего пункта на первый.
 function moveFocus(menu: HTMLElement, step: number) {
-  const items = [...menu.querySelectorAll<HTMLElement>('[role="menuitem"]:not(:disabled)')];
+  const items = [...menu.querySelectorAll<HTMLElement>(ITEM)];
   const index = items.findIndex((item) => item === document.activeElement);
 
   items.at((index + step) % items.length)?.focus();
@@ -26,7 +46,7 @@ function moveFocus(menu: HTMLElement, step: number) {
 
 // Своё меню вместо системного: одно и то же в окне, в браузере и в тестах.
 // Висит поверх всего у точки нажатия и уходит от нажатия мимо, Escape и Tab.
-export function ContextMenu({ x, y, items, onClose }: Props) {
+export function ContextMenu({ x, y, items, onClose, above = false, anchor = null }: Props) {
   const menuRef = useRef<HTMLDivElement>(null);
 
   // Меню у правого или нижнего края сдвигается внутрь окна. Размер известен
@@ -39,14 +59,22 @@ export function ContextMenu({ x, y, items, onClose }: Props) {
     }
 
     const { width, height } = menu.getBoundingClientRect();
+    let top = y;
+
+    if (above) {
+      top = y - height;
+    }
+
     menu.style.left = `${Math.max(EDGE, Math.min(x, window.innerWidth - width - EDGE))}px`;
-    menu.style.top = `${Math.max(EDGE, Math.min(y, window.innerHeight - height - EDGE))}px`;
-    menu.querySelector<HTMLElement>('[role="menuitem"]:not(:disabled)')?.focus();
-  }, [x, y]);
+    menu.style.top = `${Math.max(EDGE, Math.min(top, window.innerHeight - height - EDGE))}px`;
+    menu.querySelector<HTMLElement>(ITEM)?.focus();
+  }, [x, y, above]);
 
   useEffect(() => {
     function onPointerDown(event: PointerEvent) {
-      if (!(event.target instanceof Node && menuRef.current?.contains(event.target))) {
+      const inside = (node: Element | null) => event.target instanceof Node && node?.contains(event.target) === true;
+
+      if (!inside(menuRef.current) && !inside(anchor)) {
         onClose();
       }
     }
@@ -70,7 +98,7 @@ export function ContextMenu({ x, y, items, onClose }: Props) {
       document.removeEventListener("keydown", onEscape, true);
       window.removeEventListener("blur", onClose);
     };
-  }, [onClose]);
+  }, [onClose, anchor]);
 
   function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
@@ -95,11 +123,17 @@ export function ContextMenu({ x, y, items, onClose }: Props) {
       onContextMenu={(event) => event.preventDefault()}
     >
       {items.map((item) => (
-        <Fragment key={item.label}>
+        <Fragment key={item.id ?? item.label}>
           {item.separated === true && <hr className="mx-2 my-1 border-hairline" />}
+          {item.heading !== undefined && (
+            <p role="presentation" className="px-2 pt-1 pb-0.5 text-[11px] text-content/40">
+              {item.heading}
+            </p>
+          )}
           <button
             type="button"
-            role="menuitem"
+            role={item.checked === undefined ? "menuitem" : "menuitemradio"}
+            aria-checked={item.checked}
             disabled={item.disabled}
             className="flex h-7 w-full items-center gap-4 rounded-md px-2 text-left text-[13px] outline-none transition-colors duration-120 hover:bg-selection-hover focus-visible:bg-selection-hover disabled:text-content/40 disabled:hover:bg-transparent"
             onClick={() => {
@@ -109,6 +143,11 @@ export function ContextMenu({ x, y, items, onClose }: Props) {
           >
             <span className="flex-1 truncate">{item.label}</span>
             {item.hint !== undefined && <span className="text-[12px] text-content/40">{item.hint}</span>}
+            {item.checked !== undefined && (
+              <span className="grid size-3.5 shrink-0 place-items-center">
+                {item.checked && <Icon icon={Tick02Icon} size={14} />}
+              </span>
+            )}
           </button>
         </Fragment>
       ))}

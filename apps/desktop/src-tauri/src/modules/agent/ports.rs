@@ -1,4 +1,4 @@
-use super::domain::{Answer, Change, Chat, ClaudeStatus, ModelError, Question};
+use super::domain::{Answer, Chat, ClaudeStatus, ModelError, Question, Stamp};
 use crate::error::AppError;
 use serde_json::Value;
 
@@ -12,6 +12,9 @@ pub trait Human {
 /// Claude Code на устройстве со входом пользователя, отгороженный от его
 /// настроек, инструментов и памяти.
 pub trait Claude {
+    /// Идущий ответ в сессии.
+    type Talk: Conversation;
+
     fn status(&self) -> impl Future<Output = ClaudeStatus> + Send;
     /// Один запрос без инструментов и без сохранённой сессии. Ответ JSON
     /// по схеме `schema`.
@@ -22,6 +25,51 @@ pub trait Claude {
         schema: &Value,
         message: &str,
     ) -> impl Future<Output = Result<Value, AppError>> + Send;
+    /// Запускает ответ на сообщение в сессии Claude Code с инструментами
+    /// sapien. Ответ идёт событиями `Conversation`.
+    fn converse(&self, run: &Run<'_>) -> impl Future<Output = Result<Self::Talk, AppError>> + Send;
+    /// Каким сейчас лежит файл сессии `id`. Нет файла, значит, `None`.
+    fn stamp(&self, id: &str) -> Option<Stamp>;
+}
+
+/// Один ответ в сессии Claude Code.
+pub struct Run<'a> {
+    pub model: &'a str,
+    pub system: &'a str,
+    /// Сообщение человека.
+    pub prompt: &'a str,
+    /// Сессия, которую продолжить. Без неё Claude Code начинает новую.
+    pub resume: Option<&'a str>,
+    /// Продолжить в копии сессии: её меняли снаружи.
+    pub fork: bool,
+}
+
+/// Что пришло от идущего ответа Claude Code.
+#[derive(Debug, PartialEq)]
+pub enum Incoming {
+    /// Событие его потока `stream-json`.
+    Line(Value),
+    /// Вызов инструмента sapien. `id` это номер запроса JSON-RPC.
+    Call {
+        id: Value,
+        name: String,
+        input: Value,
+    },
+}
+
+/// Идущий ответ Claude Code.
+pub trait Conversation: Send {
+    /// Следующее событие. `None`: процесс кончился, поток дочитан.
+    fn next(&mut self) -> impl Future<Output = Option<Incoming>> + Send;
+    fn reply(
+        &mut self,
+        id: Value,
+        result: Result<String, String>,
+    ) -> impl Future<Output = ()> + Send;
+    /// «Стоп»: прерывает процесс, а не вышел он сам, снимает его.
+    fn interrupt(&mut self);
+    /// Что Claude Code написал в stderr: по нему понятен отказ без `result`.
+    fn errors(&self) -> &str;
 }
 
 /// Messages API провайдера модели.
@@ -66,10 +114,10 @@ pub trait Tracker {
     ) -> impl Future<Output = Result<String, AppError>> + Send;
 }
 
-/// Где лежит история чата хранилища: сообщения в формате Messages API
-/// и что поменял каждый ответ.
-pub trait ChatStore {
+/// Где лежит история чата хранилища: сообщения в формате Messages API,
+/// что поменял каждый ответ и сессия Claude Code.
+pub trait ChatStore: Sync {
     fn load(&self) -> Result<Chat, AppError>;
-    fn save(&self, messages: &[Value], changes: &[Change]) -> Result<(), AppError>;
+    fn save(&self, chat: &Chat) -> Result<(), AppError>;
     fn clear(&self) -> Result<(), AppError>;
 }

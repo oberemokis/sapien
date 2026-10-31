@@ -17,14 +17,18 @@ use tauri::{AppHandle, Manager, Runtime, State};
 use tokio::sync::{Notify, oneshot, watch};
 use tokio::time::timeout;
 
-fn chat<R: Runtime>(app: &AppHandle<R>) -> Result<ChatFile, AppError> {
+/// История чата способа `method`: у подписки и ключа API она своя.
+fn chat<R: Runtime>(app: &AppHandle<R>, method: Method) -> Result<ChatFile, AppError> {
     let data = app
         .path()
         .app_data_dir()
         .map_err(|_| AppError::unavailable("data_dir_unavailable"))?;
     let vault = vault::transport::vault_root(app).unwrap_or_default();
 
-    Ok(ChatFile::new(&data, &vault))
+    Ok(match method {
+        Method::Key => ChatFile::new(&data, &vault),
+        Method::Subscription => ChatFile::claude(&data, &vault),
+    })
 }
 
 /// Подписка Claude через Claude Code пока только на macOS.
@@ -182,17 +186,22 @@ impl Drop for Busy<'_> {
 }
 
 #[tauri::command]
-pub fn agent_history(app: AppHandle) -> Result<Vec<Entry>, AppError> {
-    use_case::history(&chat(&app)?)
+pub fn agent_history(app: AppHandle, method: Method) -> Result<Vec<Entry>, AppError> {
+    use_case::history(&chat(&app, method)?)
 }
 
+/// «Очистить»: у подписки это и новая сессия Claude Code.
 #[tauri::command]
-pub fn agent_clear(app: AppHandle, running: State<'_, Running>) -> Result<(), AppError> {
+pub fn agent_clear(
+    app: AppHandle,
+    running: State<'_, Running>,
+    method: Method,
+) -> Result<(), AppError> {
     if running.slot().is_some() {
         return Err(AppError::conflict("agent_busy"));
     }
 
-    use_case::clear(&chat(&app)?)
+    use_case::clear(&chat(&app, method)?)
 }
 
 /// «Откатить» у ответа на сообщение `turn`, вместе с более поздними,
@@ -201,16 +210,21 @@ pub fn agent_clear(app: AppHandle, running: State<'_, Running>) -> Result<(), Ap
 pub fn agent_undo(
     app: AppHandle,
     running: State<'_, Running>,
+    pinned: State<'_, vault::Pinned>,
+    method: Method,
     turn: usize,
 ) -> Result<(), AppError> {
     let _busy = running.claim(Arc::new(Live::new(None)))?;
+    let _pin = pinned.pin();
 
-    use_case::undo(&chat(&app)?, &VaultNotes(app.clone()), turn)
+    use_case::undo(&chat(&app, method)?, &VaultNotes(app.clone()), turn)
 }
 
-/// Ключ берётся в Rust из системного хранилища паролей: окно его
-/// не присылает и не получает. Ответ идёт в окно через канал по мере
-/// появления, а команда кончается вместе с ответом.
+/// Ответ агента способом `method`. Ключ берётся в Rust из системного
+/// хранилища паролей, а подписку держит Claude Code: окно не присылает
+/// и не получает ни того, ни другого. Ответ идёт в окно через канал
+/// по мере появления, а команда кончается вместе с ответом. Пока он идёт,
+/// хранилище не меняется.
 #[tauri::command]
 #[expect(clippy::too_many_arguments, reason = "вход команды и состояния Tauri")]
 pub async fn agent_send(
@@ -218,15 +232,25 @@ pub async fn agent_send(
     model_api: State<'_, Anthropic>,
     secrets: State<'_, Secrets>,
     running: State<'_, Running>,
+    pinned: State<'_, vault::Pinned>,
+    method: Method,
     model: String,
     text: String,
     context: Context,
     oversight: Oversight,
     on_event: Channel<Event>,
 ) -> Result<(), AppError> {
-    let chat = chat(&app)?;
+    if method == Method::Subscription && !CLAUDE_SUPPORTED {
+        return Err(AppError::invalid("claude_unsupported"));
+    }
+
+    let chat = chat(&app, method)?;
     let live = Arc::new(Live::new(Some(sink(on_event))));
     let _busy = running.claim(live.clone())?;
+    let _pin = pinned.pin();
+    let notes = VaultNotes(app.clone());
+    let tracker = YoutrackIssues(app.clone());
+    let mut events = |event| live.emit(event);
     let turn = Turn {
         model: &model,
         text: &text,
@@ -234,18 +258,42 @@ pub async fn agent_send(
         oversight,
     };
 
-    use_case::send(
-        &*model_api,
-        &VaultNotes(app.clone()),
-        &YoutrackIssues(app.clone()),
-        &chat,
-        &secrets,
-        &*live,
-        &live.stop,
-        turn,
-        &mut |event| live.emit(event),
-    )
-    .await
+    match method {
+        Method::Key => {
+            use_case::send(
+                &*model_api,
+                &notes,
+                &tracker,
+                &chat,
+                &secrets,
+                &*live,
+                &live.stop,
+                turn,
+                &mut events,
+            )
+            .await
+        }
+        Method::Subscription => {
+            use_case::send_via_claude(
+                &claude(&app)?,
+                &notes,
+                &tracker,
+                &chat,
+                &*live,
+                &live.stop,
+                turn,
+                &mut events,
+            )
+            .await
+        }
+    }
+}
+
+/// Сессия Claude Code чата, чтобы продолжить разговор в терминале
+/// командой `claude --resume`. Разговора ещё не было, значит, `None`.
+#[tauri::command]
+pub fn agent_claude_session(app: AppHandle) -> Result<Option<String>, AppError> {
+    use_case::session(&chat(&app, Method::Subscription)?)
 }
 
 /// Окно открылось заново, например после перезагрузки: события идущего

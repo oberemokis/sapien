@@ -18,7 +18,7 @@ const MAX_TOKENS: u32 = 64_000;
 /// это уже не ответ, а цикл, который жжёт ключ человека.
 pub const MAX_STEPS: usize = 30;
 
-const SYSTEM: &str = "Ты помощник в приложении заметок sapien. Заметки лежат в хранилище: \
+pub const SYSTEM: &str = "Ты помощник в приложении заметок sapien. Заметки лежат в хранилище: \
 папка с файлами markdown, как в Obsidian. Путь заметки идёт от корня хранилища через «/» \
 и кончается на «.md», например «Проекты/план.md».
 
@@ -131,8 +131,42 @@ fn tools() -> Value {
     ])
 }
 
+/// Самый длинный ответ инструмента через Claude Code. Длиннее Claude Code
+/// унёс бы ответ в файл, а файлов Claude там не читает.
+const RESULT_LIMIT: usize = 500_000;
+
+/// Те же инструменты для сервера MCP, через который их зовёт Claude Code.
+pub fn mcp_tools() -> Value {
+    tools()
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|tool| {
+            json!({
+                "name": tool["name"],
+                "description": tool["description"],
+                "inputSchema": tool["input_schema"],
+                "_meta": { "anthropic/maxResultSizeChars": RESULT_LIMIT },
+            })
+        })
+        .collect()
+}
+
+/// Ответ инструмента для Claude Code, обрезанный до `RESULT_LIMIT` знаков.
+pub fn clip(text: String) -> String {
+    match text.char_indices().nth(RESULT_LIMIT - 100) {
+        Some((end, _)) => format!("{}\n…(ответ обрезан)", &text[..end]),
+        None => text,
+    }
+}
+
 /// Сколько агент ждёт ответа на вопрос.
 pub const ANSWER_WAIT: Duration = Duration::from_secs(600);
+
+/// Сколько Claude Code может молчать посреди ответа, прежде чем сторож
+/// снимет ход. Размышления и текст идут событиями, поэтому столько тишины
+/// это зависший процесс.
+pub const SILENCE: Duration = Duration::from_secs(600);
 
 /// Ответы инструментов, когда человек не ответил или не разрешил.
 pub const AWAY: &str =
@@ -214,8 +248,20 @@ pub fn permission_result(answer: Option<Answer>) -> Result<(), String> {
 /// Запрос к Messages API. Модели сами решают, сколько думать, а средний
 /// уровень усилий подходит работе с инструментами в несколько шагов.
 /// Запасная модель отвечает, когда основная отказала по политике; у Haiku
-/// её нет.
+/// её нет. Отметки истории (`notice`) модели не уходят.
 pub fn request(model: &str, messages: &[Value]) -> Value {
+    let messages: Vec<Value> = messages
+        .iter()
+        .map(|message| {
+            let mut message = message.clone();
+
+            if let Some(content) = message["content"].as_array_mut() {
+                content.retain(|block| block["type"] != "notice");
+            }
+
+            message
+        })
+        .collect();
     let mut body = json!({
         "model": model,
         "max_tokens": MAX_TOKENS,
@@ -387,15 +433,62 @@ pub fn user_blocks(text: &str, context: &Context) -> Vec<Value> {
 /// оборвался, или это результаты инструментов), блоки дописываются в него:
 /// так сообщения человека и модели чередуются.
 pub fn push_user(messages: &mut Vec<Value>, blocks: Vec<Value>) {
+    push(messages, "user", blocks);
+}
+
+/// Блоки ответа: Claude Code шлёт ответ сообщениями по одному блоку.
+pub fn push_assistant(messages: &mut Vec<Value>, blocks: Vec<Value>) {
+    push(messages, "assistant", blocks);
+}
+
+fn push(messages: &mut Vec<Value>, role: &str, blocks: Vec<Value>) {
     if let Some(last) = messages.last_mut()
-        && last["role"] == "user"
+        && last["role"] == role
         && let Some(content) = last["content"].as_array_mut()
     {
         content.extend(blocks);
         return;
     }
 
-    messages.push(json!({ "role": "user", "content": blocks }));
+    messages.push(json!({ "role": role, "content": blocks }));
+}
+
+/// Отметка в конце истории: ответ не вышел с кодом `code` (у лимита
+/// подписки `resets`, когда он сбросится, в секундах Unix) или Claude Code
+/// начал разговор заново. Встаёт в последнее сообщение, модели не уходит.
+pub fn notice(messages: &mut [Value], code: &str, resets: Option<u64>) {
+    if let Some(content) = messages
+        .last_mut()
+        .and_then(|last| last["content"].as_array_mut())
+    {
+        content.push(json!({ "type": "notice", "code": code, "resets": resets }));
+    }
+}
+
+/// Продолжение ответа, который оборвался после вызовов инструментов.
+const CONTINUE: &str = "Продолжай с того места, где остановился.";
+
+/// Что уходит Claude Code: последнее сообщение человека с его контекстом.
+/// История кончается результатами инструментов, значит, ответ оборвался,
+/// и Claude просят его продолжить.
+pub fn prompt(messages: &[Value]) -> String {
+    let blocks: Vec<&str> = messages
+        .last()
+        .and_then(|last| last["content"].as_array())
+        .into_iter()
+        .flatten()
+        .filter(|block| block["type"] == "text")
+        .filter_map(|block| block["text"].as_str())
+        .collect();
+    let Some(asked) = blocks.iter().rposition(|text| !text.starts_with(CONTEXT)) else {
+        return CONTINUE.to_owned();
+    };
+    let from = match asked.checked_sub(1) {
+        Some(before) if blocks[before].starts_with(CONTEXT) => before,
+        _ => asked,
+    };
+
+    blocks[from..=asked].join("\n\n")
 }
 
 /// Почему модель не ответила.
@@ -564,8 +657,11 @@ pub fn claude_failure(text: &str) -> AppError {
     let text = text.to_lowercase();
     let has = |markers: &[&str]| markers.iter().any(|marker| text.contains(marker));
 
-    // Запертая связка ключей тоже просит войти заново, поэтому она первая.
-    if has(&["keychain"]) {
+    // Запертая связка ключей тоже просит войти заново, поэтому она раньше
+    // входа. Пропавший разговор `--resume` сценарий начинает заново.
+    if has(&["no conversation found"]) {
+        AppError::not_found("claude_session_missing")
+    } else if has(&["keychain"]) {
         AppError::invalid("claude_keychain_locked")
     } else if has(&["hit your", "usage limit", "spend limit"]) {
         AppError::unavailable("claude_limit")
@@ -591,6 +687,104 @@ pub fn claude_failure(text: &str) -> AppError {
     } else {
         AppError::unavailable("claude_failed")
     }
+}
+
+/// Инструменты Claude Code, которые остаются и при `--tools ""`: конец
+/// разговора и поиск отложенных инструментов. Системы они не трогают.
+const HARMLESS: [&str; 2] = ["EndConversation", "ToolSearch"];
+
+/// Так Claude Code называет инструменты сервера sapien.
+const OURS: &str = "mcp__sapien__";
+
+/// Годится ли запуск Claude Code по его событию `system/init`: вход
+/// по подписке, сервер sapien подключён, других инструментов нет.
+pub fn claude_init_problem(init: &Value) -> Option<AppError> {
+    let connected = init["mcp_servers"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .any(|server| server["name"] == "sapien" && server["status"] == "connected");
+    let foreign = init["tools"].as_array().is_none_or(|tools| {
+        tools.iter().any(|tool| {
+            tool.as_str()
+                .is_none_or(|name| !name.starts_with(OURS) && !HARMLESS.contains(&name))
+        })
+    });
+
+    if init["apiKeySource"] != "none" {
+        Some(AppError::invalid("claude_not_subscription"))
+    } else if !connected {
+        Some(AppError::unavailable("claude_tools_missing"))
+    } else if foreign {
+        Some(AppError::invalid("claude_incompatible"))
+    } else {
+        None
+    }
+}
+
+/// Блоки сообщения Claude Code в том виде, в каком их держит история:
+/// текст, вызовы инструментов sapien под их короткими именами и результаты
+/// текстом. Размышления окно не показывает.
+pub fn claude_blocks(message: &Value) -> Vec<Value> {
+    message["content"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|block| match block["type"].as_str()? {
+            "text" if block["text"].as_str().is_some_and(|text| !text.is_empty()) => {
+                Some(json!({ "type": "text", "text": block["text"] }))
+            }
+            "tool_use" => Some(json!({
+                "type": "tool_use",
+                "id": block["id"],
+                "name": block["name"].as_str()?.strip_prefix(OURS)?,
+                "input": block["input"],
+            })),
+            "tool_result" => Some(json!({
+                "type": "tool_result",
+                "tool_use_id": block["tool_use_id"],
+                "content": result_text(&block["content"]),
+                "is_error": block["is_error"] == true,
+            })),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Результат инструмента приходит строкой или блоками текста.
+fn result_text(content: &Value) -> String {
+    if let Some(text) = content.as_str() {
+        return text.to_owned();
+    }
+
+    content
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|block| block["text"].as_str())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Чем кончился запуск Claude Code, по его строке `result`.
+pub fn claude_result(result: &Value) -> Result<(), AppError> {
+    if result["subtype"] == "error_max_turns" {
+        return Err(AppError::invalid("agent_too_many_steps"));
+    }
+
+    if result["subtype"] == "success" && result["is_error"] == false {
+        return Ok(());
+    }
+
+    let errors: Vec<&str> = result["errors"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .collect();
+    let text = result["result"].as_str().unwrap_or_default();
+
+    Err(claude_failure(&format!("{text}\n{}", errors.join("\n"))))
 }
 
 /// Ответ модели, собранный из событий потока. Блоки копятся как есть,
@@ -810,6 +1004,11 @@ pub enum Entry {
         undone: bool,
         with: Vec<usize>,
     },
+    /// Отметка: ответ не вышел или разговор начат заново (`notice`).
+    Notice {
+        code: String,
+        resets: Option<u64>,
+    },
 }
 
 impl Entry {
@@ -840,12 +1039,32 @@ pub struct Change {
 }
 
 /// История чата: сообщения в формате Messages API и правки ответов.
-#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+/// У чата через Claude Code ещё его сессия: сообщения там это копия
+/// показанного, а сам разговор хранит Claude Code.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Chat {
     #[serde(default)]
     pub messages: Vec<Value>,
     #[serde(default)]
     pub changes: Vec<Change>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<Session>,
+}
+
+/// Сессия Claude Code и каким sapien оставил её файл после своего ответа.
+/// Файл с тех пор менялся, значит, разговор продолжали снаружи.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Session {
+    pub id: String,
+    #[serde(default)]
+    pub seen: Option<Stamp>,
+}
+
+/// Размер файла и время его правки в миллисекундах Unix.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Stamp {
+    pub len: u64,
+    pub modified: u64,
 }
 
 /// Сколько сообщений человека в истории.
@@ -999,6 +1218,10 @@ pub fn transcript(messages: &[Value], changes: &[Change]) -> Vec<Entry> {
                         _ => entries.push(Entry::tool(block, ok || result.is_none())),
                     }
                 }
+                (Some("notice"), _) => entries.push(Entry::Notice {
+                    code: block["code"].as_str().unwrap_or_default().to_owned(),
+                    resets: block["resets"].as_u64(),
+                }),
                 _ => {}
             }
         }
@@ -1607,5 +1830,157 @@ mod tests {
             code("API Error: 500 Internal server error"),
             "claude_failed"
         );
+        assert_eq!(
+            code("No conversation found with session ID: 4f1c"),
+            "claude_session_missing"
+        );
+    }
+
+    #[test]
+    fn claude_code_с_ключом_api_без_sapien_или_с_чужими_инструментами_не_годится() {
+        let init = |source: &str, status: &str, tools: Value| {
+            claude_init_problem(&json!({
+                "type": "system",
+                "subtype": "init",
+                "apiKeySource": source,
+                "mcp_servers": [{ "name": "sapien", "status": status }],
+                "tools": tools,
+            }))
+            .map(|error| error.code)
+        };
+        let ours = json!(["mcp__sapien__read_note", "EndConversation", "ToolSearch"]);
+
+        assert_eq!(init("none", "connected", ours.clone()), None);
+        assert_eq!(
+            init("ANTHROPIC_API_KEY", "connected", ours.clone()),
+            Some("claude_not_subscription")
+        );
+        assert_eq!(init("none", "failed", ours), Some("claude_tools_missing"));
+        assert_eq!(
+            init(
+                "none",
+                "connected",
+                json!(["mcp__sapien__read_note", "Bash"])
+            ),
+            Some("claude_incompatible")
+        );
+        assert_eq!(
+            init("none", "connected", json!(["mcp__other__read_note"])),
+            Some("claude_incompatible")
+        );
+    }
+
+    #[test]
+    fn сообщения_claude_code_ложатся_в_историю_как_ответы_модели() {
+        let said = json!({ "content": [
+            { "type": "thinking", "thinking": "…", "signature": "s" },
+            { "type": "text", "text": "Читаю." },
+            { "type": "text", "text": "" },
+            { "type": "tool_use", "id": "toolu_1", "name": "mcp__sapien__read_note", "input": { "path": "план.md" } },
+            { "type": "tool_use", "id": "toolu_2", "name": "Bash", "input": {} },
+        ] });
+        let results = json!({ "content": [
+            { "type": "tool_result", "tool_use_id": "toolu_1", "content": [{ "type": "text", "text": "# План" }] },
+            { "type": "tool_result", "tool_use_id": "toolu_3", "content": "нет", "is_error": true },
+        ] });
+
+        assert_eq!(
+            claude_blocks(&said),
+            [
+                json!({ "type": "text", "text": "Читаю." }),
+                json!({ "type": "tool_use", "id": "toolu_1", "name": "read_note", "input": { "path": "план.md" } }),
+            ]
+        );
+        assert_eq!(
+            claude_blocks(&results),
+            [
+                json!({ "type": "tool_result", "tool_use_id": "toolu_1", "content": "# План", "is_error": false }),
+                json!({ "type": "tool_result", "tool_use_id": "toolu_3", "content": "нет", "is_error": true }),
+            ]
+        );
+    }
+
+    #[test]
+    fn итог_запуска_claude_code_по_строке_result() {
+        let code = |result: Value| claude_result(&result).map_err(|error| error.code);
+
+        assert_eq!(
+            code(json!({ "subtype": "success", "is_error": false })),
+            Ok(())
+        );
+        assert_eq!(
+            code(json!({ "subtype": "error_max_turns", "is_error": true })),
+            Err("agent_too_many_steps")
+        );
+        assert_eq!(
+            code(
+                json!({ "subtype": "success", "is_error": true, "result": "Claude usage limit reached. Your limit will reset at 5pm" })
+            ),
+            Err("claude_limit")
+        );
+        assert_eq!(
+            code(
+                json!({ "subtype": "error_during_execution", "is_error": true, "errors": ["Not logged in · Please run /login"] })
+            ),
+            Err("claude_logged_out")
+        );
+    }
+
+    #[test]
+    fn claude_code_получает_последнее_сообщение_с_контекстом() {
+        let context = Context {
+            path: Some("план.md".into()),
+            selection: Some("релиз".into()),
+        };
+        let mut messages = vec![];
+
+        push_user(&mut messages, user_blocks("Первое", &Context::default()));
+        notice(&mut messages, "claude_limit", Some(1));
+        push_user(&mut messages, user_blocks("Второе", &context));
+
+        assert_eq!(
+            prompt(&messages),
+            "<context>\nОткрыта заметка: план.md\nВыделено:\nрелиз\n</context>\n\nВторое"
+        );
+        // Отметка не уходит ни Claude Code, ни модели.
+        assert!(
+            !request("claude-sonnet-5-5", &messages)
+                .to_string()
+                .contains("notice")
+        );
+
+        let mut cut = messages.clone();
+
+        push_assistant(
+            &mut cut,
+            vec![json!({ "type": "tool_use", "id": "t", "name": "read_note", "input": {} })],
+        );
+        push_user(
+            &mut cut,
+            vec![
+                json!({ "type": "tool_result", "tool_use_id": "t", "content": "", "is_error": false }),
+            ],
+        );
+
+        // Ответ оборвался после вызовов: Claude продолжает его.
+        assert_eq!(prompt(&cut), CONTINUE);
+        assert_eq!(
+            transcript(&messages, &[])[1],
+            Entry::Notice {
+                code: "claude_limit".into(),
+                resets: Some(1),
+            }
+        );
+    }
+
+    #[test]
+    fn длинный_ответ_инструмента_обрезается_до_предела_claude_code() {
+        assert_eq!(clip("коротко".into()), "коротко");
+
+        let long = "я".repeat(RESULT_LIMIT + 10);
+        let clipped = clip(long);
+
+        assert!(clipped.chars().count() <= RESULT_LIMIT);
+        assert!(clipped.ends_with("…(ответ обрезан)"));
     }
 }

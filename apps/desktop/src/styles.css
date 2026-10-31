@@ -67,6 +67,9 @@
   --color-link: var(--link-color);
   --color-markdown-heading: var(--markdown-heading-color);
   --color-mention: var(--mention-color);
+  /* Модель Claude и доступ агента под полем ввода чата. */
+  --color-claude: #d97757;
+  --color-caution: #eab308;
 
   /* Дифф. Цвет не единственный признак: рядом всегда знак + или −. */
   --color-diff-add: #10b981;

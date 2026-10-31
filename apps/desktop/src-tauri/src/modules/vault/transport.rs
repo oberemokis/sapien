@@ -9,6 +9,7 @@ use super::use_case::{self, NoteText, VaultStatus};
 use crate::error::AppError;
 use std::path::PathBuf;
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{AppHandle, Emitter, Manager, Runtime, State, Url};
 use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_dialog::DialogExt;
@@ -208,13 +209,46 @@ pub async fn vault_texts(app: AppHandle) -> Result<Vec<NoteText>, AppError> {
     use_case::texts(&place(&app)?, &Disk)
 }
 
+/// Хранилище, которое сейчас нельзя сменить: по нему идёт ответ агента
+/// или откат, и правки ушли бы в другую папку.
+#[derive(Default)]
+pub struct Pinned(AtomicBool);
+
+/// Держит хранилище на месте, пока жив.
+pub struct Pin<'a>(&'a Pinned);
+
+impl Pinned {
+    pub fn pin(&self) -> Pin<'_> {
+        self.0.store(true, Ordering::SeqCst);
+        Pin(self)
+    }
+
+    fn check(&self) -> Result<(), AppError> {
+        if self.0.load(Ordering::SeqCst) {
+            return Err(AppError::conflict("agent_busy"));
+        }
+
+        Ok(())
+    }
+}
+
+impl Drop for Pin<'_> {
+    fn drop(&mut self) {
+        self.0.0.store(false, Ordering::SeqCst);
+    }
+}
+
 /// Асинхронная, потому что диалог ждёт человека: синхронная команда держала
-/// бы главный поток, и окно бы замерло.
+/// бы главный поток, и окно бы замерло. Пока отвечает агент, хранилище
+/// не меняется: ни до диалога, ни после него.
 #[tauri::command]
 pub async fn vault_choose(
     app: AppHandle,
     watch: State<'_, Watch>,
+    pinned: State<'_, Pinned>,
 ) -> Result<VaultStatus, AppError> {
+    pinned.check()?;
+
     let place = place(&app)?;
     let picked = app
         .dialog()
@@ -229,6 +263,9 @@ pub async fn vault_choose(
     let picked = picked
         .into_path()
         .map_err(|_| AppError::unavailable("vault_path_invalid"))?;
+
+    pinned.check()?;
+
     let status = use_case::choose(&place, &Disk, &picked)?;
 
     follow(&app, &watch, &place);

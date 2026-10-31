@@ -3,20 +3,29 @@ import type { Answer, ChatContext, ChatEntry, ChatEvent, Oversight } from "../mo
 import type { MeetingTask } from "../model/meeting";
 import type { AgentMethod, ClaudeStatus } from "../model/method";
 
-export function agentHistory() {
-  return invoke<ChatEntry[]>("agent_history");
+// У подписки и ключа API своя история чата.
+export function agentHistory(method: AgentMethod) {
+  return invoke<ChatEntry[]>("agent_history", { method });
 }
 
 // Ответ идёт событиями через канал, а обещание кончается вместе с ответом.
-// Ключ модели окно не шлёт: его берёт Rust.
+// Ключ модели окно не шлёт: его берёт Rust, а подписку держит Claude Code.
 export function agentSend(
+  method: AgentMethod,
   model: string,
   text: string,
   context: ChatContext,
   oversight: Oversight,
   onEvent: (event: ChatEvent) => void,
 ) {
-  return invoke<null>("agent_send", { model, text, context, oversight, onEvent: new Channel<ChatEvent>(onEvent) });
+  return invoke<null>("agent_send", {
+    method,
+    model,
+    text,
+    context,
+    oversight,
+    onEvent: new Channel<ChatEvent>(onEvent),
+  });
 }
 
 // Окно открылось заново: события идущего ответа приходят сюда, открытый
@@ -33,12 +42,18 @@ export function agentStop() {
   return invoke<null>("agent_stop");
 }
 
-export function agentClear() {
-  return invoke<null>("agent_clear");
+export function agentClear(method: AgentMethod) {
+  return invoke<null>("agent_clear", { method });
 }
 
-export function agentUndo(turn: number) {
-  return invoke<null>("agent_undo", { turn });
+export function agentUndo(method: AgentMethod, turn: number) {
+  return invoke<null>("agent_undo", { method, turn });
+}
+
+// Сессия Claude Code чата: её продолжают в терминале. null, пока
+// разговора не было.
+export function agentClaudeSession() {
+  return invoke<string | null>("agent_claude_session");
 }
 
 // Rust сам читает заметку со встречи и спрашивает модель способом method.
