@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { checkName, childrenOf, foldersDownTo, isWithin, parentOf, suggestName, type VaultEntry } from "./vault";
+import {
+  checkName,
+  childrenOf,
+  foldersDownTo,
+  isWithin,
+  movedPath,
+  parentOf,
+  suggestName,
+  type VaultEntry,
+} from "./vault";
 
 const note = (path: string): VaultEntry => ({ kind: "note", name: path.split("/").at(-1) ?? path, path });
 const folder = (path: string, children: VaultEntry[] = []): VaultEntry => ({
@@ -64,5 +73,17 @@ describe("пути дерева", () => {
     expect(isWithin("Проекты", "Проекты")).toBe(true);
     expect(isWithin("Проекты 2/план.md", "Проекты")).toBe(false);
     expect(isWithin("Проекты.md", "Проекты")).toBe(false);
+  });
+
+  it("путь после переименований снаружи, по порядку и вместе с папкой", () => {
+    const moved = [
+      { from: "Проекты", to: "Архив/Проекты" },
+      { from: "Архив/Проекты/sapien/план.md", to: "Архив/Проекты/sapien/итоги.md" },
+    ];
+
+    expect(movedPath("Проекты/sapien/план.md", moved)).toBe("Архив/Проекты/sapien/итоги.md");
+    expect(movedPath("Проекты/доклад.md", moved)).toBe("Архив/Проекты/доклад.md");
+    expect(movedPath("Проекты", moved)).toBe("Архив/Проекты");
+    expect(movedPath("Проекты 2/план.md", moved)).toBe("Проекты 2/план.md");
   });
 });

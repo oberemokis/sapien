@@ -1,4 +1,4 @@
-import { notePlace } from "./vault";
+import { movedPath, notePlace, type Moved } from "./vault";
 
 // Открытые вкладки по пути файла: один файл открыт не больше одного раза.
 export type Tabs = { tabs: string[]; active: string | null };
@@ -55,6 +55,19 @@ export function moveTab({ tabs, active }: Tabs, path: string, to: number): Tabs 
   }
 
   return { tabs: tabs.filter((tab) => tab !== path).toSpliced(to, 0, path), active };
+}
+
+// Файлы переименовали снаружи: вкладки переходят на новые пути и остаются
+// на своих местах в ряду. Переименовали поверх открытого файла: вкладка
+// с этим путём остаётся одна.
+export function renameTabs({ tabs, active }: Tabs, moved: Moved[]): Tabs {
+  const renamed = [...new Set(tabs.map((path) => movedPath(path, moved)))];
+
+  if (active === null) {
+    return { tabs: renamed, active };
+  }
+
+  return { tabs: renamed, active: movedPath(active, moved) };
 }
 
 // Только вкладки, чьи файлы на месте. Так запомненные вкладки встречают

@@ -12,9 +12,9 @@ import {
   vaultWrite,
 } from "../infrastructure/vault.api";
 import type { EntryKind, VaultStatus } from "../model/vault";
-import { dropNotesWithin, forgetNotes } from "./note";
+import { dropNotesWithin, followNoteMoves, forgetNotes } from "./note";
 import { readTemplate } from "./templates";
-import { closeNotesWithin, finishCreate, openNote, resetTree } from "./tree";
+import { closeNotesWithin, finishCreate, followTreeMoves, openNote, resetTree } from "./tree";
 
 type CreateInput = { parent: string; name: string; kind: EntryKind; template?: string };
 
@@ -111,8 +111,10 @@ export function useTrashEntry() {
 
 // Перечитывает хранилище, когда Rust сообщает о правке снаружи, и когда окно
 // снова в фокусе: папку могли переименовать, пока окно было в фоне, а слежение
-// за переименованием самой папки есть не на всех системах. Открывает
-// заметки, на которые вела ссылка sapien://.
+// за переименованием самой папки есть не на всех системах. Переименованное
+// снаружи окно переводит на новые пути до того, как перечитать: иначе
+// вкладка на миг узнала бы, что файла нет. Открывает заметки, на которые
+// вела ссылка sapien://.
 export function useVaultSync() {
   const queryClient = useQueryClient();
 
@@ -121,7 +123,14 @@ export function useVaultSync() {
       void queryClient.invalidateQueries({ queryKey: VAULT_KEY });
     }
 
-    const stop = onVaultChanged(refresh);
+    const stop = onVaultChanged((moved) => {
+      if (moved.length > 0) {
+        followNoteMoves(queryClient, moved);
+        followTreeMoves(moved);
+      }
+
+      refresh();
+    });
     window.addEventListener("focus", refresh);
 
     return () => {

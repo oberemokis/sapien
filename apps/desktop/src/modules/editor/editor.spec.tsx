@@ -119,6 +119,15 @@ describe("редактор markdown", () => {
     expect(view().state.facet(EditorView.editable)).toBe(false);
   });
 
+  it("переименованный файл меняет подпись, редактор остаётся тем же", () => {
+    const { rerender } = render(<MarkdownEditor value="план" onChange={vi.fn()} label="план" />);
+    const before = view();
+
+    rerender(<MarkdownEditor value="план" onChange={vi.fn()} label="итоги" />);
+
+    expect(screen.getByRole("textbox", { name: "итоги" })).toBe(before.contentDOM);
+  });
+
   it("вставка встаёт у курсора, выделенное остаётся, правка уходит наружу", () => {
     const onChange = vi.fn();
     const { rerender } = render(<MarkdownEditor value="раз три" onChange={onChange} label="план" />);

@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { closeTab, cycleTab, keepTabs, moveTab, NO_TABS, openTab, parseTabs, tabLabels } from "./tabs";
+import {
+  closeTab,
+  cycleTab,
+  keepTabs,
+  moveTab,
+  NO_TABS,
+  openTab,
+  parseTabs,
+  renameTabs,
+  tabLabels,
+} from "./tabs";
 
 const three = { tabs: ["а.md", "б.md", "в.md"], active: "б.md" };
 
@@ -32,6 +42,15 @@ describe("вкладки", () => {
   it("перетаскивание ставит вкладку на новое место", () => {
     expect(moveTab(three, "а.md", 2).tabs).toEqual(["б.md", "в.md", "а.md"]);
     expect(moveTab(three, "в.md", 0).tabs).toEqual(["в.md", "а.md", "б.md"]);
+  });
+
+  it("переименованный снаружи файл остаётся на месте в ряду и активным", () => {
+    expect(renameTabs(three, [{ from: "б.md", to: "Архив/б.md" }])).toEqual({
+      tabs: ["а.md", "Архив/б.md", "в.md"],
+      active: "Архив/б.md",
+    });
+    // Переименовали поверх открытого: вкладка с этим путём одна.
+    expect(renameTabs(three, [{ from: "в.md", to: "а.md" }])).toEqual({ tabs: ["а.md", "б.md"], active: "б.md" });
   });
 
   it("при запуске вкладки пропавших файлов не восстанавливаются", () => {

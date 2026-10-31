@@ -2,8 +2,8 @@ import { useSelector } from "@tanstack/react-store";
 import { readRecent, writeRecent } from "../infrastructure/recent.device";
 import { readTabs, writeTabs } from "../infrastructure/tabs.device";
 import { parseRecent, pushRecent } from "../model/search";
-import { closeTab, cycleTab, keepTabs, moveTab, openTab, parseTabs, type Tabs } from "../model/tabs";
-import { foldersDownTo, isWithin, notePlace, parentOf, type EntryKind } from "../model/vault";
+import { closeTab, cycleTab, keepTabs, moveTab, openTab, parseTabs, renameTabs, type Tabs } from "../model/tabs";
+import { foldersDownTo, isWithin, movedPath, notePlace, parentOf, type EntryKind, type Moved } from "../model/vault";
 import { EMPTY_TREE, treeStore } from "../store/tree.store";
 import { readTemplate, restoreTemplateSettings } from "./templates";
 
@@ -123,6 +123,51 @@ export function closeNotesWithin(entry: string) {
 
     return { ...state, selected: null };
   });
+}
+
+// Ключ вкладки для React. Переименованный снаружи файл ключ сохраняет:
+// редактор вкладки остаётся тем же, с курсором и историей правок.
+const tabKeys = new Map<string, number>();
+let lastTabKey = 0;
+
+export function tabKey(path: string) {
+  let key = tabKeys.get(path);
+
+  if (key === undefined) {
+    lastTabKey += 1;
+    key = lastTabKey;
+    tabKeys.set(path, key);
+  }
+
+  return key;
+}
+
+function moved<T extends { path: string }>(value: T | null, moves: Moved[]) {
+  if (value === null) {
+    return null;
+  }
+
+  return { ...value, path: movedPath(value.path, moves) };
+}
+
+// Файлы и папки переименовали снаружи: вкладки, выделение, раскрытые папки
+// и недавние идут за ними.
+export function followTreeMoves(moves: Moved[]) {
+  const keys = [...tabKeys].map(([path, key]) => [movedPath(path, moves), key] as const);
+
+  tabKeys.clear();
+  keys.forEach(([path, key]) => tabKeys.set(path, key));
+
+  updateTabs((tabs) => renameTabs(tabs, moves));
+  treeStore.setState((state) => ({
+    ...state,
+    selected: moved(state.selected, moves),
+    expanded: state.expanded.map((folder) => movedPath(folder, moves)),
+    recent: [...new Set(state.recent.map((path) => movedPath(path, moves)))],
+    focus: moved(state.focus, moves),
+    insert: moved(state.insert, moves),
+  }));
+  writeRecent(treeStore.get().recent);
 }
 
 export function closeActiveNote() {

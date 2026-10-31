@@ -21,6 +21,10 @@ export type Unsaved = { path: string; base: string | null; text: string };
 // время снимка в миллисекундах, источник говорит, что его заменило.
 export type Version = { id: number; source: "edit" | "outside" | "restore" | "trash" };
 
+// Файл или папку переименовали либо перенесли снаружи. Приходит с событием
+// vault://changed.
+export type Moved = { from: string; to: string };
+
 // Что середина окна отдаёт редактору открытой заметки. Сам редактор
 // ставит страница.
 export type EditorProps = {
@@ -168,6 +172,18 @@ export function parentOf(path: string) {
 // не внутри «пла»: граница по «/».
 export function isWithin(path: string, entry: string) {
   return path === entry || path.startsWith(`${entry}/`);
+}
+
+// Путь после переименований по порядку: файл переименованной папки
+// переезжает вместе с ней.
+export function movedPath(path: string, moved: Moved[]) {
+  return moved.reduce((current, { from, to }) => {
+    if (!isWithin(current, from)) {
+      return current;
+    }
+
+    return to + current.slice(from.length);
+  }, path);
 }
 
 // Папка и все над ней: «a/b» даёт «a» и «a/b». Их раскрывают, чтобы новый

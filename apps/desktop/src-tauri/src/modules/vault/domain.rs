@@ -116,6 +116,30 @@ pub fn is_within(path: &str, entry: &str) -> bool {
         .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
 }
 
+/// Файл или папку переименовали либо перенесли снаружи. Пути как в дереве.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Moved {
+    pub from: String,
+    pub to: String,
+}
+
+/// Переименование, о котором стоит сказать окну: путь был и остался виден
+/// в дереве, а заметка осталась заметкой. Перенос в скрытую папку или смена
+/// расширения для окна то же, что удаление: вкладка покажет, что файла нет.
+pub fn visible_move(from: &str, to: &str, folder: bool) -> Option<Moved> {
+    let parse = if folder {
+        parse_folder_path
+    } else {
+        parse_note_path
+    };
+    let valid = !from.is_empty() && !to.is_empty() && parse(from).is_some() && parse(to).is_some();
+
+    valid.then(|| Moved {
+        from: from.to_owned(),
+        to: to.to_owned(),
+    })
+}
+
 /// Строка дерева хранилища. Путь относительный от корня хранилища и всегда
 /// через `/`: по нему интерфейс узнаёт файл и на macOS, и на Windows.
 #[derive(Debug, PartialEq, Serialize)]
@@ -263,6 +287,33 @@ mod tests {
         assert_eq!(parse_note_path("Проекты/схема.png"), None);
         assert_eq!(parse_note_path(".obsidian/app.md"), None);
         assert_eq!(parse_note_path(""), None);
+    }
+
+    #[test]
+    fn окну_видно_переименование_только_внутри_дерева() {
+        let moved = |from: &str, to: &str| {
+            Some(Moved {
+                from: from.into(),
+                to: to.into(),
+            })
+        };
+
+        assert_eq!(
+            visible_move("план.md", "Архив/итоги.md", false),
+            moved("план.md", "Архив/итоги.md")
+        );
+        assert_eq!(
+            visible_move("Проекты", "Проекты 2025", true),
+            moved("Проекты", "Проекты 2025")
+        );
+        // Заметка перестала быть заметкой или ушла в скрытую корзину.
+        assert_eq!(visible_move("план.md", "план.txt", false), None);
+        assert_eq!(visible_move("план.md", ".trash/план.md", false), None);
+        assert_eq!(visible_move("Проекты", ".trash/Проекты", true), None);
+        // Из скрытого и из не-заметки вкладок не бывает.
+        assert_eq!(visible_move(".obsidian/app.md", "app.md", false), None);
+        assert_eq!(visible_move("схема.png", "схема.md", false), None);
+        assert_eq!(visible_move("", "Проекты", true), None);
     }
 
     #[test]
