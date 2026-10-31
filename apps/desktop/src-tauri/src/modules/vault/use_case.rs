@@ -390,17 +390,54 @@ pub fn restore(
     let root = open_root(place, disk)?;
     let path = parse_note_path(path).ok_or(AppError::invalid("path_invalid"))?;
     let text = history.read(&root, path, id)?;
+
+    put_back(disk, history, &root, path, &text)
+}
+
+/// Откат правки агента: заметка получает текст до неё, а созданная агентом
+/// (`before` пуст) уходит в корзину. Откат просит человек, поэтому папки,
+/// закрытые для агента, ему не мешают. Текущий текст сначала уходит
+/// в историю: правка человека поверх агента не теряется, и откат обратим.
+pub fn revert(
+    place: &impl VaultPlace,
+    disk: &impl VaultDisk,
+    history: &impl History,
+    path: &str,
+    before: Option<&str>,
+) -> Result<(), AppError> {
+    let root = open_root(place, disk)?;
+    let path = parse_note_path(path).ok_or(AppError::invalid("path_invalid"))?;
+
+    let Some(text) = before else {
+        return match disk.read(&root.join(path)) {
+            Err(error) if error == AppError::not_found("note_missing") => Ok(()),
+            _ => trash(place, disk, history, path),
+        };
+    };
+
+    put_back(disk, history, &root, path, text)
+}
+
+/// Пишет заметке текст, а текущий сначала снимает в историю. Удалённую
+/// заметку создаёт заново, вместе с папками над ней.
+fn put_back(
+    disk: &impl VaultDisk,
+    history: &impl History,
+    root: &Path,
+    path: &str,
+    text: &str,
+) -> Result<(), AppError> {
     let file = root.join(path);
 
     match disk.read(&file) {
-        Ok(current) => snapshot(history, &root, path, &current, Source::Restore),
+        Ok(current) => snapshot(history, root, path, &current, Source::Restore),
         Err(error) if error == AppError::not_found("note_missing") => {
-            recreate(disk, &root, path)?;
+            recreate(disk, root, path)?;
         }
         Err(error) => return Err(error),
     }
 
-    disk.write(&file, &text, None)
+    disk.write(&file, text, None)
 }
 
 fn recreate(disk: &impl VaultDisk, root: &Path, path: &str) -> Result<(), AppError> {
@@ -950,6 +987,41 @@ mod tests {
         .unwrap();
 
         assert!(history.texts("план.md").is_empty());
+    }
+
+    #[test]
+    fn откат_агента_хранит_правку_человека_и_убирает_созданное() {
+        let place = chosen("/notes");
+        let disk = Files::with(&[("план.md", "было")]);
+        let history = Album::default();
+
+        put(&place, &disk, &history, "план.md", "агент").unwrap();
+        put(&place, &disk, &history, "Новое/итоги.md", "итоги агента").unwrap();
+        write(
+            &place,
+            &disk,
+            &Memo::default(),
+            &history,
+            &based("план.md", Some("агент"), "агент и человек"),
+        )
+        .unwrap();
+
+        revert(&place, &disk, &history, "план.md", Some("было")).unwrap();
+        revert(&place, &disk, &history, "Новое/итоги.md", None).unwrap();
+        revert(&place, &disk, &history, "Новое/итоги.md", None).unwrap();
+        revert(&place, &disk, &history, "удалённое.md", Some("текст")).unwrap();
+
+        assert_eq!(disk.text("план.md"), Some("было".into()));
+        assert_eq!(
+            history.texts("план.md")[0],
+            (Source::Restore, "агент и человек".into())
+        );
+        assert_eq!(disk.text("Новое/итоги.md"), None);
+        assert_eq!(
+            history.texts("Новое/итоги.md"),
+            [(Source::Trash, "итоги агента".into())]
+        );
+        assert_eq!(disk.text("удалённое.md"), Some("текст".into()));
     }
 
     #[test]

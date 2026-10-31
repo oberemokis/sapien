@@ -1,12 +1,23 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSelector } from "@tanstack/react-store";
 import { useCallback, useSyncExternalStore } from "react";
-import { agentClear, agentHistory, agentSend, agentStop } from "../infrastructure/agent.api";
+import { agentClear, agentHistory, agentSend, agentStop, agentUndo } from "../infrastructure/agent.api";
 import { isOnline, subscribeOnline } from "../infrastructure/agent.device";
 import { applyEvent, chatProblemOf, type ChatContext, type ChatEntry, type ChatProblem } from "../model/chat";
 import { chatStore } from "../store/chat.store";
 
 const HISTORY_KEY = ["agent", "history"] as const;
+
+// «Откатить» у ответа на сообщение с этим номером. Заметки после отката
+// дерево и редактор узнают сами: Rust шлёт событие об изменении хранилища.
+export function useUndo() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: agentUndo,
+    onSettled: () => queryClient.invalidateQueries({ queryKey: HISTORY_KEY }),
+  });
+}
 
 export function useOnline() {
   return useSyncExternalStore(subscribeOnline, isOnline);

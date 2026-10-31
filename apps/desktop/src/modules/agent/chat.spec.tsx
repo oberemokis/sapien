@@ -25,6 +25,8 @@ function fakeRust({ key = true } = {}) {
     history: [] as ChatEntry[],
     sent: [] as Sent[],
     stops: 0,
+    undos: [] as number[],
+    undoFails: false,
     emit: (_event: ChatEvent) => {},
     finish: (_answer: ChatEntry[]) => {},
     fail: (_code: string) => {},
@@ -39,6 +41,25 @@ function fakeRust({ key = true } = {}) {
       case "agent_stop":
         rust.stops += 1;
         return null;
+      // Откат помечает ответ и тех, кто откатился с ним.
+      case "agent_undo": {
+        const { turn } = args as { turn: number };
+
+        rust.undos.push(turn);
+
+        if (rust.undoFails) {
+          throw { kind: "unavailable", code: "vault_unwritable" };
+        }
+
+        const undone = new Set(
+          rust.history.flatMap((entry) => (entry.kind === "changed" && entry.turn === turn ? [turn, ...entry.with] : [])),
+        );
+
+        rust.history = rust.history.map((entry) =>
+          entry.kind === "changed" && undone.has(entry.turn) ? { ...entry, undone: true, with: [] } : entry,
+        );
+        return null;
+      }
       case "agent_send": {
         const { onEvent, ...sent } = args as Sent & { onEvent: Channel<ChatEvent> };
         let index = 0;
@@ -186,6 +207,66 @@ describe("чат с агентом", () => {
     rust.finish([{ kind: "assistant", text: "Ответ" }]);
     expect(await screen.findByText("Ответ")).toBeDefined();
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("«Откатить» под ответом откатывает его правки, строка говорит, что откачено", async () => {
+    const rust = fakeRust();
+    rust.history.push(
+      { kind: "user", text: "Отметь релиз" },
+      { kind: "tool", name: "edit_note", target: "Проекты/план.md", ok: true },
+      { kind: "assistant", text: "Отметил." },
+      { kind: "changed", turn: 0, paths: ["Проекты/план.md", "итоги.md"], undone: false, with: [] },
+    );
+    open();
+
+    expect(await screen.findByText("Изменено заметок: 2")).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: "Откатить" }));
+
+    expect(await screen.findByText("Откачено заметок: 2")).toBeDefined();
+    expect(rust.undos).toEqual([0]);
+    expect(screen.queryByRole("button", { name: "Откатить" })).toBeNull();
+  });
+
+  it("откат раннего ответа сначала показывает поздние, которые откатятся с ним", async () => {
+    const rust = fakeRust();
+    rust.history.push(
+      { kind: "user", text: "Запиши план" },
+      { kind: "assistant", text: "Записал." },
+      { kind: "changed", turn: 0, paths: ["план.md"], undone: false, with: [2] },
+      { kind: "user", text: "Как дела?" },
+      { kind: "assistant", text: "Хорошо." },
+      { kind: "user", text: "Перепиши план" },
+      { kind: "assistant", text: "Переписал." },
+      { kind: "changed", turn: 2, paths: ["план.md"], undone: false, with: [] },
+    );
+    open();
+
+    const [first] = await screen.findAllByRole("button", { name: "Откатить" });
+    fireEvent.click(first);
+
+    const later = screen.getByRole("list", { name: "Откатятся вместе с ним" });
+    expect(within(later).getAllByRole("listitem").map((item) => item.textContent)).toEqual(["Перепиши план"]);
+    expect(rust.undos).toEqual([]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Откатить все" }));
+
+    await waitFor(() => expect(screen.getAllByText("Откачено заметок: 1")).toHaveLength(2));
+    expect(rust.undos).toEqual([0]);
+  });
+
+  it("не прошедший откат виден, а кнопка остаётся для повтора", async () => {
+    const rust = fakeRust();
+    rust.undoFails = true;
+    rust.history.push(
+      { kind: "user", text: "Отметь релиз" },
+      { kind: "changed", turn: 0, paths: ["план.md"], undone: false, with: [] },
+    );
+    open();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Откатить" }));
+
+    expect(await screen.findByText("Откат не прошёл, попробуйте ещё раз.")).toBeDefined();
+    expect(screen.getByRole("button", { name: "Откатить" })).toBeDefined();
   });
 
   it("без ключа вместо поля ввода ведёт в настройки", async () => {

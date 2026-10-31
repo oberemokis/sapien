@@ -13,11 +13,18 @@ import { Button } from "@/core/ui/button";
 import { Icon } from "@/core/ui/icon";
 import { IconButton } from "@/core/ui/icon-button";
 import type { ActionLauncher } from "../interactions/actions";
-import { useChat, useOnline } from "../interactions/chat";
+import { useChat, useOnline, useUndo } from "../interactions/chat";
 import { useAgentModel } from "../interactions/model";
 import { useModelKey } from "../interactions/model-key";
 import { hotkeyLabel, type Action } from "../model/actions";
-import { isToolName, MODEL_NAMES, type ChatContext, type ChatEntry } from "../model/chat";
+import {
+  isToolName,
+  MODEL_NAMES,
+  questionsOf,
+  type ChangedEntry,
+  type ChatContext,
+  type ChatEntry,
+} from "../model/chat";
 
 type Props = {
   // Открытая заметка и выделенное в ней: их даёт страница.
@@ -30,7 +37,7 @@ const OPTION = "flex h-7 cursor-default items-center gap-2 rounded-md px-2 text-
 
 const LINK = "shrink-0 text-[13px] font-medium underline-offset-2 hover:underline";
 
-function Line({ entry }: { entry: ChatEntry }) {
+function Line({ entry }: { entry: Exclude<ChatEntry, ChangedEntry> }) {
   const { t } = useTranslation();
 
   if (entry.kind === "user") {
@@ -61,6 +68,67 @@ function Line({ entry }: { entry: ChatEntry }) {
     <p className="truncate text-[12px] text-content/50" title={entry.target}>
       {action} <span className="text-content/70">{entry.target}</span>
     </p>
+  );
+}
+
+type ChangedProps = {
+  entry: ChangedEntry;
+  // Сообщения человека, ответы на которые откатятся вместе с этим.
+  later: { turn: number; text: string }[];
+  disabled: boolean;
+};
+
+// Под ответом, который менял заметки: сколько их и «Откатить». Если вместе
+// с ним откатятся более поздние ответы, сначала их список и вопрос.
+function Changed({ entry, later, disabled }: ChangedProps) {
+  const { t } = useTranslation();
+  const undo = useUndo();
+  const [asking, setAsking] = useState(false);
+  const count = entry.paths.length;
+
+  if (asking) {
+    return (
+      <div className="flex flex-col gap-2 rounded-md bg-selection px-3 py-2 text-[12px]">
+        <p>{t("agent.chat.undoWith")}</p>
+        <ul aria-label={t("agent.chat.undoLater")} className="pl-2 text-content/70">
+          {later.map((question) => (
+            <li key={question.turn} className="truncate">
+              {question.text}
+            </li>
+          ))}
+        </ul>
+        <div className="flex gap-2">
+          <Button
+            onClick={() => {
+              setAsking(false);
+              undo.mutate(entry.turn);
+            }}
+          >
+            {t("agent.chat.undoAll")}
+          </Button>
+          <Button onClick={() => setAsking(false)}>{t("agent.chat.undoNo")}</Button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-2 text-[12px] text-content/50">
+      <span title={entry.paths.join("\n")}>
+        {entry.undone ? t("agent.chat.undone", { count }) : t("agent.chat.changed", { count })}
+      </span>
+      {!entry.undone && (
+        <button
+          type="button"
+          disabled={disabled || undo.isPending}
+          className="font-medium text-content underline-offset-2 hover:underline disabled:opacity-50"
+          onClick={() => (entry.with.length > 0 ? setAsking(true) : undo.mutate(entry.turn))}
+        >
+          {t("agent.chat.undo")}
+        </button>
+      )}
+      {undo.isError && <span role="alert">{t("agent.chat.undoFailed")}</span>}
+    </div>
   );
 }
 
@@ -137,6 +205,7 @@ export function AgentChat({ context, actions }: Props) {
     return <NoKey />;
   }
 
+  const asked = chat.entries.map(({ entry }) => entry);
   const canSend = online && !chat.running && draft.trim() !== "";
   const canRun = online && !chat.running;
   const slash = actions !== undefined && /^\/[^\n]*$/.test(draft);
@@ -254,14 +323,20 @@ export function AgentChat({ context, actions }: Props) {
         ref={logRef}
         role="log"
         aria-label={t("agent.chat.log")}
-        className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 pb-3"
+        // Строки ленты не сжимаются: обрезанная строка инструмента иначе
+        // уходит в нулевую высоту, когда лента длиннее панели.
+        className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 pb-3 *:shrink-0"
       >
         {chat.loaded && chat.entries.length === 0 && (
           <p className="m-auto text-center text-sm text-content/50">{t("agent.chat.empty")}</p>
         )}
-        {chat.entries.map(({ id, entry }) => (
-          <Line key={id} entry={entry} />
-        ))}
+        {chat.entries.map(({ id, entry }) =>
+          entry.kind === "changed" ? (
+            <Changed key={id} entry={entry} later={questionsOf(asked, entry.with)} disabled={chat.running} />
+          ) : (
+            <Line key={id} entry={entry} />
+          ),
+        )}
         {chat.running && last?.kind !== "assistant" && (
           <p className="text-[12px] text-content/50">{t("agent.chat.thinking")}</p>
         )}

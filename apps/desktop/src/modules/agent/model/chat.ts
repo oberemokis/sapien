@@ -18,7 +18,20 @@ export function parseAgentModel(value: string | null): AgentModel {
 // модель, цель это путь заметки, запрос или номер задачи.
 export type ToolEntry = { kind: "tool"; name: string; target: string; ok: boolean };
 
-export type ChatEntry = { kind: "user"; text: string } | { kind: "assistant"; text: string } | ToolEntry;
+// Ответ на сообщение человека с номером turn поменял заметки. with это
+// более поздние ответы, которые откатятся вместе с ним.
+export type ChangedEntry = { kind: "changed"; turn: number; paths: string[]; undone: boolean; with: number[] };
+
+export type ChatEntry = { kind: "user"; text: string } | { kind: "assistant"; text: string } | ToolEntry | ChangedEntry;
+
+// Сообщения человека с этими номерами, по порядку. Номер это место
+// сообщения среди всех сообщений человека, как turn в domain.rs.
+export function questionsOf(entries: ChatEntry[], turns: number[]): { turn: number; text: string }[] {
+  return entries
+    .filter((entry) => entry.kind === "user")
+    .map((entry, turn) => ({ turn, text: entry.text }))
+    .filter((question) => turns.includes(question.turn));
+}
 
 // Событие, пока идёт ответ: кусок текста или отработавший инструмент.
 export type ChatEvent = { kind: "text"; text: string } | ToolEntry;

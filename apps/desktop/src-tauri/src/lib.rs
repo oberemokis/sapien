@@ -56,6 +56,7 @@ pub fn run() {
             agent::transport::agent_send,
             agent::transport::agent_stop,
             agent::transport::agent_clear,
+            agent::transport::agent_undo,
             vault::transport::vault_opened,
             vault::transport::vault_status,
             vault::transport::vault_tree,

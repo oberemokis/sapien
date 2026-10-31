@@ -446,6 +446,14 @@ pub enum Entry {
         target: String,
         ok: bool,
     },
+    /// Ответ на сообщение `turn` поменял заметки. `with` это более поздние
+    /// ответы, которые откатятся вместе с ним.
+    Changed {
+        turn: usize,
+        paths: Vec<String>,
+        undone: bool,
+        with: Vec<usize>,
+    },
 }
 
 impl Entry {
@@ -458,9 +466,128 @@ impl Entry {
     }
 }
 
+/// Заметка, которую тронул ответ агента, и её текст до ответа. Без текста
+/// заметки до ответа не было: её создал агент.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Touched {
+    pub path: String,
+    pub before: Option<String>,
+}
+
+/// Что поменял ответ на сообщение человека с номером `turn`, считая с нуля.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Change {
+    pub turn: usize,
+    pub touched: Vec<Touched>,
+    #[serde(default)]
+    pub undone: bool,
+}
+
+/// История чата: сообщения в формате Messages API и правки ответов.
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+pub struct Chat {
+    #[serde(default)]
+    pub messages: Vec<Value>,
+    #[serde(default)]
+    pub changes: Vec<Change>,
+}
+
+/// Сколько сообщений человека в истории.
+pub fn turns(messages: &[Value]) -> usize {
+    transcript(messages, &[])
+        .iter()
+        .filter(|entry| matches!(entry, Entry::User { .. }))
+        .count()
+}
+
+/// Запоминает заметку, которую ответ `turn` поменял, с текстом до него.
+/// Вторая правка той же заметки ничего не добавляет: откат вернёт текст
+/// до первой. Откаченный ответ, который продолжили «Повторить», считает
+/// правки заново: его прежние правки уже откачены.
+pub fn touch(changes: &mut Vec<Change>, turn: usize, path: &str, before: Option<String>) {
+    let at = changes
+        .iter()
+        .position(|change| change.turn == turn)
+        .unwrap_or_else(|| {
+            changes.push(Change {
+                turn,
+                touched: vec![],
+                undone: false,
+            });
+            changes.len() - 1
+        });
+    let change = &mut changes[at];
+
+    if change.undone {
+        change.undone = false;
+        change.touched.clear();
+    }
+
+    if !change.touched.iter().any(|touched| touched.path == path) {
+        change.touched.push(Touched {
+            path: path.to_owned(),
+            before,
+        });
+    }
+}
+
+/// Что откатывает «Откатить» у ответа `turn`: номера ответов и заметки
+/// с текстом, к которому они вернутся. Вместе с ответом откатываются более
+/// поздние, которые трогали его заметки или заметки уже взятых в откат:
+/// их правки шли от текста, которого после отката не будет. Заметка
+/// возвращается к тексту до самого раннего из них. Откаченные не берутся.
+pub fn undo_plan(changes: &[Change], turn: usize) -> (Vec<usize>, Vec<Touched>) {
+    let mut turns = vec![];
+    let mut targets: Vec<Touched> = vec![];
+
+    for change in changes
+        .iter()
+        .filter(|change| !change.undone && change.turn >= turn)
+    {
+        let shares = change
+            .touched
+            .iter()
+            .any(|touched| targets.iter().any(|target| target.path == touched.path));
+
+        if change.turn != turn && !shares {
+            continue;
+        }
+
+        turns.push(change.turn);
+
+        for touched in &change.touched {
+            if !targets.iter().any(|target| target.path == touched.path) {
+                targets.push(touched.clone());
+            }
+        }
+    }
+
+    (turns, targets)
+}
+
+/// Строка «поменял заметки» под ответом `turn`, если он их менял.
+fn changed(changes: &[Change], turn: usize) -> Option<Entry> {
+    let change = changes
+        .iter()
+        .find(|change| change.turn == turn && !change.touched.is_empty())?;
+    let (with, _) = undo_plan(changes, turn);
+
+    Some(Entry::Changed {
+        turn,
+        paths: change
+            .touched
+            .iter()
+            .map(|touched| touched.path.clone())
+            .collect(),
+        undone: change.undone,
+        with: with.into_iter().filter(|later| *later != turn).collect(),
+    })
+}
+
 /// История в виде строк чата. Контекст, результаты инструментов
-/// и размышления окно не показывает.
-pub fn transcript(messages: &[Value]) -> Vec<Entry> {
+/// и размышления окно не показывает. Под ответом, который менял заметки,
+/// стоит строка `Changed`.
+pub fn transcript(messages: &[Value], changes: &[Change]) -> Vec<Entry> {
     let failed: Vec<&str> = messages
         .iter()
         .flat_map(|message| message["content"].as_array().into_iter().flatten())
@@ -468,6 +595,7 @@ pub fn transcript(messages: &[Value]) -> Vec<Entry> {
         .filter_map(|block| block["tool_use_id"].as_str())
         .collect();
     let mut entries: Vec<Entry> = vec![];
+    let mut asked = 0;
 
     for message in messages {
         let from_user = message["role"] == "user";
@@ -477,6 +605,11 @@ pub fn transcript(messages: &[Value]) -> Vec<Entry> {
 
             match (block["type"].as_str(), from_user) {
                 (Some("text"), true) if !text.starts_with(CONTEXT) => {
+                    if asked > 0 {
+                        entries.extend(changed(changes, asked - 1));
+                    }
+
+                    asked += 1;
                     entries.push(Entry::User {
                         text: text.to_owned(),
                     });
@@ -498,6 +631,10 @@ pub fn transcript(messages: &[Value]) -> Vec<Entry> {
                 _ => {}
             }
         }
+    }
+
+    if asked > 0 {
+        entries.extend(changed(changes, asked - 1));
     }
 
     entries
@@ -761,8 +898,9 @@ mod tests {
             messages[0]["content"][1]["text"],
             "<context>\nОткрыта заметка: план.md\nВыделено:\nпункт\n</context>"
         );
+        assert_eq!(turns(&messages), 2);
         assert_eq!(
-            transcript(&messages),
+            transcript(&messages, &[]),
             [
                 Entry::User {
                     text: "Первое".into()
@@ -792,7 +930,7 @@ mod tests {
         ];
 
         assert_eq!(
-            transcript(&messages),
+            transcript(&messages, &[]),
             [
                 Entry::User {
                     text: "Что в плане?".into()
@@ -815,6 +953,140 @@ mod tests {
                 },
             ]
         );
+    }
+
+    fn touched(path: &str, before: Option<&str>) -> Touched {
+        Touched {
+            path: path.into(),
+            before: before.map(Into::into),
+        }
+    }
+
+    #[test]
+    fn ответ_помнит_текст_заметки_до_первой_своей_правки() {
+        let mut changes = vec![];
+
+        touch(&mut changes, 0, "план.md", Some("было".into()));
+        touch(
+            &mut changes,
+            0,
+            "план.md",
+            Some("после первой правки".into()),
+        );
+        touch(&mut changes, 0, "новая.md", None);
+        touch(&mut changes, 1, "план.md", Some("после ответа".into()));
+
+        assert_eq!(
+            changes,
+            [
+                Change {
+                    turn: 0,
+                    touched: vec![touched("план.md", Some("было")), touched("новая.md", None)],
+                    undone: false,
+                },
+                Change {
+                    turn: 1,
+                    touched: vec![touched("план.md", Some("после ответа"))],
+                    undone: false,
+                },
+            ]
+        );
+
+        changes[1].undone = true;
+        touch(&mut changes, 1, "итоги.md", Some("итоги".into()));
+
+        assert_eq!(changes[1].touched, [touched("итоги.md", Some("итоги"))]);
+        assert!(!changes[1].undone);
+    }
+
+    #[test]
+    fn откат_берёт_поздние_ответы_по_общим_заметкам_и_возвращает_к_самому_раннему() {
+        let change = |turn, touched: Vec<Touched>| Change {
+            turn,
+            touched,
+            undone: false,
+        };
+        let mut changes = vec![
+            change(0, vec![touched("а.md", Some("а0"))]),
+            change(1, vec![touched("б.md", Some("б0"))]),
+            change(
+                2,
+                vec![touched("а.md", Some("а2")), touched("б.md", Some("б2"))],
+            ),
+            change(3, vec![touched("в.md", None)]),
+            change(4, vec![touched("б.md", Some("б4"))]),
+        ];
+
+        assert_eq!(
+            undo_plan(&changes, 0),
+            (
+                vec![0, 2, 4],
+                vec![touched("а.md", Some("а0")), touched("б.md", Some("б2"))]
+            )
+        );
+        assert_eq!(
+            undo_plan(&changes, 3),
+            (vec![3], vec![touched("в.md", None)])
+        );
+
+        changes[4].undone = true;
+
+        assert_eq!(undo_plan(&changes, 1).0, [1, 2]);
+        assert_eq!(undo_plan(&changes, 4), (vec![], vec![]));
+    }
+
+    #[test]
+    fn под_ответом_который_менял_заметки_строка_с_откатом() {
+        let ask =
+            |text: &str| json!({ "role": "user", "content": [{ "type": "text", "text": text }] });
+        let answer = |text: &str| json!({ "role": "assistant", "content": [{ "type": "text", "text": text }] });
+        let messages = vec![
+            ask("Отметь релиз"),
+            answer("Отметил."),
+            ask("Как дела?"),
+            answer("Хорошо."),
+            ask("И итоги"),
+            answer("Дописал."),
+        ];
+        let changes = vec![
+            Change {
+                turn: 0,
+                touched: vec![touched("план.md", Some("было"))],
+                undone: false,
+            },
+            Change {
+                turn: 2,
+                touched: vec![touched("план.md", Some("стало"))],
+                undone: false,
+            },
+        ];
+        let entries = transcript(&messages, &changes);
+
+        assert_eq!(
+            entries[2],
+            Entry::Changed {
+                turn: 0,
+                paths: vec!["план.md".into()],
+                undone: false,
+                with: vec![2],
+            }
+        );
+        assert_eq!(
+            entries[3],
+            Entry::User {
+                text: "Как дела?".into()
+            }
+        );
+        assert_eq!(
+            entries.last(),
+            Some(&Entry::Changed {
+                turn: 2,
+                paths: vec!["план.md".into()],
+                undone: false,
+                with: vec![],
+            })
+        );
+        assert_eq!(entries.len(), 8);
     }
 
     #[test]

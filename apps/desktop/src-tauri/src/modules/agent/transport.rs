@@ -21,14 +21,26 @@ fn chat<R: Runtime>(app: &AppHandle<R>) -> Result<ChatFile, AppError> {
     Ok(ChatFile::new(&data, &vault))
 }
 
-/// Идущий ответ агента. Он один на приложение: второй ответ поверх первого
-/// перемешал бы историю. Через `Notify` его останавливает «Стоп».
+/// Идущий ответ агента или откат. Он один на приложение: второй поверх
+/// первого перемешал бы историю. Через `Notify` ответ останавливает «Стоп».
 #[derive(Default)]
 pub struct Running(Mutex<Option<Arc<Notify>>>);
 
 impl Running {
     fn slot(&self) -> std::sync::MutexGuard<'_, Option<Arc<Notify>>> {
         self.0.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Занимает место, пока жив `Busy`. Занято, значит, `agent_busy`.
+    fn claim(&self, stop: Arc<Notify>) -> Result<Busy<'_>, AppError> {
+        let mut slot = self.slot();
+
+        if slot.is_some() {
+            return Err(AppError::conflict("agent_busy"));
+        }
+
+        *slot = Some(stop);
+        Ok(Busy(self))
     }
 }
 
@@ -55,6 +67,19 @@ pub fn agent_clear(app: AppHandle, running: State<'_, Running>) -> Result<(), Ap
     use_case::clear(&chat(&app)?)
 }
 
+/// «Откатить» у ответа на сообщение `turn`, вместе с более поздними,
+/// которые трогали те же заметки.
+#[tauri::command]
+pub fn agent_undo(
+    app: AppHandle,
+    running: State<'_, Running>,
+    turn: usize,
+) -> Result<(), AppError> {
+    let _busy = running.claim(Arc::new(Notify::new()))?;
+
+    use_case::undo(&chat(&app)?, &VaultNotes(app.clone()), turn)
+}
+
 /// Ключ берётся в Rust из системного хранилища паролей: окно его
 /// не присылает и не получает. Ответ идёт в окно через канал по мере
 /// появления, а команда кончается вместе с ответом.
@@ -72,18 +97,7 @@ pub async fn agent_send(
 ) -> Result<(), AppError> {
     let chat = chat(&app)?;
     let stop = Arc::new(Notify::new());
-
-    {
-        let mut slot = running.slot();
-
-        if slot.is_some() {
-            return Err(AppError::conflict("agent_busy"));
-        }
-
-        *slot = Some(stop.clone());
-    }
-
-    let _busy = Busy(&running);
+    let _busy = running.claim(stop.clone())?;
     let turn = Turn {
         model: &model,
         text: &text,
