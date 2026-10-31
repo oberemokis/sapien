@@ -6,6 +6,7 @@ import {
   ACTIONS_FOLDER,
   actionsOf,
   actionText,
+  DIGEST_ACTION,
   hotkeyLabel,
   hotkeyOf,
   hotkeyProblem,
@@ -24,8 +25,9 @@ const NAMES: Record<Integration, string> = { youtrack: "YouTrack" };
 type Props = {
   // Заметки папки действий, undefined пока хранилище не прочитано.
   notes: { path: string; text: string }[] | undefined;
-  // Кладёт файл действия в папку. Занятое имя отвечает кодом name_taken.
-  create: (name: string, text: string) => Promise<unknown>;
+  // Кладёт файл действия в папку и отвечает его путём. Занятое имя
+  // отвечает кодом name_taken.
+  create: (name: string, text: string) => Promise<string>;
   // Открывает файл действия в редакторе.
   open: (path: string) => void;
 };
@@ -38,6 +40,10 @@ function Row({ action, onOpen }: { action: Action; onOpen: () => void }) {
     parts.push(hotkeyLabel(action.hotkey));
   } else if (action.hotkeyText !== "") {
     parts.push(action.hotkeyText);
+  }
+
+  if (action.schedule !== null) {
+    parts.push(t("agent.actions.scheduled", { when: action.scheduleText }));
   }
 
   parts.push(...action.integrations.map((integration) => NAMES[integration]));
@@ -56,6 +62,7 @@ function Row({ action, onOpen }: { action: Action; onOpen: () => void }) {
 export function ActionSettings({ notes, create, open }: Props) {
   const { t } = useTranslation();
   const actions = useMemo(() => actionsOf(notes ?? []), [notes]);
+  const digest = actions.find((action) => action.name === DIGEST_ACTION.name);
   const [name, setName] = useState("");
   const [task, setTask] = useState("");
   const [integrations, setIntegrations] = useState<Integration[]>([]);
@@ -98,6 +105,17 @@ export function ActionSettings({ notes, create, open }: Props) {
         setTaken(nameProblemOf(error));
         setFailed(nameProblemOf(error) === null);
       })
+      .finally(() => setSaving(false));
+  }
+
+  // Готовое действие добавляется файлом и сразу открывается: эпик
+  // вписывается в его шапку.
+  function addDigest() {
+    setSaving(true);
+    setFailed(false);
+    create(DIGEST_ACTION.name, DIGEST_ACTION.text)
+      .then(open)
+      .catch(() => setFailed(true))
       .finally(() => setSaving(false));
   }
 
@@ -193,6 +211,16 @@ export function ActionSettings({ notes, create, open }: Props) {
             {t("agent.actions.create")}
           </Button>
         </div>
+      </SettingsGroup>
+      <SettingsGroup title={t("agent.actions.ready")}>
+        <SettingsRow title={DIGEST_ACTION.name} description={t("agent.actions.digest")}>
+          {digest === undefined && (
+            <Button disabled={notes === undefined || saving} onClick={addDigest}>
+              {t("agent.actions.add")}
+            </Button>
+          )}
+          {digest !== undefined && <Button onClick={() => open(digest.path)}>{t("agent.actions.open")}</Button>}
+        </SettingsRow>
       </SettingsGroup>
       <SettingsGroup title={t("agent.actions.list")}>
         {notes !== undefined && actions.length === 0 && (

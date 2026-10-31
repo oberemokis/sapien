@@ -36,6 +36,12 @@ pub trait Notes {
 pub trait Tracker {
     fn search(&self, query: &str) -> impl Future<Output = Result<String, AppError>> + Send;
     fn issue(&self, id: &str) -> impl Future<Output = Result<String, AppError>> + Send;
+    /// Что случилось с подзадачами эпика с даты ГГГГ-ММ-ДД.
+    fn epic_changes(
+        &self,
+        epic: &str,
+        since: &str,
+    ) -> impl Future<Output = Result<String, AppError>> + Send;
 }
 
 /// Где лежит история чата хранилища: сообщения в формате Messages API

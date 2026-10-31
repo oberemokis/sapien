@@ -6,6 +6,7 @@ use super::use_case;
 use crate::error::AppError;
 use crate::modules::vault;
 use crate::secrets::Secrets;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Manager, Runtime, State};
 
 fn place<R: Runtime>(app: &AppHandle<R>) -> Result<HostFile, AppError> {
@@ -154,4 +155,22 @@ pub async fn issue<R: Runtime>(app: &AppHandle<R>, id: &str) -> Result<String, A
     let secrets = app.state::<Secrets>();
 
     use_case::issue(&*http, &place(app)?, &secrets, id).await
+}
+
+/// Изменения подзадач эпика с даты `since` для сводки агента, JSON.
+pub async fn epic_changes<R: Runtime>(
+    app: &AppHandle<R>,
+    epic: &str,
+    since: &str,
+) -> Result<String, AppError> {
+    let http = app.state::<Http>();
+    let secrets = app.state::<Secrets>();
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |elapsed| {
+            i64::try_from(elapsed.as_millis()).unwrap_or(i64::MAX)
+        });
+    let changes = use_case::epic_changes(&*http, &place(app)?, &secrets, epic, since, now).await?;
+
+    Ok(serde_json::to_string(&changes).unwrap_or_default())
 }

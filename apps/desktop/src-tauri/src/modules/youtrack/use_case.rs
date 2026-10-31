@@ -1,7 +1,7 @@
 use super::domain::{
-    ApiError, Checked, Draft, IssueFacts, IssueState, Person, Published, Sent, Similar,
-    YoutrackStatus, field_command, link_command, missing_fields, parse_host, parse_issue_id,
-    project_assignees, search_words,
+    ApiError, Checked, Draft, EpicChanges, IssueFacts, IssueState, Person, Published, Sent,
+    Similar, YoutrackStatus, date_ms, epic_changes as domain_epic_changes, field_command,
+    link_command, missing_fields, parse_host, parse_issue_id, project_assignees, search_words,
 };
 use super::ports::{HostPlace, Ledger, YoutrackApi};
 use crate::error::AppError;
@@ -359,6 +359,99 @@ pub async fn projects(
         .flatten()
         .filter_map(|project| project["shortName"].as_str().map(str::to_owned))
         .collect())
+}
+
+/// Что случилось с подзадачами эпика с даты `since` (ГГГГ-ММ-ДД): закрытые,
+/// новые, сменившие статус, вставшие и новые связи. История полей и связей
+/// спрашивается только у подзадач, которые менялись за период. Эпика нет:
+/// отказ `youtrack_missing`.
+pub async fn epic_changes(
+    api: &impl YoutrackApi,
+    place: &impl HostPlace,
+    secrets: &Secrets,
+    epic: &str,
+    since: &str,
+    now: i64,
+) -> Result<EpicChanges, AppError> {
+    let (host, token) = connection(place, secrets)?;
+    let epic = parse_issue_id(epic).ok_or(AppError::invalid("youtrack_issue_invalid"))?;
+    let since_ms = date_ms(since).ok_or(AppError::invalid("youtrack_date_invalid"))?;
+    let found = json_of(
+        &api.get(
+            &host,
+            &token,
+            &format!("/api/issues/{epic}"),
+            &[("fields", "idReadable,summary")],
+        )
+        .await?,
+    )?;
+    let query = format!("subtask of: {epic}");
+    let subtasks = json_of(
+        &api.get(
+            &host,
+            &token,
+            "/api/issues",
+            &[
+                ("query", query.as_str()),
+                (
+                    "fields",
+                    "idReadable,summary,created,updated,resolved,\
+customFields(name,value(name,login,fullName)),\
+links(direction,linkType(name,sourceToTarget,targetToSource),issues(idReadable,resolved))",
+                ),
+                ("$top", "500"),
+            ],
+        )
+        .await?,
+    )?;
+    let start = since_ms.to_string();
+    let mut activities = vec![];
+
+    for issue in subtasks.as_array().into_iter().flatten() {
+        let Some(id) = issue["idReadable"].as_str().and_then(parse_issue_id) else {
+            continue;
+        };
+
+        if issue["updated"].as_i64().is_none_or(|at| at < since_ms) {
+            continue;
+        }
+
+        // Историю YouTrack отдаёт по одной задаче, а менявшихся за период
+        // подзадач немного.
+        let items = api
+            .get(
+                &host,
+                &token,
+                &format!("/api/issues/{id}/activities"),
+                &[
+                    ("categories", "CustomFieldCategory,LinksCategory"),
+                    ("start", start.as_str()),
+                    (
+                        "fields",
+                        "timestamp,category(id),field(name,presentation),\
+added(name,idReadable),removed(name,idReadable)",
+                    ),
+                    ("$top", "200"),
+                ],
+            )
+            .await?;
+
+        activities.push((id.to_owned(), json_of(&items)?));
+    }
+
+    let epic = Similar {
+        id: epic.to_owned(),
+        summary: found["summary"].as_str().unwrap_or_default().to_owned(),
+    };
+
+    Ok(domain_epic_changes(
+        epic,
+        since,
+        since_ms,
+        now,
+        &subtasks,
+        &activities,
+    ))
 }
 
 /// Последние сто задач проекта, свежие первыми: подсказка после «SAP-».
@@ -1271,6 +1364,39 @@ mod tests {
         assert_eq!(
             block_on(project_issues(&board, &place, &secrets, "SAP} or {X")),
             Err(AppError::invalid("youtrack_project_missing"))
+        );
+    }
+
+    #[test]
+    fn сводка_ищет_подзадачи_эпика_а_пропавший_эпик_это_отказ() {
+        let board = with_issues(&["SAP-1"], vec![]);
+        let (place, secrets) = connected();
+        let changes = |epic: &str, since: &str| {
+            block_on(epic_changes(&board, &place, &secrets, epic, since, 0))
+        };
+
+        let found = changes("SAP-1", "2026-10-26").unwrap();
+
+        assert_eq!(
+            found.epic,
+            Similar {
+                id: "SAP-1".into(),
+                summary: "Задача SAP-1".into(),
+            }
+        );
+        assert_eq!(found.since, "2026-10-26");
+        assert_eq!(*board.searches.lock().unwrap(), ["subtask of: SAP-1"]);
+        assert_eq!(
+            changes("SAP-404", "2026-10-26"),
+            Err(AppError::not_found("youtrack_missing"))
+        );
+        assert_eq!(
+            changes("SAP-1", "на прошлой неделе"),
+            Err(AppError::invalid("youtrack_date_invalid"))
+        );
+        assert_eq!(
+            changes("SAP-1 or x", "2026-10-26"),
+            Err(AppError::invalid("youtrack_issue_invalid"))
         );
     }
 

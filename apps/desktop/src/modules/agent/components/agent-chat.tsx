@@ -343,6 +343,9 @@ export function AgentChat({ context, actions }: Props) {
       </div>
       {!online && <Notice>{t("agent.chat.offline")}</Notice>}
       {online && chat.problem !== null && <Notice action={fix}>{t(`agent.problems.${chat.problem}`)}</Notice>}
+      {actions !== undefined && actions.deferred.length > 0 && (
+        <Notice>{t("agent.actions.deferred", { names: actions.deferred.join(", ") })}</Notice>
+      )}
       <div className="p-3 pt-0">
         <div className="rounded-lg border border-stroke focus-within:border-accent">
           {slash && (

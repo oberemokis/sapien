@@ -338,11 +338,215 @@ pub struct Checked {
     pub issues: Vec<IssueFacts>,
 }
 
-/// Задача проекта, похожая на черновик.
+/// Номер и название задачи: похожей на черновик, из подсказки, из сводки.
 #[derive(Debug, PartialEq, Serialize)]
 pub struct Similar {
     pub id: String,
     pub summary: String,
+}
+
+impl Similar {
+    pub fn of(issue: &Value) -> Self {
+        Self {
+            id: issue["idReadable"].as_str().unwrap_or_default().to_owned(),
+            summary: issue["summary"].as_str().unwrap_or_default().to_owned(),
+        }
+    }
+}
+
+/// Подзадача эпика, у которой сменился статус: с какого и на какой.
+#[derive(Debug, PartialEq, Serialize)]
+pub struct Moved {
+    pub id: String,
+    pub summary: String,
+    pub from: Option<String>,
+    pub to: Option<String>,
+}
+
+/// Незакрытая подзадача, которая встала, и почему.
+#[derive(Debug, PartialEq, Serialize)]
+pub struct Stuck {
+    pub id: String,
+    pub summary: String,
+    /// Незакрытые задачи, от которых она зависит.
+    pub blocked_by: Vec<String>,
+    pub no_assignee: bool,
+    pub overdue: bool,
+}
+
+/// Связь, которая появилась у подзадачи за период.
+#[derive(Debug, PartialEq, Serialize)]
+pub struct NewLink {
+    pub id: String,
+    pub kind: String,
+    pub with: String,
+}
+
+/// Что случилось с подзадачами эпика с начала периода: для сводки агента.
+#[derive(Debug, PartialEq, Serialize)]
+pub struct EpicChanges {
+    pub epic: Similar,
+    pub since: String,
+    pub closed: Vec<Similar>,
+    pub created: Vec<Similar>,
+    pub moved: Vec<Moved>,
+    pub stuck: Vec<Stuck>,
+    pub links: Vec<NewLink>,
+}
+
+/// Полночь даты ГГГГ-ММ-ДД по UTC в миллисекундах, как время в YouTrack.
+pub fn date_ms(date: &str) -> Option<i64> {
+    let mut parts = date
+        .trim()
+        .splitn(3, '-')
+        .map(|part| part.parse::<i64>().ok());
+    let (year, month, day) = (parts.next()??, parts.next()??, parts.next()??);
+
+    if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
+        return None;
+    }
+
+    // Дни от начала эпохи по григорианскому календарю, год с марта.
+    let year = if month <= 2 { year - 1 } else { year };
+    let era = year.div_euclid(400);
+    let of_era = year - era * 400;
+    let of_year = (153 * ((month + 9) % 12) + 2) / 5 + day - 1;
+    let days = era * 146_097 + of_era * 365 + of_era / 4 - of_era / 100 + of_year - 719_468;
+
+    Some(days * 86_400_000)
+}
+
+fn field_of<'a>(issue: &'a Value, name: &str) -> &'a Value {
+    issue["customFields"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|field| field["name"] == name)
+        .map_or(&Value::Null, |field| &field["value"])
+}
+
+/// Первый статус до периода и последний за ним по изменениям поля State.
+fn state_move(activities: &Value) -> Option<(Option<String>, Option<String>)> {
+    let changes: Vec<&Value> = activities
+        .as_array()?
+        .iter()
+        .filter(|item| {
+            ["name", "presentation"]
+                .iter()
+                .any(|key| item["field"][key] == "State")
+        })
+        .collect();
+    let name = |value: &Value| value[0]["name"].as_str().map(str::to_owned);
+    let from = name(&changes.first()?["removed"]);
+    let to = name(&changes.last()?["added"]);
+
+    (from != to).then_some((from, to))
+}
+
+/// Изменения подзадач эпика с `since_ms`: подзадачи с полями и связями
+/// как их отдаёт YouTrack и история полей и связей у тех, что менялись.
+/// Встала задача, которая ждёт незакрытую, без исполнителя или после срока.
+pub fn epic_changes(
+    epic: Similar,
+    since: &str,
+    since_ms: i64,
+    now: i64,
+    subtasks: &Value,
+    activities: &[(String, Value)],
+) -> EpicChanges {
+    let subtasks = subtasks.as_array().map(Vec::as_slice).unwrap_or_default();
+    let after = |value: &Value| value.as_i64().is_some_and(|at| at >= since_ms);
+    let history = |id: &str| {
+        activities
+            .iter()
+            .find(|(known, _)| known == id)
+            .map(|(_, items)| items)
+    };
+    let mut changes = EpicChanges {
+        epic,
+        since: since.to_owned(),
+        closed: vec![],
+        created: vec![],
+        moved: vec![],
+        stuck: vec![],
+        links: vec![],
+    };
+
+    for issue in subtasks {
+        let brief = Similar::of(issue);
+        let open = issue["resolved"].is_null();
+
+        if after(&issue["resolved"]) {
+            changes.closed.push(Similar::of(issue));
+        }
+
+        if after(&issue["created"]) {
+            changes.created.push(Similar::of(issue));
+        }
+
+        if let Some((from, to)) = history(&brief.id).and_then(state_move) {
+            changes.moved.push(Moved {
+                id: brief.id.clone(),
+                summary: brief.summary.clone(),
+                from,
+                to,
+            });
+        }
+
+        let kinds = issue_links(issue);
+
+        for item in history(&brief.id)
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter(|item| item["category"]["id"] == "LinksCategory")
+        {
+            for added in item["added"].as_array().into_iter().flatten() {
+                let Some(with) = added["idReadable"].as_str() else {
+                    continue;
+                };
+
+                // Вид связи берётся из нынешних связей: удалённая с тех пор
+                // в сводку не идёт.
+                if let Some(link) = kinds
+                    .iter()
+                    .find(|link| link.ids.iter().any(|id| id == with))
+                {
+                    changes.links.push(NewLink {
+                        id: brief.id.clone(),
+                        kind: link.kind.clone(),
+                        with: with.to_owned(),
+                    });
+                }
+            }
+        }
+
+        let blocked_by: Vec<String> = issue["links"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|link| link["direction"] == "OUTWARD" && link["linkType"]["name"] == "Depend")
+            .flat_map(|link| link["issues"].as_array().into_iter().flatten())
+            .filter(|other| other["resolved"].is_null())
+            .filter_map(|other| other["idReadable"].as_str().map(str::to_owned))
+            .collect();
+        let no_assignee = field_of(issue, "Assignee").is_null();
+        let overdue = field_of(issue, "Due Date")
+            .as_i64()
+            .is_some_and(|due| due < now);
+
+        if open && (!blocked_by.is_empty() || no_assignee || overdue) {
+            changes.stuck.push(Stuck {
+                id: brief.id,
+                summary: brief.summary,
+                blocked_by,
+                no_assignee,
+                overdue,
+            });
+        }
+    }
+
+    changes
 }
 
 /// Человек, которого можно назначить исполнителем в проекте.
@@ -492,6 +696,113 @@ mod tests {
                     ids: vec!["SAP-4".into()]
                 },
             ]
+        );
+    }
+
+    #[test]
+    fn дата_в_миллисекунды_полуночи_utc() {
+        assert_eq!(date_ms("1970-01-01"), Some(0));
+        assert_eq!(date_ms("2026-10-31"), Some(1_793_404_800_000));
+        assert_eq!(date_ms("2024-02-29"), Some(1_709_164_800_000));
+        assert_eq!(date_ms("2026-13-01"), None);
+        assert_eq!(date_ms("вчера"), None);
+    }
+
+    #[test]
+    fn сводка_эпика_видит_закрытое_новое_сдвинутое_вставшее_и_связи() {
+        let day = 86_400_000;
+        let since = date_ms("2026-10-26").unwrap();
+        let now = since + 6 * day;
+        let state = |from: &str, to: &str| {
+            json!({
+                "category": { "id": "CustomFieldCategory" },
+                "field": { "presentation": "State" },
+                "removed": [{ "name": from }],
+                "added": [{ "name": to }],
+            })
+        };
+        let depend = |issues: Value| json!({ "direction": "OUTWARD", "linkType": { "name": "Depend", "sourceToTarget": "depends on" }, "issues": issues });
+        let assignee = json!({ "name": "Assignee", "value": { "fullName": "Анна" } });
+        let subtasks = json!([
+            { "idReadable": "SAP-2", "summary": "Таблица ссылок", "created": since - 10 * day, "resolved": since + day, "customFields": [assignee] },
+            {
+                "idReadable": "SAP-3", "summary": "Письмо", "created": since + day, "resolved": null,
+                "customFields": [{ "name": "Assignee", "value": null }],
+                "links": [depend(json!([{ "idReadable": "SAP-2", "resolved": since }, { "idReadable": "SAP-5", "resolved": null }]))],
+            },
+            {
+                "idReadable": "SAP-4", "summary": "Экран", "created": since - day, "resolved": null,
+                "customFields": [assignee, { "name": "Due Date", "value": now - day }],
+            },
+            { "idReadable": "SAP-7", "summary": "Поиск", "created": since - day, "resolved": null, "customFields": [assignee] },
+            { "idReadable": "SAP-8", "summary": "Старое", "created": since - 30 * day, "resolved": since - 20 * day, "customFields": [] },
+        ]);
+        let activities = vec![
+            (
+                "SAP-3".to_owned(),
+                json!([{ "category": { "id": "LinksCategory" }, "field": { "presentation": "links" }, "added": [{ "idReadable": "SAP-5" }], "removed": [] }]),
+            ),
+            (
+                "SAP-4".to_owned(),
+                json!([state("Open", "In Progress"), state("In Progress", "Review")]),
+            ),
+            // Статус вернулся к прежнему: не сдвинулась.
+            (
+                "SAP-7".to_owned(),
+                json!([state("Open", "In Progress"), state("In Progress", "Open")]),
+            ),
+        ];
+        let brief = |id: &str, summary: &str| Similar {
+            id: id.into(),
+            summary: summary.into(),
+        };
+
+        let changes = epic_changes(
+            brief("SAP-1", "Вход без пароля"),
+            "2026-10-26",
+            since,
+            now,
+            &subtasks,
+            &activities,
+        );
+
+        assert_eq!(changes.closed, [brief("SAP-2", "Таблица ссылок")]);
+        assert_eq!(changes.created, [brief("SAP-3", "Письмо")]);
+        assert_eq!(
+            changes.moved,
+            [Moved {
+                id: "SAP-4".into(),
+                summary: "Экран".into(),
+                from: Some("Open".into()),
+                to: Some("Review".into()),
+            }]
+        );
+        assert_eq!(
+            changes.stuck,
+            [
+                Stuck {
+                    id: "SAP-3".into(),
+                    summary: "Письмо".into(),
+                    blocked_by: vec!["SAP-5".into()],
+                    no_assignee: true,
+                    overdue: false,
+                },
+                Stuck {
+                    id: "SAP-4".into(),
+                    summary: "Экран".into(),
+                    blocked_by: vec![],
+                    no_assignee: false,
+                    overdue: true,
+                },
+            ]
+        );
+        assert_eq!(
+            changes.links,
+            [NewLink {
+                id: "SAP-3".into(),
+                kind: "depends on".into(),
+                with: "SAP-5".into(),
+            }]
         );
     }
 }

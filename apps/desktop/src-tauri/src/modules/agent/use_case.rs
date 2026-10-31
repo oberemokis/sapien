@@ -111,6 +111,7 @@ async fn run(
         }
         Tool::YoutrackSearch { query } => tracker.search(&query).await,
         Tool::YoutrackIssue { id } => tracker.issue(&id).await,
+        Tool::YoutrackEpicChanges { epic, since } => tracker.epic_changes(&epic, &since).await,
     };
 
     // Пустой результат API не примет, а модели нужен хоть какой-то ответ.
@@ -426,6 +427,10 @@ mod tests {
         }
 
         async fn issue(&self, _id: &str) -> Result<String, AppError> {
+            Err(AppError::not_found("youtrack_not_connected"))
+        }
+
+        async fn epic_changes(&self, _epic: &str, _since: &str) -> Result<String, AppError> {
             Err(AppError::not_found("youtrack_not_connected"))
         }
     }
