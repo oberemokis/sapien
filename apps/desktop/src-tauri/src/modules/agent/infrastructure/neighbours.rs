@@ -47,4 +47,8 @@ impl<R: Runtime> Tracker for YoutrackIssues<R> {
     async fn issue(&self, id: &str) -> Result<String, AppError> {
         youtrack::transport::issue(&self.0, id).await
     }
+
+    async fn epic_changes(&self, epic: &str, since: &str) -> Result<String, AppError> {
+        youtrack::transport::epic_changes(&self.0, epic, since).await
+    }
 }

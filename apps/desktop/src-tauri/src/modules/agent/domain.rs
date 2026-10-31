@@ -102,6 +102,14 @@ fn tools() -> Value {
             "Задача YouTrack по номеру, например SAP-12: описание, поля, комментарии. JSON.",
             &["id"],
         ),
+        tool(
+            "youtrack_epic_changes",
+            "Что случилось с подзадачами эпика YouTrack epic, например SAP-1, с даты since \
+             ГГГГ-ММ-ДД: closed закрытые, created новые, moved сменившие статус (from, to), \
+             stuck вставшие (blocked_by незакрытые задачи, от которых зависит, no_assignee, \
+             overdue), links новые связи. Для сводки по эпику. JSON.",
+            &["epic", "since"],
+        ),
     ])
 }
 
@@ -515,6 +523,10 @@ pub enum Tool {
     YoutrackIssue {
         id: String,
     },
+    YoutrackEpicChanges {
+        epic: String,
+        since: String,
+    },
 }
 
 impl Tool {
@@ -525,7 +537,7 @@ impl Tool {
 
 /// Строка в чате: что агент сделал инструментом и с чем.
 fn tool_target(input: &Value) -> String {
-    ["path", "query", "id"]
+    ["path", "query", "id", "epic"]
         .into_iter()
         .find_map(|field| input[field].as_str())
         .unwrap_or_default()
@@ -1238,7 +1250,8 @@ mod tests {
                 "write_note",
                 "edit_note",
                 "youtrack_search",
-                "youtrack_issue"
+                "youtrack_issue",
+                "youtrack_epic_changes"
             ]
         );
         assert_eq!(

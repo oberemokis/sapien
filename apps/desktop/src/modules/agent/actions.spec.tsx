@@ -87,6 +87,85 @@ afterEach(() => {
   cleanup();
   clearMocks();
   vi.restoreAllMocks();
+  localStorage.clear();
+});
+
+const DAY = 24 * 60 * 60 * 1000;
+
+// Сводка каждый день в полночь: срок прошёл сегодня, что бы ни показывали часы.
+const DAILY: Note = {
+  path: "Действия/Сводка по эпику.md",
+  text: "---\nintegrations: [youtrack]\nschedule: 0:00\nepic: SAP-1\n---\nСводка по {{epic}} с {{since}} по {{today}}\n",
+};
+
+function ranLongAgo() {
+  localStorage.setItem("sapien.actions.runs", JSON.stringify({ [DAILY.path]: { at: Date.now() - 8 * DAY, ran: true } }));
+}
+
+function runs() {
+  return JSON.parse(localStorage.getItem("sapien.actions.runs") ?? "{}");
+}
+
+describe("действия по расписанию", () => {
+  it("срок прошёл при закрытом приложении: действие уходит при открытии, без открытой заметки, за период с прошлого запуска", async () => {
+    const sent = fakeRust();
+    ranLongAgo();
+    const since = new Date(runs()[DAILY.path].at).toLocaleDateString("sv-SE");
+    const onRun = open({ notes: [DAILY] });
+
+    await waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0]).toEqual({
+      model: "claude-sonnet-5-5",
+      text: `Сводка по SAP-1 с ${since} по ${new Date().toLocaleDateString("sv-SE")}`,
+      context: { path: null, selection: "" },
+    });
+    expect(onRun).toHaveBeenCalledTimes(1);
+    expect(runs()[DAILY.path].ran).toBe(true);
+
+    // Запуск запомнился: второй раз за тот же срок действие не уходит.
+    cleanup();
+    open({ notes: [DAILY] });
+    await screen.findByLabelText("Сообщение агенту");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(sent).toHaveLength(1);
+  });
+
+  it("новое действие с расписанием только замечается и не уходит сразу", async () => {
+    const sent = fakeRust();
+    open({ notes: [DAILY] });
+
+    await waitFor(() => expect(runs()[DAILY.path]).toMatchObject({ ran: false }));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(sent).toHaveLength(0);
+  });
+
+  it("без сети срок ждёт, окно говорит, что действие отложено, а с сетью оно уходит само", async () => {
+    const sent = fakeRust();
+    ranLongAgo();
+    const online = vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+    open({ notes: [DAILY] });
+
+    expect(await screen.findByText(/Отложено до появления сети и подключённого YouTrack: Сводка по эпику/)).toBeDefined();
+    expect(sent).toHaveLength(0);
+
+    online.mockReturnValue(true);
+    act(() => {
+      window.dispatchEvent(new Event("online"));
+    });
+
+    await waitFor(() => expect(sent).toHaveLength(1));
+    await waitFor(() => expect(screen.queryByText(/Отложено/)).toBeNull());
+  });
+
+  it("YouTrack не подключён: действие по расписанию отложено, а не потеряно", async () => {
+    const sent = fakeRust();
+    ranLongAgo();
+    open({ notes: [DAILY], youtrack: false });
+
+    expect(await screen.findByText(/Отложено до появления сети/)).toBeDefined();
+    expect(sent).toHaveLength(0);
+    expect(runs()[DAILY.path].at).toBeLessThan(Date.now() - 7 * DAY);
+  });
 });
 
 describe("действия в чате", () => {
@@ -200,7 +279,7 @@ function settings({ refuse }: { refuse?: string } = {}) {
         }
 
         created.push({ name, text });
-        return Promise.resolve();
+        return Promise.resolve(`Действия/${name}.md`);
       }}
       open={(path) => opened.push(path)}
     />,
@@ -275,5 +354,15 @@ describe("раздел «Действия» в настройках", () => {
 
     fireEvent.click(screen.getAllByRole("button", { name: "Открыть" })[0] as HTMLElement);
     expect(opened).toEqual(["Действия/Заметка из задачи.md"]);
+  });
+
+  it("готовую сводку по эпику добавляют одной кнопкой, и она открывается, чтобы вписать эпик", async () => {
+    const { created, opened } = settings();
+
+    fireEvent.click(screen.getByRole("button", { name: "Добавить" }));
+
+    await waitFor(() => expect(opened).toEqual(["Действия/Сводка по эпику.md"]));
+    expect(created[0]?.name).toBe("Сводка по эпику");
+    expect(created[0]?.text).toMatch(/^---\nintegrations: \[youtrack\]\nhotkey:\nschedule: Mon 10:00\nepic:\n---\n/);
   });
 });

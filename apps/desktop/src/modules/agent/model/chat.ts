@@ -63,6 +63,7 @@ const TOOLS = [
   "edit_note",
   "youtrack_search",
   "youtrack_issue",
+  "youtrack_epic_changes",
 ] as const;
 
 export type ToolName = (typeof TOOLS)[number];

@@ -1,11 +1,17 @@
-import { useCallback, useEffect, useMemo } from "react";
-import { actionsOf, hotkeyOf, isRunnable, type Action, type Integration } from "../model/actions";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { readRuns, writeRun } from "../infrastructure/agent.device";
+import { actionsOf, dueActions, hotkeyOf, isRunnable, taskAt, type Action, type Integration } from "../model/actions";
 import type { ChatContext, ChatProblem } from "../model/chat";
+import { chatStore } from "../store/chat.store";
 import { modelStore } from "../store/model.store";
 import { reportProblem, useOnline, useSend } from "./chat";
 
 // Отказ, когда интеграция действия не подключена.
 const MISSING: Record<Integration, ChatProblem> = { youtrack: "needsYoutrack" };
+
+// Действие по расписанию запускается без открытой заметки: оно не про то,
+// что у человека на экране в эту минуту.
+const NOWHERE: ChatContext = { path: null, selection: "" };
 
 type Options = {
   // Заметки папки действий: их приносит страница из хранилища.
@@ -28,6 +34,37 @@ export function useActions({ notes, context, check, onRun }: Options) {
   const send = useSend();
   const online = useOnline();
   const actions = useMemo(() => actionsOf(notes ?? []).filter(isRunnable), [notes]);
+  // Действия по расписанию, чей срок прошёл, а сети или интеграции нет.
+  const [deferred, setDeferred] = useState<string[]>([]);
+
+  const ready = useCallback(
+    async (action: Action) => {
+      for (const integration of action.integrations) {
+        // Проверки идут по очереди: первая же отсутствующая и есть причина.
+        // oxlint-disable-next-line no-await-in-loop
+        if (!(await check[integration]())) {
+          return MISSING[integration];
+        }
+      }
+
+      return null;
+    },
+    [check],
+  );
+
+  // Задание уходит с датами периода, а запуск запоминается: от него
+  // считается {{since}} следующего.
+  const start = useCallback(
+    (action: Action, where: ChatContext) => {
+      const now = new Date();
+      const task = taskAt(action, readRuns()[action.path], now);
+
+      writeRun(action.path, { at: now.getTime(), ran: true });
+
+      return send(modelStore.get(), task, where);
+    },
+    [send],
+  );
 
   const run = useCallback(
     async (action: Action, where: ChatContext) => {
@@ -39,20 +76,65 @@ export function useActions({ notes, context, check, onRun }: Options) {
 
       reportProblem(null);
 
-      for (const integration of action.integrations) {
-        // Проверки идут по очереди: первая же отсутствующая и есть причина.
-        // oxlint-disable-next-line no-await-in-loop
-        if (!(await check[integration]())) {
-          reportProblem(MISSING[integration]);
+      const missing = await ready(action);
 
-          return;
+      if (missing !== null) {
+        reportProblem(missing);
+
+        return;
+      }
+
+      await start(action, where);
+    },
+    [online, onRun, ready, start],
+  );
+
+  // Расписание проверяется при открытии и раз в минуту. Новое действие
+  // только замечается. Пропущенный срок без сети или интеграции ждёт их,
+  // и окно говорит, что действие отложено. Чат берёт одно сообщение
+  // за раз, поэтому за проверку уходит одно действие.
+  useEffect(() => {
+    let stopped = false;
+
+    async function tick() {
+      const now = new Date();
+      const runs = readRuns();
+      const waiting: string[] = [];
+
+      for (const action of actions) {
+        if (action.schedule !== null && runs[action.path] === undefined) {
+          writeRun(action.path, { at: now.getTime(), ran: false });
         }
       }
 
-      await send(modelStore.get(), action.task, where);
-    },
-    [check, onRun, online, send],
-  );
+      for (const action of dueActions(actions, runs, now)) {
+        // oxlint-disable-next-line no-await-in-loop -- за проверку уходит одно действие
+        const prepared = online && (await ready(action)) === null;
+
+        if (stopped) {
+          return;
+        }
+
+        if (!prepared) {
+          waiting.push(action.name);
+        } else if (chatStore.get().live === null) {
+          onRun();
+          void start(action, NOWHERE);
+          break;
+        }
+      }
+
+      setDeferred(waiting);
+    }
+
+    void tick();
+    const timer = setInterval(() => void tick(), 60_000);
+
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+    };
+  }, [actions, online, onRun, ready, start]);
 
   // Удалённое действие пропадает из списка, и его клавиша больше ничего
   // не делает.
@@ -74,5 +156,5 @@ export function useActions({ notes, context, check, onRun }: Options) {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [actions, context, run]);
 
-  return { actions, online, run };
+  return { actions, online, run, deferred };
 }
