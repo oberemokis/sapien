@@ -23,7 +23,13 @@
     },
     "plugins": [
       "expo-router",
-      "expo-sqlite"
+      "expo-sqlite",
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Face ID открывает sapien, когда включена блокировка приложения."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true
