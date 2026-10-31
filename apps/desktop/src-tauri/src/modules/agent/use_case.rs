@@ -1,14 +1,17 @@
 use super::domain::{
     AWAY, Answer, Assembler, Chat, Context, Entry, Event, MAX_STEPS, MEETING, MeetingTask,
-    ModelError, Oversight, Question, STOPPED, Tool, choice_result, meeting_message,
-    meeting_request, meeting_schema, meeting_tasks, parse_model, permission_result, push_user,
-    replace_once, request, search, touch, transcript, turns, undo_plan, user_blocks,
+    ModelError, Oversight, Question, SILENCE, STOPPED, SYSTEM, Session, Tool, choice_result,
+    claude_blocks, claude_failure, claude_init_problem, claude_result, clip, meeting_message,
+    meeting_request, meeting_schema, meeting_tasks, notice, parse_model, permission_result, prompt,
+    push_assistant, push_user, replace_once, request, search, touch, transcript, turns, undo_plan,
+    user_blocks,
 };
-use super::ports::{ChatStore, Claude, Human, Model, Notes, Tracker};
+use super::ports::{ChatStore, Claude, Conversation, Human, Incoming, Model, Notes, Run, Tracker};
 use crate::error::AppError;
 use crate::secrets::{SecretName, Secrets};
 use serde_json::{Value, json};
 use tokio::sync::Notify;
+use tokio::time::timeout;
 
 pub fn history(chat: &impl ChatStore) -> Result<Vec<Entry>, AppError> {
     let chat = chat.load()?;
@@ -20,31 +23,48 @@ pub fn clear(chat: &impl ChatStore) -> Result<(), AppError> {
     chat.clear()
 }
 
+/// Сессия Claude Code этого чата, чтобы продолжить её в терминале.
+pub fn session(chat: &impl ChatStore) -> Result<Option<String>, AppError> {
+    Ok(chat.load()?.session.map(|session| session.id))
+}
+
 /// «Откатить» у ответа на сообщение `turn`: этот ответ и более поздние,
 /// которые трогали те же заметки (`undo_plan`). Заметки возвращаются
 /// к тексту до них, созданные агентом уходят в корзину. Текущий текст
 /// перед этим уходит в историю версий: правка человека поверх агента
 /// не теряется, а откат сам обратим. Не вышло вернуть заметку, и ответы
 /// остаются неоткаченными, откат можно повторить.
-pub fn undo(chat: &impl ChatStore, notes: &impl Notes, turn: usize) -> Result<(), AppError> {
-    let Chat {
-        messages,
-        mut changes,
-    } = chat.load()?;
-    let (turns, targets) = undo_plan(&changes, turn);
+pub fn undo(store: &impl ChatStore, notes: &impl Notes, turn: usize) -> Result<(), AppError> {
+    let mut chat = store.load()?;
+    let (turns, targets) = undo_plan(&chat.changes, turn);
 
     for target in &targets {
         notes.revert(&target.path, target.before.as_deref())?;
     }
 
-    for change in changes
+    for change in chat
+        .changes
         .iter_mut()
         .filter(|change| turns.contains(&change.turn))
     {
         change.undone = true;
     }
 
-    chat.save(&messages, &changes)
+    store.save(&chat)
+}
+
+/// Заметка из закрытой папки не уходит модели ни путём, ни выделением,
+/// что бы ни прислало окно.
+fn visible(context: Context, notes: &impl Notes) -> Context {
+    if context
+        .path
+        .as_deref()
+        .is_some_and(|path| !notes.open(path))
+    {
+        return Context::default();
+    }
+
+    context
 }
 
 /// Текст заметки до правки. Нет заметки, значит, правка её создаст.
@@ -122,23 +142,17 @@ impl<H: Human> Asking<'_, H> {
 
 /// Выполняет вызов инструмента. Ошибка уходит модели текстом, чтобы она
 /// поправила вызов или сказала человеку, что не вышло. Заметку, которую
-/// инструмент поменял, и её текст до правки получает `wrote`.
+/// инструмент поменяет, и её текст до правки получает `wrote` до записи:
+/// откат узнаёт о правке раньше заметки, а не вышло записать в откат,
+/// заметка не меняется.
 async fn run(
     call: &Value,
-    assembler: &Assembler,
     notes: &impl Notes,
     tracker: &impl Tracker,
     asking: &Asking<'_, impl Human>,
     events: &mut (impl FnMut(Event) + Send),
-    wrote: &mut (impl FnMut(&str, Option<String>) + Send),
+    wrote: &mut (impl FnMut(&str, Option<String>) -> Result<(), AppError> + Send),
 ) -> Result<String, String> {
-    if let Some(raw) = call["id"]
-        .as_str()
-        .and_then(|id| assembler.invalid_input(id))
-    {
-        return Err(json!({ "INVALID_JSON": raw }).to_string());
-    }
-
     let Some(tool) = Tool::parse(call) else {
         return Err("Неверные параметры вызова: сверь их со схемой инструмента.".to_owned());
     };
@@ -165,10 +179,8 @@ async fn run(
 
             let was = before(notes, &path).map_err(failed)?;
 
-            notes.put(&path, &text).map(|()| {
-                wrote(&path, was);
-                "Записано.".to_owned()
-            })
+            wrote(&path, was).map_err(failed)?;
+            notes.put(&path, &text).map(|()| "Записано.".to_owned())
         }
         Tool::EditNote {
             path,
@@ -180,10 +192,8 @@ async fn run(
             let text = notes.read(&path).map_err(failed)?;
             let edited = replace_once(&text, &old_text, &new_text).map_err(str::to_owned)?;
 
-            notes.put(&path, &edited).map(|()| {
-                wrote(&path, Some(text));
-                "Заменено.".to_owned()
-            })
+            wrote(&path, Some(text)).map_err(failed)?;
+            notes.put(&path, &edited).map(|()| "Заменено.".to_owned())
         }
         Tool::YoutrackSearch { query } => tracker.search(&query).await,
         Tool::YoutrackIssue { id } => tracker.issue(&id).await,
@@ -210,6 +220,8 @@ async fn run(
 /// пришло, и вопрос человека. Ответ, который модель отказалась давать,
 /// не сохраняется вовсе. «Стоп» посреди вызовов, например во время вопроса,
 /// закрывает оставшиеся вызовы ошибкой, а сделанные правки остаются в откате.
+/// Отказ после сообщения человека остаётся в истории отметкой с кодом:
+/// следующий отказ её не затрёт.
 #[expect(
     clippy::too_many_arguments,
     reason = "порты сценария и вход, без обёртки"
@@ -218,7 +230,7 @@ pub async fn send(
     model: &impl Model,
     notes: &impl Notes,
     tracker: &impl Tracker,
-    chat: &impl ChatStore,
+    store: &impl ChatStore,
     secrets: &Secrets,
     human: &impl Human,
     stop: &Notify,
@@ -233,36 +245,58 @@ pub async fn send(
     let key = secrets
         .get(SecretName::ModelKey)
         .ok_or(AppError::not_found("agent_key_missing"))?;
-    let Chat {
-        mut messages,
-        mut changes,
-    } = chat.load()?;
-    let mut context = turn.context;
-
-    // Заметка из закрытой папки не уходит модели ни путём, ни выделением,
-    // что бы ни прислало окно.
-    if context
-        .path
-        .as_deref()
-        .is_some_and(|path| !notes.open(path))
-    {
-        context = Context::default();
-    }
+    let mut chat = store.load()?;
+    let context = visible(turn.context, notes);
 
     if !turn.text.trim().is_empty() {
-        push_user(&mut messages, user_blocks(turn.text, &context));
-        chat.save(&messages, &changes)?;
+        push_user(&mut chat.messages, user_blocks(turn.text, &context));
+        store.save(&chat)?;
     }
 
-    if messages.last().is_none_or(|last| last["role"] != "user") {
+    if chat
+        .messages
+        .last()
+        .is_none_or(|last| last["role"] != "user")
+    {
         return Ok(());
     }
 
     // Номер сообщения, на которое идёт ответ: «Повторить» продолжает его же.
-    let asked = turns(&messages).saturating_sub(1);
+    let asked = turns(&chat.messages).saturating_sub(1);
+    let answered = steps(
+        model, model_id, &key, notes, tracker, store, &asking, stop, asked, &mut chat, events,
+    )
+    .await;
 
+    if let Err(error) = &answered {
+        notice(&mut chat.messages, error.code, None);
+        // Не записалась отметка: отказ всё равно дойдёт до окна.
+        let _ = store.save(&chat);
+    }
+
+    answered
+}
+
+/// Шаги ответа на ключе API: запрос, вызовы, снова запрос.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "порты сценария и состояние ответа, без обёртки"
+)]
+async fn steps(
+    model: &impl Model,
+    model_id: &str,
+    key: &str,
+    notes: &impl Notes,
+    tracker: &impl Tracker,
+    store: &impl ChatStore,
+    asking: &Asking<'_, impl Human>,
+    stop: &Notify,
+    asked: usize,
+    chat: &mut Chat,
+    events: &mut (impl FnMut(Event) + Send),
+) -> Result<(), AppError> {
     for _ in 0..MAX_STEPS {
-        let body = request(model_id, &messages);
+        let body = request(model_id, &chat.messages);
         let mut assembler = Assembler::default();
         let mut on_event = |event: Value| {
             if let Some(text) = assembler.apply(&event) {
@@ -270,7 +304,7 @@ pub async fn send(
             }
         };
         let streamed = tokio::select! {
-            result = model.stream(&key, &body, &mut on_event) => Some(result),
+            result = model.stream(key, &body, &mut on_event) => Some(result),
             () = stop.notified() => None,
         };
         let reason = assembler.stop_reason().map(str::to_owned);
@@ -296,7 +330,7 @@ pub async fn send(
             .cloned()
             .collect();
 
-        messages.extend(message);
+        chat.messages.extend(message);
 
         let outcome = match (streamed, failure, reason.as_deref()) {
             (None, ..) => Ok(false),
@@ -308,7 +342,7 @@ pub async fn send(
         };
 
         if !matches!(outcome, Ok(true)) {
-            chat.save(&messages, &changes)?;
+            store.save(chat)?;
             return outcome.map(drop);
         }
 
@@ -316,12 +350,22 @@ pub async fn send(
         let mut stopped = false;
 
         for call in &calls {
-            let mut wrote = |path: &str, was| touch(&mut changes, asked, path, was);
+            // Откат помнит правку в памяти, а на диск она идёт вместе
+            // с результатами раунда: история без них модель не примет.
+            let mut wrote = |path: &str, was| {
+                touch(&mut chat.changes, asked, path, was);
+                Ok(())
+            };
+            let invalid = call["id"]
+                .as_str()
+                .and_then(|id| assembler.invalid_input(id));
             let result = if stopped {
                 Err(STOPPED.to_owned())
+            } else if let Some(raw) = invalid {
+                Err(json!({ "INVALID_JSON": raw }).to_string())
             } else {
                 tokio::select! {
-                    result = run(call, &assembler, notes, tracker, &asking, events, &mut wrote) => result,
+                    result = run(call, notes, tracker, asking, events, &mut wrote) => result,
                     () = stop.notified() => {
                         stopped = true;
                         Err(STOPPED.to_owned())
@@ -344,8 +388,8 @@ pub async fn send(
             }));
         }
 
-        push_user(&mut messages, results);
-        chat.save(&messages, &changes)?;
+        push_user(&mut chat.messages, results);
+        store.save(chat)?;
 
         if stopped {
             return Ok(());
@@ -353,6 +397,290 @@ pub async fn send(
     }
 
     Err(AppError::invalid("agent_too_many_steps"))
+}
+
+/// Чем кончился один запуск Claude Code. У отказа по лимиту подписки
+/// время сброса, в секундах Unix.
+enum Outcome {
+    Done,
+    Stopped,
+    Failed(AppError, Option<u64>),
+}
+
+/// Ответ агента через Claude Code на подписке Claude: сообщение уходит
+/// в его сессию, а инструменты sapien Claude Code зовёт через сервер MCP.
+/// Вызовы идут теми же правилами, что на ключе API: закрытые папки,
+/// вопросы, разрешения, откат. История здесь это копия показанного,
+/// а сам разговор держит Claude Code.
+///
+/// Сессию, которую меняли снаружи, Claude Code продолжает в копии.
+/// Пропавшую сессию sapien начинает заново с отметкой в истории. Отказ
+/// остаётся в истории отметкой с кодом, у лимита со временем сброса.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "порты сценария и вход, без обёртки"
+)]
+pub async fn send_via_claude(
+    claude: &impl Claude,
+    notes: &impl Notes,
+    tracker: &impl Tracker,
+    store: &impl ChatStore,
+    human: &impl Human,
+    stop: &Notify,
+    turn: Turn<'_>,
+    events: &mut (impl FnMut(Event) + Send),
+) -> Result<(), AppError> {
+    let model = parse_model(turn.model).ok_or(AppError::invalid("agent_model_unknown"))?;
+    let mut chat = store.load()?;
+    let context = visible(turn.context, notes);
+
+    if !turn.text.trim().is_empty() {
+        push_user(&mut chat.messages, user_blocks(turn.text, &context));
+        store.save(&chat)?;
+    }
+
+    if chat
+        .messages
+        .last()
+        .is_none_or(|last| last["role"] != "user")
+    {
+        return Ok(());
+    }
+
+    let asking = Asking {
+        human,
+        oversight: turn.oversight,
+    };
+    let asked = turns(&chat.messages).saturating_sub(1);
+    let prompt = prompt(&chat.messages);
+    let mut resume = chat.session.clone();
+
+    loop {
+        let fork = resume
+            .as_ref()
+            .is_some_and(|session| claude.stamp(&session.id) != session.seen);
+        let run = Run {
+            model,
+            system: SYSTEM,
+            prompt: &prompt,
+            resume: resume.as_ref().map(|session| session.id.as_str()),
+            fork,
+        };
+        let outcome = match claude.converse(&run).await {
+            Ok(mut talk) => {
+                listen(
+                    &mut talk, &mut chat, store, asked, notes, tracker, &asking, stop, events,
+                )
+                .await
+            }
+            Err(error) => Outcome::Failed(error, None),
+        };
+
+        // Claude Code не нашёл сессию, например, она устарела: разговор
+        // начинается заново, а история говорит об этом.
+        if let Outcome::Failed(error, _) = &outcome
+            && error.code == "claude_session_missing"
+            && resume.is_some()
+        {
+            notice(&mut chat.messages, "claude_session_new", None);
+            chat.session = None;
+            resume = None;
+            continue;
+        }
+
+        if let Some(session) = &mut chat.session {
+            session.seen = claude.stamp(&session.id);
+        }
+
+        if let Outcome::Failed(error, resets) = &outcome {
+            notice(&mut chat.messages, error.code, *resets);
+        }
+
+        store.save(&chat)?;
+
+        return match outcome {
+            Outcome::Failed(error, _) => Err(error),
+            Outcome::Done | Outcome::Stopped => Ok(()),
+        };
+    }
+}
+
+/// Пишет историю посреди ответа. Не вышло, и ответ прерывается: правка,
+/// которой нет в откате, хуже остановленного ответа.
+fn keep(
+    store: &impl ChatStore,
+    chat: &Chat,
+    failure: &mut Option<AppError>,
+    talk: &mut impl Conversation,
+) {
+    if let Err(error) = store.save(chat) {
+        failure.get_or_insert(error);
+        talk.interrupt();
+    }
+}
+
+/// Идёт за одним запуском Claude Code до конца: текст в окно, сообщения
+/// в историю, вызовы инструментов через `run`. «Стоп» и сторож прерывают
+/// процесс, а вызовы после этого отклоняются: ходом владеет sapien.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "порты сценария и состояние ответа, без обёртки"
+)]
+async fn listen(
+    talk: &mut impl Conversation,
+    chat: &mut Chat,
+    store: &impl ChatStore,
+    asked: usize,
+    notes: &impl Notes,
+    tracker: &impl Tracker,
+    asking: &Asking<'_, impl Human>,
+    stop: &Notify,
+    events: &mut (impl FnMut(Event) + Send),
+) -> Outcome {
+    let mut stopped = false;
+    let mut failure: Option<AppError> = None;
+    let mut result = None;
+    let mut resets = None;
+    // Текст, который окно уже видит, а Claude Code ещё не прислал целым
+    // блоком. Оборвался ответ, и в историю идёт он.
+    let mut shown = String::new();
+
+    loop {
+        let next = tokio::select! {
+            next = timeout(SILENCE, talk.next()) => next,
+            () = stop.notified(), if !stopped => {
+                stopped = true;
+                talk.interrupt();
+                continue;
+            }
+        };
+
+        // Сторож: событий долго нет, а вопроса не открыто, иначе ждал бы
+        // вызов, а не поток.
+        let Ok(next) = next else {
+            failure.get_or_insert(AppError::unavailable("claude_failed"));
+            talk.interrupt();
+            continue;
+        };
+
+        let line = match next {
+            None => break,
+            Some(Incoming::Line(line)) => line,
+            Some(Incoming::Call { id, name, input }) => {
+                let call = json!({ "id": format!("call-{id}"), "name": &name, "input": input });
+                let result = if stopped || failure.is_some() {
+                    Err(STOPPED.to_owned())
+                } else {
+                    let mut wrote = |path: &str, was| {
+                        touch(&mut chat.changes, asked, path, was);
+                        store.save(chat)
+                    };
+
+                    tokio::select! {
+                        result = run(&call, notes, tracker, asking, events, &mut wrote) => result,
+                        () = stop.notified() => {
+                            stopped = true;
+                            talk.interrupt();
+                            Err(STOPPED.to_owned())
+                        }
+                    }
+                };
+
+                // Вопрос агента окно уже показало вопросом.
+                if name != "ask_user" {
+                    events(Event::tool(&call, result.is_ok()));
+                }
+
+                talk.reply(id, result.map(clip)).await;
+                continue;
+            }
+        };
+
+        // Субагентов у Claude здесь нет, а их строки окну не нужны.
+        if !line["parent_tool_use_id"].is_null() {
+            continue;
+        }
+
+        match line["type"].as_str().unwrap_or_default() {
+            "system" if line["subtype"] == "init" => {
+                if let Some(problem) = claude_init_problem(&line) {
+                    failure.get_or_insert(problem);
+                    talk.interrupt();
+                } else if let Some(id) = line["session_id"].as_str() {
+                    chat.session = Some(Session {
+                        id: id.to_owned(),
+                        seen: None,
+                    });
+                    keep(store, chat, &mut failure, talk);
+                }
+            }
+            "stream_event" => {
+                let delta = &line["event"]["delta"];
+
+                if delta["type"] == "text_delta"
+                    && let Some(text) = delta["text"].as_str()
+                {
+                    shown.push_str(text);
+                    events(Event::Text {
+                        text: text.to_owned(),
+                    });
+                }
+            }
+            "assistant" => {
+                let blocks = claude_blocks(&line["message"]);
+
+                if blocks.iter().any(|block| block["type"] == "text") {
+                    shown.clear();
+                }
+
+                push_assistant(&mut chat.messages, blocks);
+                keep(store, chat, &mut failure, talk);
+            }
+            "user" => {
+                let results: Vec<Value> = claude_blocks(&line["message"])
+                    .into_iter()
+                    .filter(|block| block["type"] == "tool_result")
+                    .collect();
+
+                if !results.is_empty() {
+                    push_user(&mut chat.messages, results);
+                    keep(store, chat, &mut failure, talk);
+                }
+            }
+            "rate_limit_event" if line["rate_limit_info"]["status"] == "rejected" => {
+                resets = line["rate_limit_info"]["resetsAt"].as_u64();
+            }
+            "result" => result = Some(claude_result(&line)),
+            _ => {}
+        }
+    }
+
+    if !shown.is_empty() {
+        push_assistant(
+            &mut chat.messages,
+            vec![json!({ "type": "text", "text": shown })],
+        );
+    }
+
+    if stopped {
+        return Outcome::Stopped;
+    }
+
+    let failure = match (failure, result) {
+        (Some(error), _) => Some(error),
+        (None, Some(result)) => result.err(),
+        (None, None) => Some(claude_failure(talk.errors())),
+    };
+
+    match failure {
+        None => Outcome::Done,
+        // Лимит подписки Claude Code сообщает событием до отказа, и там же
+        // время сброса.
+        Some(_) if resets.is_some() => {
+            Outcome::Failed(AppError::unavailable("claude_limit"), resets)
+        }
+        Some(error) => Outcome::Failed(error, None),
+    }
 }
 
 /// «Задачи из встречи»: агент читает заметку со встречи целиком и предлагает
@@ -440,7 +768,7 @@ pub async fn meeting_via_claude(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::modules::agent::domain::{Change, ClaudeState, ClaudeStatus};
+    use crate::modules::agent::domain::{ClaudeState, ClaudeStatus, Stamp};
     use std::collections::{BTreeMap, VecDeque};
     use std::sync::{Arc, Mutex};
     use tauri::async_runtime::block_on;
@@ -621,11 +949,8 @@ mod tests {
             Ok(self.0.lock().unwrap().clone())
         }
 
-        fn save(&self, messages: &[Value], changes: &[Change]) -> Result<(), AppError> {
-            *self.0.lock().unwrap() = Chat {
-                messages: messages.to_vec(),
-                changes: changes.to_vec(),
-            };
+        fn save(&self, chat: &Chat) -> Result<(), AppError> {
+            *self.0.lock().unwrap() = chat.clone();
             Ok(())
         }
 
@@ -664,7 +989,7 @@ mod tests {
         ]
     }
 
-    struct Run {
+    struct Sent {
         result: Result<(), AppError>,
         events: Vec<Event>,
     }
@@ -678,7 +1003,7 @@ mod tests {
         secrets: &Secrets,
         stop: &Notify,
         text: &str,
-    ) -> Run {
+    ) -> Sent {
         let nobody = FakeHuman::with(vec![], &Arc::new(Notify::new()));
 
         send_asking(
@@ -700,7 +1025,7 @@ mod tests {
         secrets: &Secrets,
         stop: &Notify,
         text: &str,
-    ) -> Run {
+    ) -> Sent {
         let mut events = vec![];
         let turn = Turn {
             model: "claude-sonnet-5-5",
@@ -723,7 +1048,7 @@ mod tests {
             &mut |event| events.push(event),
         ));
 
-        Run { result, events }
+        Sent { result, events }
     }
 
     #[test]
@@ -898,16 +1223,25 @@ mod tests {
             Err(AppError::unavailable("agent_rate_limited"))
         );
         assert_eq!(retried.result, Ok(()));
+        // Отказ остался строкой в истории, а модели не ушёл.
         assert_eq!(
             history(&chat).unwrap(),
             [
                 Entry::User {
                     text: "Вопрос".into()
                 },
+                Entry::Notice {
+                    code: "agent_rate_limited".into(),
+                    resets: None,
+                },
                 Entry::Assistant {
                     text: "Ответ.".into()
                 },
             ]
+        );
+        assert_eq!(
+            model.bodies.lock().unwrap()[1].1["messages"],
+            json!([{ "role": "user", "content": [{ "type": "text", "text": "<context>\nОткрыта заметка: план.md\n</context>" }, { "type": "text", "text": "Вопрос" }] }])
         );
     }
 
@@ -1498,12 +1832,74 @@ mod tests {
         );
     }
 
+    /// Шаг поддельного ответа Claude Code.
+    enum Step {
+        Line(Value),
+        /// Вызов инструмента sapien по MCP.
+        Call(&'static str, Value),
+        /// Claude Code молчит, а человек жмёт «Стоп».
+        Hang(Arc<Notify>),
+    }
+
+    /// Что видел поддельный Claude Code: запуски (сессия, копия ли,
+    /// сообщение), ответы на вызовы и сколько раз его прерывали.
+    #[derive(Default)]
+    struct Seen {
+        runs: Vec<(Option<String>, bool, String)>,
+        replies: Vec<Result<String, String>>,
+        interrupts: usize,
+    }
+
+    struct FakeTalk {
+        steps: VecDeque<Step>,
+        errors: String,
+        calls: u64,
+        seen: Arc<Mutex<Seen>>,
+    }
+
+    impl Conversation for FakeTalk {
+        async fn next(&mut self) -> Option<Incoming> {
+            match self.steps.pop_front()? {
+                Step::Line(line) => Some(Incoming::Line(line)),
+                Step::Call(name, input) => {
+                    self.calls += 1;
+                    Some(Incoming::Call {
+                        id: json!(self.calls),
+                        name: name.into(),
+                        input,
+                    })
+                }
+                Step::Hang(stop) => {
+                    stop.notify_one();
+                    std::future::pending().await
+                }
+            }
+        }
+
+        async fn reply(&mut self, _id: Value, result: Result<String, String>) {
+            self.seen.lock().unwrap().replies.push(result);
+        }
+
+        fn interrupt(&mut self) {
+            self.seen.lock().unwrap().interrupts += 1;
+        }
+
+        fn errors(&self) -> &str {
+            &self.errors
+        }
+    }
+
     /// Claude Code в заданном состоянии, который отвечает одно и то же
-    /// и помнит запросы: модель, системный промпт и сообщение.
+    /// и помнит запросы: модель, системный промпт и сообщение. Ответы
+    /// в сессии идут по сценарию `talks`, а файл сессии лежит таким,
+    /// как `stamp`.
     struct FakeClaude {
         state: ClaudeState,
         answer: Value,
         asked: Mutex<Vec<(String, String, String)>>,
+        talks: Mutex<VecDeque<(Vec<Step>, &'static str)>>,
+        seen: Arc<Mutex<Seen>>,
+        stamp: Mutex<Option<Stamp>>,
     }
 
     impl FakeClaude {
@@ -1512,7 +1908,18 @@ mod tests {
                 state,
                 answer,
                 asked: Mutex::default(),
+                talks: Mutex::default(),
+                seen: Arc::default(),
+                stamp: Mutex::default(),
             }
+        }
+
+        /// Ответы по сценарию: шаги и что Claude Code пишет в stderr.
+        fn talking(talks: Vec<(Vec<Step>, &'static str)>) -> Self {
+            let claude = Self::with(ClaudeState::Ready, Value::Null);
+
+            *claude.talks.lock().unwrap() = talks.into();
+            claude
         }
 
         fn asked(&self) -> Vec<(String, String, String)> {
@@ -1521,8 +1928,36 @@ mod tests {
     }
 
     impl Claude for FakeClaude {
+        type Talk = FakeTalk;
+
         async fn status(&self) -> ClaudeStatus {
             ClaudeStatus::of_state(self.state)
+        }
+
+        async fn converse(&self, run: &Run<'_>) -> Result<FakeTalk, AppError> {
+            let (steps, errors) = self
+                .talks
+                .lock()
+                .unwrap()
+                .pop_front()
+                .expect("лишний запуск Claude Code");
+
+            self.seen.lock().unwrap().runs.push((
+                run.resume.map(str::to_owned),
+                run.fork,
+                run.prompt.to_owned(),
+            ));
+
+            Ok(FakeTalk {
+                steps: steps.into(),
+                errors: errors.into(),
+                calls: 0,
+                seen: self.seen.clone(),
+            })
+        }
+
+        fn stamp(&self, _id: &str) -> Option<Stamp> {
+            *self.stamp.lock().unwrap()
         }
 
         async fn structured(
@@ -1603,5 +2038,468 @@ mod tests {
             );
             assert!(claude.asked().is_empty());
         }
+    }
+
+    fn init(session: &str) -> Step {
+        Step::Line(json!({
+            "type": "system",
+            "subtype": "init",
+            "session_id": session,
+            "apiKeySource": "none",
+            "mcp_servers": [{ "name": "sapien", "status": "connected" }],
+            "tools": ["mcp__sapien__read_note", "mcp__sapien__edit_note", "EndConversation"],
+        }))
+    }
+
+    fn delta(text: &str) -> Step {
+        Step::Line(json!({
+            "type": "stream_event",
+            "parent_tool_use_id": null,
+            "event": { "type": "content_block_delta", "index": 0, "delta": { "type": "text_delta", "text": text } },
+        }))
+    }
+
+    fn said(blocks: Value) -> Step {
+        Step::Line(json!({
+            "type": "assistant",
+            "parent_tool_use_id": null,
+            "message": { "role": "assistant", "content": blocks },
+        }))
+    }
+
+    fn tool_result(id: &str, text: &str) -> Step {
+        Step::Line(json!({
+            "type": "user",
+            "parent_tool_use_id": null,
+            "message": { "role": "user", "content": [
+                { "type": "tool_result", "tool_use_id": id, "content": [{ "type": "text", "text": text }] },
+            ] },
+        }))
+    }
+
+    fn done() -> Step {
+        Step::Line(
+            json!({ "type": "result", "subtype": "success", "is_error": false, "result": "" }),
+        )
+    }
+
+    fn via_claude_send(
+        claude: &FakeClaude,
+        notes: &FakeNotes,
+        chat: &FakeChat,
+        (human, oversight): (&FakeHuman, Oversight),
+        stop: &Notify,
+        (text, path): (&str, &str),
+    ) -> Sent {
+        let mut events = vec![];
+        let turn = Turn {
+            model: "claude-opus-5-5",
+            text,
+            context: Context {
+                path: Some(path.into()),
+                selection: None,
+            },
+            oversight,
+        };
+        let result = block_on(send_via_claude(
+            claude,
+            notes,
+            &NoTracker,
+            chat,
+            human,
+            stop,
+            turn,
+            &mut |event| events.push(event),
+        ));
+
+        Sent { result, events }
+    }
+
+    fn trusting() -> FakeHuman {
+        FakeHuman::with(vec![], &Arc::new(Notify::new()))
+    }
+
+    #[test]
+    fn чат_через_claude_code_правит_заметку_инструментом_sapien() {
+        let edit =
+            json!({ "path": "план.md", "old_text": "- [ ] релиз", "new_text": "- [x] релиз" });
+        let claude = FakeClaude::talking(vec![(
+            vec![
+                init("s1"),
+                delta("Сейчас "),
+                delta("отмечу."),
+                said(json!([
+                    { "type": "thinking", "thinking": "…" },
+                    { "type": "text", "text": "Сейчас отмечу." },
+                ])),
+                said(json!([{
+                    "type": "tool_use",
+                    "id": "toolu_1",
+                    "name": "mcp__sapien__edit_note",
+                    "input": edit,
+                }])),
+                Step::Call("edit_note", edit.clone()),
+                tool_result("toolu_1", "Заменено."),
+                delta("Готово."),
+                said(json!([{ "type": "text", "text": "Готово." }])),
+                done(),
+            ],
+            "",
+        )]);
+        let notes = FakeNotes::with(&[("план.md", "# План\n- [ ] релиз\n")]);
+        let chat = FakeChat::default();
+        let stamp = Stamp {
+            len: 1,
+            modified: 2,
+        };
+
+        *claude.stamp.lock().unwrap() = Some(stamp);
+
+        let sent = via_claude_send(
+            &claude,
+            &notes,
+            &chat,
+            (&trusting(), Oversight::Trust),
+            &Notify::new(),
+            ("Отметь релиз", "план.md"),
+        );
+
+        assert_eq!(sent.result, Ok(()));
+        assert_eq!(notes.text("план.md").unwrap(), "# План\n- [x] релиз\n");
+        assert_eq!(
+            sent.events,
+            [
+                Event::Text {
+                    text: "Сейчас ".into()
+                },
+                Event::Text {
+                    text: "отмечу.".into()
+                },
+                Event::Tool {
+                    name: "edit_note".into(),
+                    target: "план.md".into(),
+                    ok: true,
+                },
+                Event::Text {
+                    text: "Готово.".into()
+                },
+            ]
+        );
+
+        let seen = claude.seen.lock().unwrap();
+
+        assert_eq!(seen.replies, [Ok("Заменено.".to_owned())]);
+        assert_eq!(
+            seen.runs,
+            [(
+                None,
+                false,
+                "<context>\nОткрыта заметка: план.md\n</context>\n\nОтметь релиз".to_owned()
+            )]
+        );
+        drop(seen);
+
+        assert_eq!(
+            history(&chat).unwrap(),
+            [
+                Entry::User {
+                    text: "Отметь релиз".into()
+                },
+                Entry::Assistant {
+                    text: "Сейчас отмечу.".into()
+                },
+                Entry::Tool {
+                    name: "edit_note".into(),
+                    target: "план.md".into(),
+                    ok: true,
+                },
+                Entry::Assistant {
+                    text: "Готово.".into()
+                },
+                Entry::Changed {
+                    turn: 0,
+                    paths: vec!["план.md".into()],
+                    undone: false,
+                    with: vec![],
+                },
+            ]
+        );
+        assert_eq!(
+            chat.0.lock().unwrap().session,
+            Some(Session {
+                id: "s1".into(),
+                seen: Some(stamp),
+            })
+        );
+    }
+
+    #[test]
+    fn сессия_продолжается_снаружи_в_копии_а_пропавшая_начинается_заново() {
+        let claude = FakeClaude::talking(vec![
+            (vec![init("s1"), done()], ""),
+            (vec![init("s1"), done()], ""),
+            (vec![init("s2"), done()], ""),
+            (vec![], "No conversation found with session ID: s2"),
+            (
+                vec![
+                    init("s3"),
+                    said(json!([{ "type": "text", "text": "Начнём." }])),
+                    done(),
+                ],
+                "",
+            ),
+        ]);
+        let notes = FakeNotes::default();
+        let chat = FakeChat::default();
+        let stop = Notify::new();
+        let nobody = trusting();
+        let send = |text: &str| {
+            via_claude_send(
+                &claude,
+                &notes,
+                &chat,
+                (&nobody, Oversight::Trust),
+                &stop,
+                (text, "Личное/дневник.md"),
+            )
+            .result
+        };
+        let ours = Some(Stamp {
+            len: 1,
+            modified: 1,
+        });
+
+        *claude.stamp.lock().unwrap() = ours;
+        assert_eq!(send("Привет"), Ok(()));
+        assert_eq!(send("Как дела"), Ok(()));
+
+        // Разговор продолжили в терминале: файл сессии уже не тот.
+        *claude.stamp.lock().unwrap() = Some(Stamp {
+            len: 9,
+            modified: 9,
+        });
+        assert_eq!(send("Ещё"), Ok(()));
+
+        // Сессию удалили по сроку хранения.
+        assert_eq!(send("Снова"), Ok(()));
+
+        let runs = claude.seen.lock().unwrap().runs.clone();
+
+        assert_eq!(
+            runs,
+            [
+                // Закрытая заметка не уходит даже путём.
+                (None, false, "Привет".to_owned()),
+                (Some("s1".to_owned()), false, "Как дела".to_owned()),
+                (Some("s1".to_owned()), true, "Ещё".to_owned()),
+                (Some("s2".to_owned()), false, "Снова".to_owned()),
+                (None, false, "Снова".to_owned()),
+            ]
+        );
+        assert_eq!(
+            history(&chat).unwrap()[3..],
+            [
+                Entry::User {
+                    text: "Снова".into()
+                },
+                Entry::Notice {
+                    code: "claude_session_new".into(),
+                    resets: None,
+                },
+                Entry::Assistant {
+                    text: "Начнём.".into()
+                },
+            ]
+        );
+        assert_eq!(
+            chat.0
+                .lock()
+                .unwrap()
+                .session
+                .as_ref()
+                .map(|session| session.id.clone()),
+            Some("s3".into())
+        );
+    }
+
+    #[test]
+    fn стоп_прерывает_claude_code_а_поздний_вызов_отклонён() {
+        let stop = Arc::new(Notify::new());
+        let edit = json!({ "path": "план.md", "old_text": "черновик", "new_text": "готово" });
+        let write = json!({ "path": "план.md", "text": "поверх" });
+        let claude = FakeClaude::talking(vec![(
+            vec![
+                init("s1"),
+                Step::Call("edit_note", edit),
+                delta("Дальше пишу"),
+                Step::Hang(stop.clone()),
+                // Claude Code успел позвать инструмент, пока выходил.
+                Step::Call("write_note", write),
+            ],
+            "",
+        )]);
+        let notes = FakeNotes::with(&[("план.md", "черновик")]);
+        let chat = FakeChat::default();
+
+        let sent = via_claude_send(
+            &claude,
+            &notes,
+            &chat,
+            (&trusting(), Oversight::Trust),
+            &stop,
+            ("Допиши план", "план.md"),
+        );
+
+        assert_eq!(sent.result, Ok(()));
+        assert_eq!(notes.text("план.md").unwrap(), "готово");
+
+        let seen = claude.seen.lock().unwrap();
+
+        assert_eq!(seen.interrupts, 1);
+        assert_eq!(
+            seen.replies,
+            [Ok("Заменено.".to_owned()), Err(STOPPED.to_owned())]
+        );
+        drop(seen);
+
+        // Показанный текст остался, хотя целым блоком он не пришёл.
+        assert!(history(&chat).unwrap().contains(&Entry::Assistant {
+            text: "Дальше пишу".into()
+        }));
+
+        undo(&chat, &notes, 0).unwrap();
+        assert_eq!(notes.text("план.md").unwrap(), "черновик");
+    }
+
+    #[test]
+    fn отказ_остаётся_в_истории_и_не_затирается_следующим() {
+        let claude = FakeClaude::talking(vec![
+            (
+                vec![
+                    init("s1"),
+                    Step::Line(json!({
+                        "type": "rate_limit_event",
+                        "rate_limit_info": { "status": "rejected", "resetsAt": 1_793_000_000 },
+                    })),
+                    Step::Line(json!({
+                        "type": "result",
+                        "subtype": "success",
+                        "is_error": true,
+                        "result": "You've hit your limit · resets 3pm",
+                    })),
+                ],
+                "",
+            ),
+            (vec![], "Unable to connect to API (ECONNREFUSED)"),
+            (
+                vec![
+                    Step::Line(json!({
+                        "type": "system",
+                        "subtype": "init",
+                        "session_id": "s9",
+                        "apiKeySource": "ANTHROPIC_API_KEY",
+                        "mcp_servers": [{ "name": "sapien", "status": "connected" }],
+                        "tools": [],
+                    })),
+                    Step::Call("write_note", json!({ "path": "план.md", "text": "ключом" })),
+                ],
+                "",
+            ),
+        ]);
+        let notes = FakeNotes::default();
+        let chat = FakeChat::default();
+        let nobody = trusting();
+        let send = |text: &str| {
+            via_claude_send(
+                &claude,
+                &notes,
+                &chat,
+                (&nobody, Oversight::Trust),
+                &Notify::new(),
+                (text, "план.md"),
+            )
+            .result
+            .map_err(|error| error.code)
+        };
+
+        assert_eq!(send("Раз"), Err("claude_limit"));
+        assert_eq!(send(""), Err("agent_unreachable"));
+        assert_eq!(send("Два"), Err("claude_not_subscription"));
+        // Ответ шёл бы с ключа API: вызов отклонён, Claude Code прерван.
+        assert_eq!(notes.text("план.md"), None);
+        assert_eq!(claude.seen.lock().unwrap().interrupts, 1);
+
+        let notices: Vec<Entry> = history(&chat)
+            .unwrap()
+            .into_iter()
+            .filter(|entry| matches!(entry, Entry::Notice { .. }))
+            .collect();
+
+        assert_eq!(
+            notices,
+            [
+                Entry::Notice {
+                    code: "claude_limit".into(),
+                    resets: Some(1_793_000_000),
+                },
+                Entry::Notice {
+                    code: "agent_unreachable".into(),
+                    resets: None,
+                },
+                Entry::Notice {
+                    code: "claude_not_subscription".into(),
+                    resets: None,
+                },
+            ]
+        );
+        // «Повторить» шлёт то же сообщение снова.
+        let runs = claude.seen.lock().unwrap().runs.clone();
+
+        assert_eq!(runs[1].2, runs[0].2);
+    }
+
+    #[test]
+    fn вопрос_claude_уходит_человеку_через_инструмент_sapien() {
+        let stop = Arc::new(Notify::new());
+        let ask = json!({ "question": "Какой срок?", "options": ["пятница", "понедельник"] });
+        let claude = FakeClaude::talking(vec![(
+            vec![init("s1"), Step::Call("ask_user", ask), done()],
+            "",
+        )]);
+        let human = FakeHuman::with(
+            vec![Some(Answer::Text {
+                text: "пятница".into(),
+            })],
+            &stop,
+        );
+
+        let sent = via_claude_send(
+            &claude,
+            &FakeNotes::default(),
+            &FakeChat::default(),
+            (&human, Oversight::Ask),
+            &stop,
+            ("Поставь срок", "план.md"),
+        );
+
+        assert_eq!(sent.result, Ok(()));
+        assert_eq!(
+            human.asked(),
+            [Question::Choice {
+                id: "call-1".into(),
+                question: "Какой срок?".into(),
+                options: vec!["пятница".into(), "понедельник".into()],
+            }]
+        );
+        assert_eq!(
+            claude.seen.lock().unwrap().replies,
+            [Ok("пятница".to_owned())]
+        );
+        assert!(
+            !sent
+                .events
+                .iter()
+                .any(|event| matches!(event, Event::Tool { .. }))
+        );
     }
 }

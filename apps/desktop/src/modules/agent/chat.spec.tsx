@@ -7,8 +7,12 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AgentChat } from "@/modules/agent";
 import type { Answer, ChatContext, ChatEntry, ChatEvent, Question } from "./model/chat";
+import type { ClaudeStatus } from "./model/method";
+import { methodStore } from "./store/method.store";
 
-type Sent = { model: string; text: string; context: ChatContext; oversight: string };
+type Sent = { method: string; model: string; text: string; context: ChatContext; oversight: string };
+
+const READY: ClaudeStatus = { state: "ready", version: "2.1.316" };
 
 // Сообщение в канал так, как его шлёт Rust. Каналы mockIPC держит здесь.
 function toChannel(channel: Channel<ChatEvent>, index: number, message: ChatEvent) {
@@ -21,10 +25,18 @@ function toChannel(channel: Channel<ChatEvent>, index: number, message: ChatEven
 // Rust за командами агента: история чата, ключ и ответ, который идёт
 // событиями через канал. Ответ кончается, когда тест его отпустит.
 // ongoing это ответ, который уже идёт и ждёт ответа на вопрос, когда окно
-// открывается: так выглядит перезагрузка окна.
-function fakeRust({ key = true, ongoing = null }: { key?: boolean; ongoing?: Question | null } = {}) {
+// открывается: так выглядит перезагрузка окна. Claude Code по умолчанию
+// не поддержан, и чат идёт ключом.
+function fakeRust({
+  key = true,
+  ongoing = null,
+  claude = { state: "unsupported", version: null },
+}: { key?: boolean; ongoing?: Question | null; claude?: ClaudeStatus } = {}) {
   const rust = {
     history: [] as ChatEntry[],
+    // Каким способом окно читало историю.
+    read: [] as string[],
+    session: null as string | null,
     sent: [] as Sent[],
     answers: [] as { id: string; answer: Answer }[],
     stops: 0,
@@ -70,7 +82,12 @@ function fakeRust({ key = true, ongoing = null }: { key?: boolean; ongoing?: Que
       case "secret_status":
         return { ending: key ? "WXYZ" : null, kept: true };
       case "agent_history":
+        rust.read.push((args as { method: string }).method);
         return rust.history;
+      case "agent_claude_status":
+        return claude;
+      case "agent_claude_session":
+        return rust.session;
       case "agent_stop":
         rust.stops += 1;
         return null;
@@ -150,6 +167,8 @@ afterEach(() => {
   cleanup();
   clearMocks();
   vi.restoreAllMocks();
+  localStorage.clear();
+  methodStore.setState(() => null);
 });
 
 describe("чат с агентом", () => {
@@ -163,7 +182,13 @@ describe("чат с агентом", () => {
 
     expect(field().value).toBe("");
     await waitFor(() => expect(rust.sent).toHaveLength(1));
-    expect(rust.sent[0]).toEqual({ model: "claude-sonnet-5-5", text: "Отметь релиз", context: CONTEXT, oversight: "ask" });
+    expect(rust.sent[0]).toEqual({
+      method: "key",
+      model: "claude-sonnet-5-5",
+      text: "Отметь релиз",
+      context: CONTEXT,
+      oversight: "ask",
+    });
 
     const tool: ChatEntry = { kind: "tool", name: "edit_note", target: "Проекты/план.md", ok: true };
     rust.emit(tool);
@@ -298,14 +323,16 @@ describe("чат с агентом", () => {
     expect(screen.getByRole("button", { name: "Откатить" })).toBeDefined();
   });
 
-  it("без ключа вместо поля ввода ведёт в настройки", async () => {
-    fakeRust({ key: false });
+  it("без ключа ведёт в настройки, а отправить нельзя", async () => {
+    const rust = fakeRust({ key: false });
     open();
 
     const link = await screen.findByRole("link", { name: "Задать ключ в настройках" });
 
     expect(link.getAttribute("href")).toBe("/settings/agent");
-    expect(screen.queryByLabelText("Сообщение агенту")).toBeNull();
+    await ask("Вопрос");
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Отправить" }).disabled).toBe(true);
+    expect(rust.sent).toHaveLength(0);
   });
 
   it("без сети отправить нельзя, история читается", async () => {
@@ -324,12 +351,121 @@ describe("чат с агентом", () => {
   });
 });
 
+function model() {
+  return screen.getByRole("button", { name: /^Модель/ });
+}
+
+describe("способ агента", () => {
+  it("с готовым Claude Code чат идёт подпиской, отказ встаёт строкой со временем сброса", async () => {
+    const rust = fakeRust({ claude: READY });
+    open();
+
+    expect(await screen.findByText("Подписка Claude")).toBeDefined();
+    await ask("Привет");
+    await waitFor(() => expect(rust.sent).toHaveLength(1));
+    expect(rust.sent[0].method).toBe("subscription");
+    expect(rust.read).toContain("subscription");
+
+    // 31 октября 2026, 15:00 по Москве.
+    rust.history.push({ kind: "user", text: "Привет" }, { kind: "notice", code: "claude_limit", resets: 1_793_448_000 });
+    rust.fail("claude_limit");
+
+    const line = await screen.findByText(/Лимит подписки Claude исчерпан/);
+
+    expect(line.textContent).toMatch(/Сбросится \d+ октября в \d\d:\d\d\./);
+    // Строка уже в ленте: внизу чата отказ второй раз не встаёт.
+    expect(screen.queryByRole("alert")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Повторить" }));
+    await waitFor(() => expect(rust.sent).toHaveLength(2));
+    expect(rust.sent[1]).toMatchObject({ method: "subscription", text: "" });
+    rust.finish([{ kind: "assistant", text: "Привет!" }]);
+    expect(await screen.findByText("Привет!")).toBeDefined();
+    expect(screen.queryByRole("button", { name: "Повторить" })).toBeNull();
+  });
+
+  it("меню модели перечисляет модели обоих способов, другой способ меняет разговор после вопроса", async () => {
+    const rust = fakeRust({ claude: READY });
+    rust.history.push({ kind: "user", text: "Старый разговор" });
+    open();
+
+    await screen.findByText("Старый разговор");
+    expect(model().getAttribute("aria-label")).toBe("Модель: Sonnet 5.5");
+    fireEvent.click(model());
+
+    const menu = screen.getByRole("menu");
+
+    expect(within(menu).getByText("Подписка Claude")).toBeDefined();
+    expect(within(menu).getByText("Ключ API")).toBeDefined();
+    expect(
+      within(menu)
+        .getAllByRole("menuitemradio")
+        .map((item) => [item.textContent, item.getAttribute("aria-checked")]),
+    ).toEqual([
+      ["Sonnet 5.5", "true"],
+      ["Opus 5.5", "false"],
+      ["Haiku 5.5", "false"],
+      ["Sonnet 5.5", "false"],
+      ["Opus 5.5", "false"],
+      ["Haiku 5.5", "false"],
+    ]);
+
+    // Модель своего способа выбирается сразу.
+    fireEvent.click(within(menu).getAllByRole("menuitemradio", { name: "Opus 5.5" })[0]);
+    expect(model().getAttribute("aria-label")).toBe("Модель: Opus 5.5");
+    expect(screen.queryByText(/Перейти к другому разговору/)).toBeNull();
+
+    fireEvent.click(model());
+    fireEvent.click(within(screen.getByRole("menu")).getAllByRole("menuitemradio", { name: "Haiku 5.5" })[1]);
+
+    expect(screen.getByText(/Перейти к другому разговору/)).toBeDefined();
+    // Пока человек не ответил, модель и разговор прежние.
+    expect(model().getAttribute("aria-label")).toBe("Модель: Opus 5.5");
+    fireEvent.click(screen.getByRole("button", { name: "Перейти" }));
+
+    expect(await screen.findByText("Ключ API")).toBeDefined();
+    expect(model().getAttribute("aria-label")).toBe("Модель: Haiku 5.5");
+    await waitFor(() => expect(rust.read).toContain("key"));
+  });
+
+  it("«Продолжить в терминале» копирует команду продолжения сессии", async () => {
+    const rust = fakeRust({ claude: READY });
+    const writeText = vi.fn(() => Promise.resolve());
+    rust.session = "4f1c-9a";
+    rust.history.push({ kind: "user", text: "Привет" });
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    open();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Продолжить в терминале" }));
+
+    expect(writeText).toHaveBeenCalledWith("claude --resume 4f1c-9a");
+    expect(await screen.findByText("Скопировано, вставьте в терминал: claude --resume 4f1c-9a")).toBeDefined();
+  });
+
+  it("без входа в Claude Code ведёт в настройки, а модель ключа выбрать можно", async () => {
+    const rust = fakeRust({ claude: { state: "logged_out", version: "2.1.316" } });
+    methodStore.setState(() => "subscription");
+    open();
+
+    expect(await screen.findByText(/Вход не выполнен/)).toBeDefined();
+    await ask("Вопрос");
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Отправить" }).disabled).toBe(true);
+
+    fireEvent.click(model());
+    fireEvent.click(within(screen.getByRole("menu")).getAllByRole("menuitemradio", { name: "Sonnet 5.5" })[1]);
+    fireEvent.click(screen.getByRole("button", { name: "Отправить" }));
+
+    await waitFor(() => expect(rust.sent).toHaveLength(1));
+    expect(rust.sent[0].method).toBe("key");
+    rust.finish([]);
+  });
+});
+
 const WHERE: Question = { kind: "choice", id: "q1", question: "Куда записать?", options: ["Идеи", "План"] };
 
-// Переключатель в шапке перерисовывается после «Очистить», поэтому
-// ищется заново.
-function asking() {
-  return screen.getByRole<HTMLInputElement>("checkbox", { name: "Спрашивать перед правками" });
+// Доступ агента к правкам выбирают в меню под полем ввода.
+function access() {
+  return screen.getByRole("button", { name: /^Доступ к заметкам/ });
 }
 
 describe("вопросы и разрешения", () => {
@@ -384,12 +520,22 @@ describe("вопросы и разрешения", () => {
     expect(await screen.findByRole("button", { name: "Отправить" })).toBeDefined();
   });
 
-  it("без вопросов о правках до «Очистить», потом снова с вопросами", async () => {
+  it("полный доступ правит без вопросов до «Очистить», потом снова по разрешению", async () => {
     const rust = fakeRust();
     open();
     await screen.findByLabelText("Сообщение агенту");
-    expect(asking().checked).toBe(true);
-    fireEvent.click(asking());
+    expect(access().getAttribute("aria-label")).toBe("Доступ к заметкам: По разрешению");
+    fireEvent.click(access());
+
+    const levels = screen.getAllByRole("menuitemradio").map((item) => [item.textContent, item.getAttribute("aria-checked")]);
+
+    expect(levels).toEqual([
+      ["По разрешениюспрашивает перед правкой", "true"],
+      ["Полный доступправит без вопросов", "false"],
+    ]);
+    fireEvent.click(screen.getByRole("menuitemradio", { name: /Полный доступ/ }));
+    expect(access().getAttribute("aria-label")).toBe("Доступ к заметкам: Полный доступ");
+
     await ask("Поправь план");
     await waitFor(() => expect(rust.sent).toHaveLength(1));
     expect(rust.sent[0].oversight).toBe("trust");
@@ -398,7 +544,7 @@ describe("вопросы и разрешения", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Очистить историю чата" }));
     fireEvent.click(screen.getByRole("button", { name: "Очистить" }));
 
-    await waitFor(() => expect(asking().checked).toBe(true));
+    await waitFor(() => expect(access().getAttribute("aria-label")).toBe("Доступ к заметкам: По разрешению"));
     await ask("Ещё правка");
     await waitFor(() => expect(rust.sent).toHaveLength(2));
     expect(rust.sent[1].oversight).toBe("ask");

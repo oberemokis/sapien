@@ -29,13 +29,19 @@ export type QuestionEntry = { kind: "question"; id: string; question: string; op
 // Просьба разрешить правку заметки. Её видно, только пока она открыта.
 export type PermissionEntry = { kind: "permission"; id: string; tool: string; path: string };
 
+// Отметка в истории: ответ не вышел с кодом отказа (у лимита подписки
+// resets, когда он сбросится, в секундах Unix) или Claude Code начал
+// разговор заново (claude_session_new).
+export type NoticeEntry = { kind: "notice"; code: string; resets: number | null };
+
 export type ChatEntry =
   | { kind: "user"; text: string }
   | { kind: "assistant"; text: string }
   | ToolEntry
   | QuestionEntry
   | PermissionEntry
-  | ChangedEntry;
+  | ChangedEntry
+  | NoticeEntry;
 
 // Сообщения человека с этими номерами, по порядку. Номер это место
 // сообщения среди всех сообщений человека, как turn в domain.rs.
@@ -160,6 +166,7 @@ const PROBLEMS = [
   "claude_not_subscription",
   "claude_keychain_locked",
   "claude_limit",
+  "claude_tools_missing",
   "claude_failed",
 ] as const;
 
@@ -174,5 +181,28 @@ export function chatProblemOf(error: unknown): ChatProblem {
     code = error.code;
   }
 
+  return problemOf(code);
+}
+
+// Код отказа из отметки истории или ответа команды.
+export function problemOf(code: unknown): ChatProblem {
   return PROBLEMS.find((problem) => problem === code) ?? "failed";
+}
+
+// Когда сбросится лимит подписки, по часам устройства.
+export function resetsAt(resets: number): { date: string; time: string } {
+  const at = new Date(resets * 1000);
+
+  return {
+    date: at.toLocaleDateString("ru-RU", { day: "numeric", month: "long" }),
+    time: at.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" }),
+  };
+}
+
+// Отказ уже стоит строкой в конце истории: второй раз внизу чата
+// его показывать незачем.
+export function isNoted(entries: ChatEntry[] | undefined, problem: ChatProblem) {
+  const last = entries?.at(-1);
+
+  return last?.kind === "notice" && problemOf(last.code) === problem;
 }

@@ -16,6 +16,25 @@ mod window_store;
 use modules::{agent, vault, youtrack};
 use tauri::Manager;
 
+/// `sapien mcp <сокет>`: так приложение запускает Claude Code, когда чат
+/// идёт подпиской. Процесс без окна только перекачивает stdio в сокет
+/// открытого приложения, инструменты выполняет оно. Код выхода для `exit`.
+pub fn mcp(socket: Option<String>) -> i32 {
+    #[cfg(unix)]
+    if let Some(socket) = socket {
+        let done = agent::bridge(
+            std::path::Path::new(&socket),
+            std::io::stdin(),
+            std::io::stdout(),
+        );
+
+        return i32::from(done.is_err());
+    }
+
+    let _ = socket;
+    1
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default();
@@ -44,6 +63,7 @@ pub fn run() {
         .manage(updates::Pending::default())
         .manage(vault::Watch::default())
         .manage(vault::Opened::default())
+        .manage(vault::Pinned::default())
         .manage(secrets::Secrets::default())
         .manage(youtrack::Http::default())
         .manage(agent::Anthropic::default())
@@ -105,6 +125,7 @@ pub fn run() {
             agent::transport::agent_claude_status,
             agent::transport::agent_attach,
             agent::transport::agent_answer,
+            agent::transport::agent_claude_session,
             vault::transport::vault_opened,
             vault::transport::vault_status,
             vault::transport::vault_tree,
