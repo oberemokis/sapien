@@ -79,7 +79,8 @@ const PROBLEMS = [
   "chat_unwritable",
 ] as const;
 
-export type ChatProblem = (typeof PROBLEMS)[number] | "failed";
+// needsYoutrack ставит окно само: действию нужен YouTrack, а он не подключён.
+export type ChatProblem = (typeof PROBLEMS)[number] | "failed" | "needsYoutrack";
 
 // Отказ команды приходит как AppError из error.rs: { kind, code }.
 export function chatProblemOf(error: unknown): ChatProblem {

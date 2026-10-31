@@ -1,5 +1,6 @@
 import { Tag } from "@lezer/highlight";
 import { GFM, parser, type MarkdownConfig } from "@lezer/markdown";
+import { FRONTMATTER, frontmatterList } from "./frontmatter";
 
 // Тег по правилам Obsidian: после решётки буквы, цифры, «_», «-» и «/»
 // для вложенных, и хотя бы один знак не цифра: «#2024» тегом не считается.
@@ -48,51 +49,10 @@ export const Hashtags: MarkdownConfig = {
   ],
 };
 
-// Шапка заметки между строками «---» в самом начале, как в Obsidian.
-const FRONTMATTER = /^---\r?\n([\s\S]*?)\r?\n(?:---|\.\.\.)[ \t]*(?:\r?\n|$)/;
-
-// Теги шапки и где они в ней: «tags: a, b», «tags: [a, b]» или списком
-// строк «- a» ниже. Кавычки и решётка перед именем в тег не входят.
+// Теги шапки и где они в ней. Кавычки и решётка перед именем в тег
+// не входят.
 function frontmatterTags(yaml: string) {
-  const lines = yaml.split("\n");
-  let offset = 0;
-  const starts = lines.map((line) => {
-    const start = offset;
-
-    offset += line.length + 1;
-
-    return start;
-  });
-  const at = lines.findIndex((line) => /^tags\s*:/.test(line));
-
-  if (at === -1) {
-    return [];
-  }
-
-  const line = lines[at] ?? "";
-  const head = line.indexOf(":") + 1;
-  const inline = [...line.slice(head).matchAll(/[^\s,[\]]+/g)];
-  let values = inline.map((match) => ({ raw: match[0], from: (starts[at] ?? 0) + head + match.index }));
-
-  if (inline.length === 0) {
-    values = [];
-
-    for (const [index, text] of lines.entries()) {
-      if (index <= at) {
-        continue;
-      }
-
-      const item = /^(\s*-\s*)(\S*)/.exec(text);
-
-      if (item === null) {
-        break;
-      }
-
-      values.push({ raw: item[2] ?? "", from: (starts[index] ?? 0) + (item[1] ?? "").length });
-    }
-  }
-
-  return values.flatMap(({ raw, from }) => {
+  return frontmatterList(yaml, "tags").flatMap(({ raw, from }) => {
     const prefix = /^["']?#?/.exec(raw)?.[0].length ?? 0;
     const name = tagName(raw.slice(prefix));
 

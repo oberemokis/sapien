@@ -27,3 +27,24 @@ export function useYoutrack() {
 
   return { status: status.data, checking: status.isFetching, connect, disconnect, recheck };
 }
+
+// Подключён ли YouTrack сейчас: проверка перед работой, которой он нужен.
+// Ответ минутной давности берётся из кеша, иначе Rust спрашивает сервер.
+export function useYoutrackCheck() {
+  const queryClient = useQueryClient();
+
+  return useCallback(async () => {
+    try {
+      const status = await queryClient.fetchQuery({
+        queryKey: YOUTRACK_KEY,
+        queryFn: youtrackStatus,
+        retry: false,
+        staleTime: 60_000,
+      });
+
+      return status.kind === "connected";
+    } catch {
+      return false;
+    }
+  }, [queryClient]);
+}
