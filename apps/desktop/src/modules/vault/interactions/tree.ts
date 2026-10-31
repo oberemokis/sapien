@@ -1,4 +1,6 @@
 import { useSelector } from "@tanstack/react-store";
+import { readRecent, writeRecent } from "../infrastructure/recent.device";
+import { parseRecent, pushRecent } from "../model/search";
 import { foldersDownTo, parentOf, type EntryKind } from "../model/vault";
 import { EMPTY_TREE, treeStore } from "../store/tree.store";
 
@@ -6,12 +8,25 @@ export function useTreeState() {
   return useSelector(treeStore);
 }
 
+export function restoreRecent() {
+  treeStore.setState((state) => ({ ...state, recent: parseRecent(readRecent()) }));
+}
+
 export function selectEntry(path: string, kind: EntryKind) {
   treeStore.setState((state) => ({ ...state, selected: { path, kind } }));
 }
 
+// Открытая заметка видна в дереве: папки над ней раскрываются, когда её
+// открыли поиском.
 export function openNote(path: string, focus = false) {
-  treeStore.setState((state) => ({ ...state, selected: { path, kind: "note" }, open: { path, focus } }));
+  treeStore.setState((state) => ({
+    ...state,
+    selected: { path, kind: "note" },
+    open: { path, focus },
+    expanded: [...new Set([...state.expanded, ...foldersDownTo(parentOf(path))])],
+    recent: pushRecent(state.recent, path),
+  }));
+  writeRecent(treeStore.get().recent);
 }
 
 export function toggleFolder(path: string) {
@@ -84,4 +99,5 @@ export function finishCreate(draftId: number, path: string, kind: EntryKind) {
 // Другое хранилище: пути прежнего в нём ничего не значат.
 export function resetTree() {
   treeStore.setState(() => EMPTY_TREE);
+  writeRecent([]);
 }

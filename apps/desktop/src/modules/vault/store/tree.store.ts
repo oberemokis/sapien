@@ -12,8 +12,10 @@ export type TreeState = {
   // Заметка в редакторе. Выделение папки её не закрывает. Только что
   // созданную открывают с курсором в тексте.
   open: { path: string; focus: boolean } | null;
+  // Недавно открытые заметки, свежие первыми: их показывает пустой поиск.
+  recent: string[];
 };
 
-export const EMPTY_TREE: TreeState = { selected: null, expanded: [], draft: null, open: null };
+export const EMPTY_TREE: TreeState = { selected: null, expanded: [], draft: null, open: null, recent: [] };
 
 export const treeStore = createStore<TreeState>(EMPTY_TREE);
