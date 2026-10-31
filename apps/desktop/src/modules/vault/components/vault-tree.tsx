@@ -128,13 +128,16 @@ function Row({
   selected,
   expanded,
   onClick,
+  onMiddleClick,
   children,
 }: {
   entry: VaultEntry;
   depth: number;
   selected: boolean;
   expanded?: boolean;
-  onClick: () => void;
+  onClick: (event: MouseEvent) => void;
+  // Средняя кнопка мыши.
+  onMiddleClick?: () => void;
   children: ReactNode;
 }) {
   const ref = useRef<HTMLButtonElement>(null);
@@ -156,6 +159,11 @@ function Row({
       className={`${ROW} text-content/80 transition-colors duration-120 hover:bg-selection-hover aria-current:bg-selection aria-current:text-content`}
       style={indent(depth, entry.kind === "folder")}
       onClick={onClick}
+      onAuxClick={(event) => {
+        if (event.button === 1) {
+          onMiddleClick?.();
+        }
+      }}
     >
       {children}
     </button>
@@ -184,7 +192,13 @@ function Entries({
         if (entry.kind === "note") {
           return (
             <li key={entry.path}>
-              <Row entry={entry} depth={depth} selected={selected} onClick={() => openNote(entry.path)}>
+              <Row
+                entry={entry}
+                depth={depth}
+                selected={selected}
+                onClick={(event) => openNote(entry.path, { newTab: hasModKey(event) })}
+                onMiddleClick={() => openNote(entry.path, { newTab: true })}
+              >
                 <FileTypeIcon name={entry.name} />
                 <span className="truncate">{noteTitle(entry.name)}</span>
               </Row>

@@ -103,11 +103,11 @@ function SearchDialog() {
     closeSearch();
   }
 
-  // Найденная заметка открывается с курсором в тексте.
-  // ⌘Enter откроет её в новой вкладке, когда появятся вкладки (#3).
-  function choose(path: string) {
+  // Найденная заметка открывается с курсором в тексте: Enter в активной
+  // вкладке, ⌘Enter и ⌘клик в новой.
+  function choose(path: string, newTab: boolean) {
     close();
-    openNote(path, true);
+    openNote(path, { focus: true, newTab });
   }
 
   function createNote() {
@@ -116,11 +116,11 @@ function SearchDialog() {
     }
   }
 
-  function pick(index: number) {
+  function pick(index: number, newTab: boolean) {
     const note = found[index];
 
     if (note !== undefined) {
-      choose(note.path);
+      choose(note.path, newTab);
     } else if (offerCreate) {
       createNote();
     }
@@ -139,7 +139,7 @@ function SearchDialog() {
 
     if (event.key === "Enter") {
       event.preventDefault();
-      pick(active);
+      pick(active, hasModKey(event));
     }
   }
 
@@ -203,7 +203,7 @@ function SearchDialog() {
               aria-selected={index === active}
               className={OPTION}
               onMouseMove={() => setActive(index)}
-              onClick={() => choose(note.path)}
+              onClick={(event) => choose(note.path, hasModKey(event))}
             >
               <FileTypeIcon name={note.path} />
               <Title note={note} />

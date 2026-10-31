@@ -10,7 +10,8 @@ export function shortcutLabel(key: string, shift = false) {
   return ["Ctrl", shift && "Shift", key].filter(Boolean).join("+");
 }
 
-export function hasModKey(event: KeyboardEvent) {
+// Для клавиш и для щелчка мыши: ⌘клик открывает в новой вкладке.
+export function hasModKey(event: Pick<KeyboardEvent, "metaKey" | "ctrlKey">) {
   if (isMac) {
     return event.metaKey && !event.ctrlKey;
   }

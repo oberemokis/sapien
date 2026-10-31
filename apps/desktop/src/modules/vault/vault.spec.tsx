@@ -2,8 +2,9 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { emit } from "@tauri-apps/api/event";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { useEffect, useRef } from "react";
 import { afterEach, describe, expect, it } from "vitest";
-import { FileSearch, NoteView, VaultGate, VaultTree, useVaultSync } from "@/modules/vault";
+import { FileSearch, NoteTabs, NoteView, VaultGate, VaultTree, restoreSession, useVaultSync } from "@/modules/vault";
 import { forgetNotes } from "./interactions/note";
 import { closeSearch } from "./interactions/search";
 import type { EditorProps } from "./model/vault";
@@ -99,11 +100,19 @@ function fakeRust(disk: Disk) {
 
 // Редактор здесь простое поле: хранилище отдаёт ему текст и принимает
 // правку, а CodeMirror проверяется в своём модуле.
-function TextEditor({ value, onChange, readOnly, focusOnMount, label }: EditorProps) {
+function TextEditor({ value, onChange, readOnly, focusRequest, label }: EditorProps) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (focusRequest > 0) {
+      ref.current?.focus();
+    }
+  }, [focusRequest]);
+
   return (
     <textarea
+      ref={ref}
       aria-label={label}
-      data-focus-on-mount={focusOnMount || undefined}
       value={value}
       readOnly={readOnly}
       onChange={(event) => onChange(event.target.value)}
@@ -116,6 +125,9 @@ function Window() {
 
   return (
     <>
+      <header>
+        <NoteTabs onCreateStart={() => undefined} />
+      </header>
       <aside aria-label="дерево">
         <VaultTree />
       </aside>
@@ -355,7 +367,8 @@ describe("создание в дереве", () => {
     expect(screen.queryByRole("menu")).toBeNull();
     rename("План");
     pressEnter();
-    await screen.findByRole("button", { name: "План" });
+    // Созданная заметка открылась, и курсор ушёл в её текст.
+    await screen.findByRole("textbox", { name: "План" });
 
     fireEvent.contextMenu(inTree().getByRole("navigation"));
     fireEvent.click(screen.getByRole("menuitem", { name: "Новая папка" }));
@@ -532,7 +545,7 @@ describe("открытая заметка", () => {
     pressEnter();
 
     const editor = await screen.findByRole("textbox", { name: "Встреча" });
-    expect(editor.getAttribute("data-focus-on-mount")).toBe("true");
+    expect(document.activeElement).toBe(editor);
     expect(screen.getByRole("heading", { name: "Встреча" })).toBeDefined();
   });
 });
@@ -649,5 +662,132 @@ describe("поиск файла", () => {
     query("елка");
 
     expect(screen.getByText("Ничего не найдено")).toBeDefined();
+  });
+});
+
+function tabs() {
+  return screen.queryAllByRole("tab").map((tab) => tab.getAttribute("aria-label"));
+}
+
+function activeTab() {
+  return screen.queryAllByRole("tab").find((tab) => tab.getAttribute("aria-selected") === "true")?.getAttribute("aria-label");
+}
+
+function workspace() {
+  return fakeRust({
+    status: { kind: "ready", path: "/notes" },
+    tree: [folder("Встречи", [note("Встречи/план.md")]), folder("Проекты", [note("Проекты/план.md")]), note("идеи.md")],
+    files: { "Встречи/план.md": "встреча", "Проекты/план.md": "проект", "идеи.md": "идеи" },
+  });
+}
+
+// В testing-library нет auxClick, событие средней кнопки собирается руками.
+function middleClick(element: Element) {
+  fireEvent(element, new MouseEvent("auxclick", { bubbles: true, button: 1 }));
+}
+
+async function openFromTree(...names: string[]) {
+  for (const name of names) {
+    // oxlint-disable-next-line eslint/no-await-in-loop -- клики по очереди, как человек
+    fireEvent.click(await inTree().findByRole("button", { name }));
+  }
+}
+
+describe("вкладки", () => {
+  it("клик заменяет файл вкладки, ⌘клик открывает новую, открытый не повторяется", async () => {
+    workspace();
+    launch();
+    await openFromTree("Встречи", "Проекты");
+
+    fireEvent.click(inTree().getByRole("button", { name: "идеи" }));
+    fireEvent.click(within(inTree().getAllByRole("listitem")[0] as HTMLElement).getByRole("button", { name: "план" }));
+    expect(tabs()).toEqual(["план"]);
+
+    fireEvent.click(inTree().getByRole("button", { name: "идеи" }), mod);
+    expect(tabs()).toEqual(["план", "идеи"]);
+
+    fireEvent.click(within(inTree().getAllByRole("listitem")[0] as HTMLElement).getByRole("button", { name: "план" }));
+    expect(tabs()).toEqual(["план", "идеи"]);
+    expect(activeTab()).toBe("план");
+  });
+
+  it("закрытие крестиком, средней кнопкой и ⌘W, последняя оставляет подсказку", async () => {
+    workspace();
+    launch();
+    await openFromTree("идеи", "Встречи");
+    fireEvent.click(inTree().getByRole("button", { name: "план" }), mod);
+    fireEvent.click(inTree().getByRole("button", { name: "Проекты" }));
+    middleClick(within(inTree().getAllByRole("listitem")[2] as HTMLElement).getByRole("button", { name: "план" }));
+    expect(tabs()).toEqual(["идеи", "план, Встречи", "план, Проекты"]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Закрыть «идеи»" }));
+    middleClick(screen.getByRole("tab", { name: "план, Встречи" }));
+    expect(tabs()).toEqual(["план"]);
+
+    fireEvent.keyDown(window, { code: "KeyW", ...mod });
+    expect(tabs()).toEqual([]);
+    expect(await screen.findByText("Выберите заметку")).toBeDefined();
+  });
+
+  it("Ctrl+Tab ходит по вкладкам по кругу и ставит курсор в текст", async () => {
+    workspace();
+    launch();
+    await openFromTree("идеи", "Встречи");
+    fireEvent.click(inTree().getByRole("button", { name: "план" }), mod);
+    expect(activeTab()).toBe("план");
+
+    fireEvent.keyDown(window, { code: "Tab", ctrlKey: true });
+    expect(activeTab()).toBe("идеи");
+    expect(document.activeElement).toBe(await screen.findByRole("textbox", { name: "идеи" }));
+
+    fireEvent.keyDown(window, { code: "Tab", ctrlKey: true, shiftKey: true });
+    expect(activeTab()).toBe("план");
+  });
+
+  it("уход на другую вкладку сохраняет правку сразу, а её текст живёт дальше", async () => {
+    const disk = workspace();
+    launch();
+    await openFromTree("идеи");
+    fireEvent.click(inTree().getByRole("button", { name: "Встречи" }));
+    fireEvent.click(inTree().getByRole("button", { name: "план" }), mod);
+    fireEvent.click(screen.getByRole("tab", { name: "идеи" }));
+    fireEvent.change(await screen.findByRole("textbox", { name: "идеи" }), { target: { value: "идеи и ещё" } });
+
+    fireEvent.click(screen.getByRole("tab", { name: "план" }));
+
+    await waitFor(() => expect(disk.files?.["идеи.md"]).toBe("идеи и ещё"), { timeout: 200 });
+    fireEvent.click(screen.getByRole("tab", { name: "идеи" }));
+    expect((screen.getByRole("textbox", { name: "идеи" }) as HTMLTextAreaElement).value).toBe("идеи и ещё");
+  });
+
+  it("файл открытой вкладки удалили: вкладка помечена, текст на месте", async () => {
+    const disk = workspace();
+    launch();
+    await openFromTree("идеи");
+    await screen.findByRole("textbox", { name: "идеи" });
+
+    disk.tree = disk.tree.filter((entry) => entry.path !== "идеи.md");
+    delete disk.files?.["идеи.md"];
+    await act(() => emit("vault://changed"));
+
+    await waitFor(() => expect(screen.getByRole("tab", { name: "идеи" }).getAttribute("title")).toBe("Файла больше нет на диске"));
+    expect((screen.getByRole("textbox", { name: "идеи" }) as HTMLTextAreaElement).value).toBe("идеи");
+  });
+
+  it("вкладки переживают перезапуск, кроме тех, чьих файлов уже нет", async () => {
+    const disk = workspace();
+    const first = launch();
+    await openFromTree("идеи", "Встречи");
+    fireEvent.click(inTree().getByRole("button", { name: "план" }), mod);
+    first.unmount();
+
+    disk.tree = disk.tree.filter((entry) => entry.path !== "идеи.md");
+    treeStore.setState(() => EMPTY_TREE);
+    restoreSession();
+    launch();
+
+    await waitFor(() => expect(tabs()).toEqual(["план"]));
+    expect(activeTab()).toBe("план");
+    expect(await screen.findByRole("textbox", { name: "план" })).toBeDefined();
   });
 });

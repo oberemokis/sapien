@@ -1,11 +1,18 @@
 mod error;
+#[cfg(target_os = "macos")]
+mod menu;
 mod modules;
 
 use modules::vault;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    // Меню по умолчанию Tauri ставит только на macOS, там же его и заменяем.
+    #[cfg(target_os = "macos")]
+    let builder = builder.menu(menu::build);
+
+    builder
         .plugin(tauri_plugin_dialog::init())
         .manage(vault::Watch::default())
         .setup(|app| {
