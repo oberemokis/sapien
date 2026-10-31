@@ -1,5 +1,6 @@
 use crate::error::AppError;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use url::Url;
 
 /// Адрес сервера YouTrack, как его ввёл человек: облачный
@@ -56,6 +57,10 @@ pub enum ApiError {
     NotYoutrack,
     /// Токен неверный, истёк или отозван.
     TokenRejected,
+    /// YouTrack не принял запрос: нет такого значения поля, команды и т. п.
+    Rejected,
+    /// Нет того, к чему обратились: задачи, проекта.
+    Missing,
 }
 
 impl ApiError {
@@ -64,6 +69,8 @@ impl ApiError {
             Self::Unreachable => "youtrack_unreachable",
             Self::NotYoutrack => "youtrack_not_youtrack",
             Self::TokenRejected => "youtrack_token_rejected",
+            Self::Rejected => "youtrack_rejected",
+            Self::Missing => "youtrack_missing",
         }
     }
 }
@@ -72,9 +79,137 @@ impl From<ApiError> for AppError {
     fn from(error: ApiError) -> Self {
         match error {
             ApiError::Unreachable => AppError::unavailable(error.code()),
-            ApiError::NotYoutrack | ApiError::TokenRejected => AppError::invalid(error.code()),
+            ApiError::Missing => AppError::not_found(error.code()),
+            ApiError::NotYoutrack | ApiError::TokenRejected | ApiError::Rejected => {
+                AppError::invalid(error.code())
+            }
         }
     }
+}
+
+/// Поле задачи по имени в YouTrack: Type, Priority, Assignee или своё
+/// поле проекта.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Field {
+    pub name: String,
+    pub value: String,
+}
+
+/// Связь черновика с задачей YouTrack.
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum LinkKind {
+    /// Подзадача эпика.
+    Parent,
+    DependsOn,
+    Blocks,
+    RelatesTo,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct Link {
+    pub kind: LinkKind,
+    pub id: String,
+}
+
+/// Черновик задачи, как его разобрало окно из шапки и текста заметки.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct Draft {
+    /// Короткое имя проекта, например SAP.
+    pub project: String,
+    pub summary: String,
+    pub description: String,
+    pub fields: Vec<Field>,
+    pub links: Vec<Link>,
+}
+
+/// Что ушло в задачу при прошлой публикации.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Sent {
+    pub summary: String,
+    pub description: String,
+    pub fields: Vec<Field>,
+}
+
+/// Команда YouTrack, которая ставит поле: «Priority Major».
+pub fn field_command(field: &Field) -> String {
+    format!("{} {}", field.name.trim(), field.value.trim())
+}
+
+/// Команда YouTrack, которая ставит связь: «depends on SAP-3».
+pub fn link_command(link: &Link) -> String {
+    let kind = match link.kind {
+        LinkKind::Parent => "subtask of",
+        LinkKind::DependsOn => "depends on",
+        LinkKind::Blocks => "is required for",
+        LinkKind::RelatesTo => "relates to",
+    };
+
+    format!("{kind} {}", link.id.trim())
+}
+
+/// Обязательные поля проекта, которым черновик не дал значения. Поле
+/// обязательно, когда оно не может быть пустым и у него нет значения
+/// по умолчанию. Имена сравниваются без регистра, как в YouTrack.
+pub fn missing_fields(project_fields: &Value, draft: &Draft) -> Vec<String> {
+    project_fields
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|field| field["canBeEmpty"] == false)
+        .filter(|field| {
+            field["defaultValues"]
+                .as_array()
+                .is_none_or(|values| values.is_empty())
+        })
+        .filter_map(|field| field["field"]["name"].as_str())
+        .filter(|name| {
+            !draft.fields.iter().any(|field| {
+                field.name.trim().eq_ignore_ascii_case(name) && !field.value.trim().is_empty()
+            })
+        })
+        .map(str::to_owned)
+        .collect()
+}
+
+/// Итог публикации для окна.
+#[derive(Debug, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum Published {
+    /// Задача есть в YouTrack. `failed` это команды полей и связей, которые
+    /// YouTrack не принял: задача создана без них.
+    Done { id: String, failed: Vec<String> },
+    /// Обязательные поля проекта без значения: задача не создана.
+    Missing { fields: Vec<String> },
+    /// Название или описание задачи поменяли в YouTrack после прошлой
+    /// публикации. Ничего не отправлено, их версия здесь.
+    Diverged {
+        summary: String,
+        description: String,
+    },
+}
+
+/// Состояние опубликованной задачи для плашки над черновиком.
+#[derive(Debug, PartialEq, Serialize)]
+pub struct IssueState {
+    pub id: String,
+    pub state: Option<String>,
+    pub assignee: Option<String>,
+    pub url: String,
+}
+
+/// Значение поля задачи из ответа YouTrack: имя у значений справочников
+/// и полное имя у людей.
+pub fn field_value(issue: &Value, name: &str) -> Option<String> {
+    let value = &issue["customFields"]
+        .as_array()?
+        .iter()
+        .find(|field| field["name"] == name)?["value"];
+
+    ["fullName", "name", "login"]
+        .into_iter()
+        .find_map(|key| value[key].as_str())
+        .map(str::to_owned)
 }
 
 /// Подключение к YouTrack, как его видит окно. Токена здесь нет.

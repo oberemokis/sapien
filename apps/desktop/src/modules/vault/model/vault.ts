@@ -30,7 +30,7 @@ export type Unsaved = { path: string; base: string | null; text: string };
 
 // Версия заметки из истории: текст перед тем, как его заменили. Номер это
 // время снимка в миллисекундах, источник говорит, что его заменило.
-export type Version = { id: number; source: "edit" | "outside" | "restore" | "trash" | "agent" };
+export type Version = { id: number; source: "edit" | "outside" | "restore" | "trash" | "agent" | "youtrack" };
 
 // Файл или папку переименовали либо перенесли снаружи. Приходит с событием
 // vault://changed.

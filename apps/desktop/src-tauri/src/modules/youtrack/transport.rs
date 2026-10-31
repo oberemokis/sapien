@@ -1,8 +1,10 @@
-use super::domain::YoutrackStatus;
+use super::domain::{Draft, IssueState, Published, YoutrackStatus};
 use super::infrastructure::host_file::HostFile;
 use super::infrastructure::http::Http;
+use super::infrastructure::sent_file::SentFile;
 use super::use_case;
 use crate::error::AppError;
+use crate::modules::vault;
 use crate::secrets::Secrets;
 use tauri::{AppHandle, Manager, Runtime, State};
 
@@ -11,6 +13,51 @@ fn place<R: Runtime>(app: &AppHandle<R>) -> Result<HostFile, AppError> {
         .app_config_dir()
         .map(|dir| HostFile::new(&dir))
         .map_err(|_| AppError::unavailable("config_dir_unavailable"))
+}
+
+fn ledger<R: Runtime>(app: &AppHandle<R>) -> Result<SentFile, AppError> {
+    app.path()
+        .app_data_dir()
+        .map(|dir| SentFile::new(&dir))
+        .map_err(|_| AppError::unavailable("data_dir_unavailable"))
+}
+
+/// Публикует черновик из заметки `path`: без `id` создаёт задачу, с ним
+/// обновляет. Текст заметки перед этим уходит в её историю версий.
+#[tauri::command]
+#[expect(clippy::too_many_arguments, reason = "вход команды и состояния Tauri")]
+pub async fn youtrack_publish(
+    app: AppHandle,
+    http: State<'_, Http>,
+    secrets: State<'_, Secrets>,
+    path: String,
+    text: String,
+    draft: Draft,
+    id: Option<String>,
+    force: bool,
+) -> Result<Published, AppError> {
+    vault::transport::keep_published(&app, &path, &text)?;
+
+    use_case::publish(
+        &*http,
+        &place(&app)?,
+        &secrets,
+        &ledger(&app)?,
+        &draft,
+        id.as_deref(),
+        force,
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn youtrack_issue_state(
+    app: AppHandle,
+    http: State<'_, Http>,
+    secrets: State<'_, Secrets>,
+    id: String,
+) -> Result<IssueState, AppError> {
+    use_case::issue_state(&*http, &place(&app)?, &secrets, &id).await
 }
 
 #[tauri::command]

@@ -1,8 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSelector } from "@tanstack/react-store";
-import { useCallback, useSyncExternalStore } from "react";
+import { useCallback } from "react";
 import { agentClear, agentHistory, agentSend, agentStop, agentUndo } from "../infrastructure/agent.api";
-import { isOnline, subscribeOnline } from "../infrastructure/agent.device";
 import { applyEvent, chatProblemOf, type ChatContext, type ChatEntry, type ChatProblem } from "../model/chat";
 import { chatStore } from "../store/chat.store";
 
@@ -19,9 +18,7 @@ export function useUndo() {
   });
 }
 
-export function useOnline() {
-  return useSyncExternalStore(subscribeOnline, isOnline);
-}
+export { useOnline } from "@/core/network/online";
 
 // Причина, почему работа не началась, без запроса к Rust: например,
 // действию нужна интеграция, которой нет. null убирает причину.

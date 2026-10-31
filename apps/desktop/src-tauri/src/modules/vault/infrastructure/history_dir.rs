@@ -39,6 +39,7 @@ fn source_name(source: Source) -> &'static str {
         Source::Restore => "restore",
         Source::Trash => "trash",
         Source::Agent => "agent",
+        Source::Youtrack => "youtrack",
     }
 }
 
@@ -55,6 +56,7 @@ fn parse_version(name: &str) -> Option<Version> {
         Source::Restore,
         Source::Trash,
         Source::Agent,
+        Source::Youtrack,
     ]
     .into_iter()
     .find(|known| source_name(*known) == source)?;

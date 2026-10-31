@@ -172,6 +172,22 @@ pub fn agent_put(
     put(place, disk, history, path, text)
 }
 
+/// Текст заметки, который уходит в задачу YouTrack, ложится в её историю:
+/// что опубликовано, видно рядом с заметкой, даже когда задачу правят там.
+pub fn keep_published(
+    place: &impl VaultPlace,
+    disk: &impl VaultDisk,
+    history: &impl History,
+    path: &str,
+    text: &str,
+) -> Result<(), AppError> {
+    let root = open_root(place, disk)?;
+    let path = parse_note_path(path).ok_or(AppError::invalid("path_invalid"))?;
+
+    snapshot(history, &root, path, text, Source::Youtrack);
+    Ok(())
+}
+
 fn note_at(
     place: &impl VaultPlace,
     disk: &impl VaultDisk,
