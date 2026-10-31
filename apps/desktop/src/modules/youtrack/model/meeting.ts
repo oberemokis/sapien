@@ -108,28 +108,3 @@ export function meetingDraftText(draft: MeetingDraft, project: string, source: s
 
   return text;
 }
-
-// Имена файлов черновиков: название без знаков, которые не годятся в имени
-// файла или ломают ссылку Obsidian. Занятое имя, в папке или среди этих же
-// черновиков, получает номер.
-export function draftNames(summaries: string[], paths: string[]) {
-  const taken = new Set(paths);
-
-  return summaries.map((summary) => {
-    const base =
-      summary
-        .replaceAll(/[\\/:*?"<>|#^[\]]/g, " ")
-        .replaceAll(/\s+/g, " ")
-        .trim()
-        .slice(0, 100)
-        .trim() || "Задача";
-    let name = base;
-
-    for (let index = 2; taken.has(`${MEETING_FOLDER}/${name}.md`); index += 1) {
-      name = `${base} ${index}`;
-    }
-
-    taken.add(`${MEETING_FOLDER}/${name}.md`);
-    return name;
-  });
-}

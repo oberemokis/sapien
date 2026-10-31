@@ -1,3 +1,4 @@
+export { BreakdownForm } from "./components/breakdown";
 export { MeetingDrafts } from "./components/meeting-drafts";
 export { TaskDraftForm } from "./components/task-draft";
 export { YoutrackSettings } from "./components/youtrack-settings";

@@ -202,6 +202,46 @@ export function isDraftPath(target: string) {
   return target.endsWith(".md");
 }
 
+// Подзадача ли черновик эпика: в parent путь эпика или номер его задачи.
+export function isChildOf(draft: TaskDraft, epic: string, id: string | null) {
+  return draft.links.parent.some((target) => target === epic || (id !== null && target === id));
+}
+
+// Папка заметки, пустая строка у заметки в корне.
+export function folderOf(path: string) {
+  return path.split("/").slice(0, -1).join("/");
+}
+
+// Путь заметки с таким именем в папке.
+export function notePath(folder: string, name: string) {
+  return [folder, `${name}.md`].filter((part) => part !== "").join("/");
+}
+
+// Имена файлов новых черновиков в папке: название без знаков, которые
+// не годятся в имени файла или ломают ссылку Obsidian. Занятое имя, в папке
+// или среди этих же черновиков, получает номер.
+export function draftNames(summaries: string[], paths: string[], folder: string) {
+  const taken = new Set(paths);
+
+  return summaries.map((summary) => {
+    const base =
+      summary
+        .replaceAll(/[\\/:*?"<>|#^[\]]/g, " ")
+        .replaceAll(/\s+/g, " ")
+        .trim()
+        .slice(0, 100)
+        .trim() || "Задача";
+    let name = base;
+
+    for (let index = 2; taken.has(notePath(folder, name)); index += 1) {
+      name = `${base} ${index}`;
+    }
+
+    taken.add(notePath(folder, name));
+    return name;
+  });
+}
+
 // Связи на черновики встают номерами их задач. Черновик без номера ещё
 // не задача: такие пути возвращаются в unpublished, и публиковать рано.
 export function resolveLinks(draft: TaskDraft, notes: LinkedNote[]) {

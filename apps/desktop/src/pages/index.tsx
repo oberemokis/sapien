@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState, type ComponentProps } from "react";
 import { useTranslation } from "react-i18next";
-import { ACTIONS_FOLDER, AgentChat, useActions, useMeetingTasks } from "@/modules/agent";
+import { ACTIONS_FOLDER, AgentChat, useActions, useAsk, useMeetingTasks } from "@/modules/agent";
 import { MarkdownEditor } from "@/modules/editor";
 import { showPanel, Workspace } from "@/modules/layout";
 import { SettingsButton } from "@/modules/settings";
@@ -17,10 +17,12 @@ import {
   useFolderNotes,
   useNewFromTemplateSet,
   useNoteTexts,
+  useWriteNote,
   VaultGate,
   VaultTree,
 } from "@/modules/vault";
 import {
+  BreakdownForm,
   MEETING_FOLDER,
   MeetingDrafts,
   TASK_TEMPLATES,
@@ -46,12 +48,44 @@ function openDraft(path: string) {
   openNote(path, { focus: true });
 }
 
-// Над текстом заметки форма черновика задачи. Связь на другой черновик
-// встаёт номером его задачи, поэтому форме нужны тексты заметок хранилища.
+// Над текстом заметки форма черновика задачи или разбивки. Связь на другой
+// черновик встаёт номером его задачи, поэтому формам нужны тексты заметок
+// хранилища. Разбивку пишет агент в чате, а черновики из неё и номера
+// задач после «Опубликовать всё» кладёт хранилище.
 function DraftAbove(props: { path: string; text: string; readOnly: boolean; onChange: (text: string) => void }) {
-  const notes = useNoteTexts();
+  const notes = useNoteTexts() ?? [];
+  const ask = useAsk();
+  const write = useWriteNote();
+  const create = useCreateNote();
 
-  return <TaskDraftForm {...props} notes={notes ?? []} onOpen={openDraft} />;
+  function breakdown(task: string) {
+    showChat();
+    ask(task, { path: props.path, selection: "" });
+  }
+
+  async function createDrafts(folder: string, drafts: { name: string; text: string }[]) {
+    const paths: string[] = [];
+
+    for (const draft of drafts) {
+      // oxlint-disable-next-line no-await-in-loop -- папку создаёт первый черновик
+      paths.push(await create.mutateAsync({ folder, ...draft }));
+    }
+
+    return paths;
+  }
+
+  return (
+    <>
+      <TaskDraftForm {...props} notes={notes} onOpen={openDraft} onBreakdown={breakdown} onWrite={write} />
+      <BreakdownForm
+        text={props.text}
+        readOnly={props.readOnly}
+        notes={notes}
+        onCreate={createDrafts}
+        onOpen={openDraft}
+      />
+    </>
+  );
 }
 
 type MeetingProps = Pick<ComponentProps<typeof MeetingDrafts>, "tasks" | "problem" | "onClose"> & { path: string };

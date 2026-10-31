@@ -321,6 +321,12 @@ function FolderOwner() {
       >
         создать
       </button>
+      <button
+        type="button"
+        onClick={() => create.mutate({ folder: "Действия/Свежее", name: "План", text: "План\n" })}
+      >
+        создать глубже
+      </button>
     </section>
   );
 }
@@ -634,6 +640,16 @@ describe("создание в дереве", () => {
     ]);
     expect(disk.files?.["Действия/Сводка.md"]).toBe("Собери сводку\n");
     expect(screen.getAllByRole("paragraph")).toHaveLength(1);
+
+    // Во вложенную папку: есть «Действия», появляется только «Свежее».
+    fireEvent.click(screen.getByRole("button", { name: "создать глубже" }));
+
+    await waitFor(() => expect(disk.files?.["Действия/Свежее/План.md"]).toBe("План\n"));
+    expect(disk.created?.slice(2)).toEqual([
+      { parent: "", name: "Действия", kind: "folder" },
+      { parent: "Действия", name: "Свежее", kind: "folder" },
+      { parent: "Действия/Свежее", name: "План", kind: "note" },
+    ]);
   });
 
   it("Escape закрывает меню, а не что-то под ним", async () => {

@@ -98,25 +98,39 @@ export function useCreateEntry(draftId = 0) {
   });
 }
 
+// Файл или папка, которых может не быть. Занятое имя значит, что они уже
+// есть: существующее не трогается, и ответ null.
+export async function createMissing(parent: string, name: string, kind: EntryKind) {
+  try {
+    return await vaultCreate({ parent, name, kind });
+  } catch (error) {
+    if (errorCodeOf(error) !== "name_taken") {
+      throw error;
+    }
+
+    return null;
+  }
+}
+
 type NoteInput = { folder: string; name: string; text: string };
 
-// Заметка с готовым текстом в папке корня, которой может ещё не быть:
-// так соседние модули кладут в хранилище свои файлы. Занятое имя отвечает
-// name_taken, как поле имени в дереве. Вкладку новая заметка не открывает.
+// Заметка с готовым текстом в папке, которой может ещё не быть, вложенной
+// тоже: так соседние модули кладут в хранилище свои файлы. Пустая папка
+// это корень. Занятое имя заметки отвечает name_taken, как поле имени
+// в дереве. Вкладку новая заметка не открывает.
 export function useCreateNote() {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: async ({ folder, name, text }: NoteInput) => {
-      try {
-        await vaultCreate({ parent: "", name: folder, kind: "folder" });
-      } catch (error) {
-        if (errorCodeOf(error) !== "name_taken") {
-          throw error;
-        }
+      const parts = folder.split("/").filter((part) => part !== "");
+
+      for (const [index, part] of parts.entries()) {
+        // oxlint-disable-next-line no-await-in-loop -- папка появляется раньше вложенной
+        await createMissing(parts.slice(0, index).join("/"), part, "folder");
       }
 
-      return createEntry({ parent: folder, name, kind: "note", text });
+      return createEntry({ parent: parts.join("/"), name, kind: "note", text });
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: VAULT_KEY }),
   });

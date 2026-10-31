@@ -187,6 +187,39 @@ export function forgetNotes() {
   notesStore.setState(() => EMPTY_NOTES);
 }
 
+// Правка заметки, ещё не записанная. Первая буква правки запоминает,
+// от какого текста файла она пошла: прочитанного или того, от которого
+// правку делал вызвавший.
+function edit(queryClient: QueryClient, path: string, text: string, from?: string) {
+  notesStore.setState((state) => {
+    const next = { ...state, unsaved: { ...state.unsaved, [path]: text } };
+    const base = queryClient.getQueryData<string>(noteKey(path)) ?? from;
+
+    if (state.unsaved[path] === undefined && base !== undefined) {
+      next.bases = { ...state.bases, [path]: base };
+    }
+
+    return next;
+  });
+}
+
+// Пишет новый текст заметки сразу, как правку человека: открытая заметка
+// показывает его, а спор с правкой снаружи виден в ней же. from это текст,
+// от которого пошла правка. Ответ, лёг ли текст на диск.
+export function useWriteNote() {
+  const queryClient = useQueryClient();
+
+  return useCallback(
+    async (path: string, text: string, from: string) => {
+      edit(queryClient, path, text, from);
+      await saveNote(queryClient, path);
+
+      return notesStore.get().failed[path] === undefined;
+    },
+    [queryClient],
+  );
+}
+
 // Текст открытой заметки и его сохранение. Пока правка человека не на диске,
 // изменение файла снаружи её не заменяет. Запись правки его тоже не затрёт:
 // Rust ответит спором, и человек выберет версию сам.
@@ -222,17 +255,7 @@ export function useNote(path: string) {
 
   const change = useCallback(
     (text: string) => {
-      notesStore.setState((state) => {
-        const next = { ...state, unsaved: { ...state.unsaved, [path]: text } };
-        const read = queryClient.getQueryData<string>(noteKey(path));
-
-        // Первая буква правки запоминает, от какого текста файла она пошла.
-        if (state.unsaved[path] === undefined && read !== undefined) {
-          next.bases = { ...state.bases, [path]: read };
-        }
-
-        return next;
-      });
+      edit(queryClient, path, text);
       clearTimeout(timers.get(path));
       timers.set(
         path,
