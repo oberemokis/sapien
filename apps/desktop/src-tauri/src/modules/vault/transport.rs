@@ -261,6 +261,16 @@ pub fn put_note<R: Runtime>(app: &AppHandle<R>, path: &str, text: &str) -> Resul
     use_case::agent_put(&place(app)?, &Disk, &history(app)?, path, text)
 }
 
+/// Для YouTrack: текст заметки, который уходит в задачу, ложится в её
+/// историю версий.
+pub fn keep_published<R: Runtime>(
+    app: &AppHandle<R>,
+    path: &str,
+    text: &str,
+) -> Result<(), AppError> {
+    use_case::keep_published(&place(app)?, &Disk, &history(app)?, path, text)
+}
+
 /// Откат правки агента по просьбе человека, поэтому без проверки закрытых
 /// папок.
 pub fn revert_note<R: Runtime>(

@@ -4,6 +4,7 @@ use crate::modules::youtrack::ports::YoutrackApi;
 use reqwest::header::ACCEPT;
 use reqwest::{Client, StatusCode};
 use serde::Deserialize;
+use serde_json::Value;
 use std::time::Duration;
 use url::Url;
 
@@ -32,6 +33,73 @@ struct Me {
     full_name: String,
 }
 
+impl Http {
+    /// Запрос к API: без тела GET, с телом POST. Пустой ответ, как у команд
+    /// без `fields`, приходит пустой строкой.
+    async fn send(
+        &self,
+        host: &str,
+        token: &str,
+        path: &str,
+        query: &[(&str, &str)],
+        body: Option<&Value>,
+    ) -> Result<String, ApiError> {
+        let origin = Url::parse(host).map_err(|_| ApiError::NotYoutrack)?;
+        let mut url = Url::parse(&format!("{host}{path}")).map_err(|_| ApiError::NotYoutrack)?;
+
+        // Пустой список дал бы адрес с голым «?» в конце.
+        if !query.is_empty() {
+            url.query_pairs_mut().extend_pairs(query);
+        }
+
+        // Путь с «//» или «@» увёл бы запрос с токеном на другой хост.
+        if !egress::allowed(&url, &origin) {
+            return Err(ApiError::NotYoutrack);
+        }
+
+        let request = match body {
+            Some(body) => self.0.post(url).json(body),
+            None => self.0.get(url),
+        };
+        let response = request
+            .bearer_auth(token)
+            .header(ACCEPT, "application/json")
+            .send()
+            .await
+            .map_err(|_| ApiError::Unreachable)?;
+        let status = response.status();
+
+        if status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN {
+            return Err(ApiError::TokenRejected);
+        }
+
+        if status.is_server_error() {
+            return Err(ApiError::Unreachable);
+        }
+
+        if status == StatusCode::BAD_REQUEST {
+            return Err(ApiError::Rejected);
+        }
+
+        if status == StatusCode::NOT_FOUND {
+            return Err(ApiError::Missing);
+        }
+
+        // Другой сайт или вход через страницу: это не API.
+        if !status.is_success() {
+            return Err(ApiError::NotYoutrack);
+        }
+
+        let body = response.text().await.map_err(|_| ApiError::Unreachable)?;
+
+        if !body.is_empty() {
+            serde_json::from_str::<Value>(&body).map_err(|_| ApiError::NotYoutrack)?;
+        }
+
+        Ok(body)
+    }
+}
+
 impl YoutrackApi for Http {
     async fn me(&self, host: &str, token: &str) -> Result<String, ApiError> {
         let body = self
@@ -41,7 +109,12 @@ impl YoutrackApi for Http {
                 "/api/users/me",
                 &[("fields", "login,fullName")],
             )
-            .await?;
+            .await
+            // Неверный путь или отказ по адресу: API YouTrack там нет.
+            .map_err(|error| match error {
+                ApiError::Rejected | ApiError::Missing => ApiError::NotYoutrack,
+                other => other,
+            })?;
         let me: Me = serde_json::from_str(&body).map_err(|_| ApiError::NotYoutrack)?;
 
         if me.full_name.trim().is_empty() {
@@ -58,44 +131,18 @@ impl YoutrackApi for Http {
         path: &str,
         query: &[(&str, &str)],
     ) -> Result<String, ApiError> {
-        let origin = Url::parse(host).map_err(|_| ApiError::NotYoutrack)?;
-        let mut url = Url::parse(&format!("{host}{path}")).map_err(|_| ApiError::NotYoutrack)?;
+        self.send(host, token, path, query, None).await
+    }
 
-        url.query_pairs_mut().extend_pairs(query);
-
-        // Путь с «//» или «@» увёл бы запрос с токеном на другой хост.
-        if !egress::allowed(&url, &origin) {
-            return Err(ApiError::NotYoutrack);
-        }
-
-        let response = self
-            .0
-            .get(url)
-            .bearer_auth(token)
-            .header(ACCEPT, "application/json")
-            .send()
-            .await
-            .map_err(|_| ApiError::Unreachable)?;
-        let status = response.status();
-
-        if status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN {
-            return Err(ApiError::TokenRejected);
-        }
-
-        if status.is_server_error() {
-            return Err(ApiError::Unreachable);
-        }
-
-        // Другой сайт, неверный путь или вход через страницу: это не API.
-        if !status.is_success() {
-            return Err(ApiError::NotYoutrack);
-        }
-
-        let body = response.text().await.map_err(|_| ApiError::Unreachable)?;
-
-        serde_json::from_str::<serde_json::Value>(&body).map_err(|_| ApiError::NotYoutrack)?;
-
-        Ok(body)
+    async fn post(
+        &self,
+        host: &str,
+        token: &str,
+        path: &str,
+        query: &[(&str, &str)],
+        body: &Value,
+    ) -> Result<String, ApiError> {
+        self.send(host, token, path, query, Some(body)).await
     }
 }
 
@@ -232,6 +279,36 @@ mod tests {
 
         elsewhere.set_nonblocking(true).unwrap();
         assert!(elsewhere.accept().is_err(), "токен ушёл по перенаправлению");
+    }
+
+    #[test]
+    fn запись_уходит_телом_json_а_отказ_и_пропажа_различаются() {
+        let post = |host: &str| {
+            block_on(Http::default().post(
+                host,
+                "perm:токен",
+                "/api/commands",
+                &[],
+                &serde_json::json!({ "query": "Priority Major" }),
+            ))
+        };
+        let (host, requests) = serve("200 OK", "application/json", "");
+
+        assert_eq!(post(&host).as_deref(), Ok(""));
+
+        let request = requests.recv().unwrap();
+        assert!(request.starts_with("POST /youtrack/api/commands "));
+        assert!(
+            request
+                .to_lowercase()
+                .contains("content-type: application/json")
+        );
+
+        let (host, _) = serve("400 Bad Request", "application/json", "{}");
+        assert_eq!(post(&host), Err(ApiError::Rejected));
+
+        let (host, _) = serve("404 Not Found", "application/json", "{}");
+        assert_eq!(post(&host), Err(ApiError::Missing));
     }
 
     #[test]
