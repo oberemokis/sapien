@@ -103,6 +103,8 @@ pub fn run() {
             agent::transport::agent_undo,
             agent::transport::agent_meeting_tasks,
             agent::transport::agent_claude_status,
+            agent::transport::agent_attach,
+            agent::transport::agent_answer,
             vault::transport::vault_opened,
             vault::transport::vault_status,
             vault::transport::vault_tree,

@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ActionSettings, AgentChat, useActions } from "@/modules/agent";
 
 type Context = { path: string | null; selection: string };
-type Sent = { model: string; text: string; context: Context };
+type Sent = { model: string; text: string; context: Context; oversight?: string };
 type Note = { path: string; text: string };
 
 // Rust за командами чата: ключ задан, история пуста, ответ приходит сразу.
@@ -21,11 +21,13 @@ function fakeRust() {
       case "agent_history":
         return [];
       case "agent_send": {
-        const { model, text, context } = args as Sent;
+        const { model, text, context, oversight } = args as Sent;
 
-        sent.push({ model, text, context });
+        sent.push({ model, text, context, oversight });
         return null;
       }
+      case "agent_attach":
+        return false;
       default:
         throw new Error(`нет команды ${command}`);
     }
@@ -114,10 +116,12 @@ describe("действия по расписанию", () => {
     const onRun = open({ notes: [DAILY] });
 
     await waitFor(() => expect(sent).toHaveLength(1));
+    // Человека рядом нет: агент правит без вопросов и решает сам.
     expect(sent[0]).toEqual({
       model: "claude-sonnet-5-5",
       text: `Сводка по SAP-1 с ${since} по ${new Date().toLocaleDateString("sv-SE")}`,
       context: { path: null, selection: "" },
+      oversight: "away",
     });
     expect(onRun).toHaveBeenCalledTimes(1);
     expect(runs()[DAILY.path].ran).toBe(true);
@@ -185,7 +189,7 @@ describe("действия в чате", () => {
     press("Enter");
 
     await waitFor(() => expect(sent).toHaveLength(1));
-    expect(sent[0]).toEqual({ model: "claude-sonnet-5-5", text: "Сводка по эпику", context: CONTEXT });
+    expect(sent[0]).toEqual({ model: "claude-sonnet-5-5", text: "Сводка по эпику", context: CONTEXT, oversight: "ask" });
     expect(onRun).toHaveBeenCalledTimes(1);
     expect(screen.getByLabelText<HTMLTextAreaElement>("Сообщение агенту").value).toBe("");
   });
@@ -213,7 +217,7 @@ describe("действия в чате", () => {
 
     hotkey("KeyJ");
     await waitFor(() => expect(sent).toHaveLength(1));
-    expect(sent[0]).toMatchObject({ text: "Заведи задачу из этой заметки", context: CONTEXT });
+    expect(sent[0]).toMatchObject({ text: "Заведи задачу из этой заметки", context: CONTEXT, oversight: "ask" });
 
     // У действия без задания клавиша не срабатывает.
     hotkey("KeyE");

@@ -53,15 +53,16 @@ export function useActions({ notes, context, check, onRun }: Options) {
   );
 
   // Задание уходит с датами периода, а запуск запоминается: от него
-  // считается {{since}} следующего.
+  // считается {{since}} следующего. away у запуска по расписанию: человека
+  // рядом нет.
   const start = useCallback(
-    (action: Action, where: ChatContext) => {
+    (action: Action, where: ChatContext, away = false) => {
       const now = new Date();
       const task = taskAt(action, readRuns()[action.path], now);
 
       writeRun(action.path, { at: now.getTime(), ran: true });
 
-      return send(modelStore.get(), task, where);
+      return send(modelStore.get(), task, where, away);
     },
     [send],
   );
@@ -119,7 +120,7 @@ export function useActions({ notes, context, check, onRun }: Options) {
           waiting.push(action.name);
         } else if (chatStore.get().live === null) {
           onRun();
-          void start(action, NOWHERE);
+          void start(action, NOWHERE, true);
           break;
         }
       }

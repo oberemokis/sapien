@@ -22,7 +22,20 @@ export type ToolEntry = { kind: "tool"; name: string; target: string; ok: boolea
 // более поздние ответы, которые откатятся вместе с ним.
 export type ChangedEntry = { kind: "changed"; turn: number; paths: string[]; undone: boolean; with: number[] };
 
-export type ChatEntry = { kind: "user"; text: string } | { kind: "assistant"; text: string } | ToolEntry | ChangedEntry;
+// Вопрос агента с вариантами. answer null: ответа ещё нет, не дождались
+// или человека не было.
+export type QuestionEntry = { kind: "question"; id: string; question: string; options: string[]; answer: string | null };
+
+// Просьба разрешить правку заметки. Её видно, только пока она открыта.
+export type PermissionEntry = { kind: "permission"; id: string; tool: string; path: string };
+
+export type ChatEntry =
+  | { kind: "user"; text: string }
+  | { kind: "assistant"; text: string }
+  | ToolEntry
+  | QuestionEntry
+  | PermissionEntry
+  | ChangedEntry;
 
 // Сообщения человека с этими номерами, по порядку. Номер это место
 // сообщения среди всех сообщений человека, как turn в domain.rs.
@@ -33,19 +46,64 @@ export function questionsOf(entries: ChatEntry[], turns: number[]): { turn: numb
     .filter((question) => turns.includes(question.turn));
 }
 
-// Событие, пока идёт ответ: кусок текста или отработавший инструмент.
-export type ChatEvent = { kind: "text"; text: string } | ToolEntry;
+// Вопрос человеку посреди ответа, как Question в domain.rs.
+export type Question =
+  | { kind: "choice"; id: string; question: string; options: string[] }
+  | { kind: "permission"; id: string; tool: string; path: string };
+
+// Ответ человека, как Answer в domain.rs.
+export type Answer = { kind: "text"; text: string } | { kind: "allow" } | { kind: "deny" };
+
+// Кто следит за ответом, как Oversight в domain.rs: человек разрешает
+// правки, доверяет их агенту или его нет, как у действия по расписанию.
+export type Oversight = "ask" | "trust" | "away";
+
+// Событие, пока идёт ответ: кусок текста, отработавший инструмент,
+// вопрос человеку и его закрытие.
+export type ChatEvent =
+  | { kind: "text"; text: string }
+  | ToolEntry
+  | { kind: "asked"; question: Question }
+  | { kind: "answered"; id: string; answer: string | null };
 
 // Что человек видит сейчас. Это уходит агенту вместе с сообщением.
 export type ChatContext = { path: string | null; selection: string };
 
-// Кусок текста дописывается к ответу, который идёт, инструмент встаёт
-// своей строкой.
+// Кусок текста дописывается к ответу, который идёт, инструмент и вопрос
+// встают своей строкой. Закрытый вопрос получает ответ, а просьба
+// о разрешении уходит: дальше видно саму правку. Вопрос, который окно
+// уже показывает, второй раз не встаёт.
 export function applyEvent(entries: ChatEntry[], event: ChatEvent): ChatEntry[] {
   const last = entries.at(-1);
 
   if (event.kind === "tool") {
     return [...entries, event];
+  }
+
+  if (event.kind === "asked") {
+    const question = event.question;
+
+    if (entries.some((entry) => "id" in entry && entry.id === question.id)) {
+      return entries;
+    }
+
+    if (question.kind === "permission") {
+      return [...entries, question];
+    }
+
+    return [...entries, { kind: "question", id: question.id, question: question.question, options: question.options, answer: null }];
+  }
+
+  if (event.kind === "answered") {
+    return entries
+      .filter((entry) => entry.kind !== "permission" || entry.id !== event.id)
+      .map((entry) => {
+        if (entry.kind === "question" && entry.id === event.id) {
+          return { ...entry, answer: event.answer };
+        }
+
+        return entry;
+      });
   }
 
   if (last?.kind === "assistant") {
@@ -90,6 +148,7 @@ const PROBLEMS = [
   "agent_too_many_steps",
   "agent_busy",
   "agent_bad_answer",
+  "agent_question_closed",
   "note_closed",
   "chat_unreadable",
   "chat_unwritable",

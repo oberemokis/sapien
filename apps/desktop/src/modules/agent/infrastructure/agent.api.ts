@@ -1,5 +1,5 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
-import type { ChatContext, ChatEntry, ChatEvent } from "../model/chat";
+import type { Answer, ChatContext, ChatEntry, ChatEvent, Oversight } from "../model/chat";
 import type { MeetingTask } from "../model/meeting";
 import type { AgentMethod, ClaudeStatus } from "../model/method";
 
@@ -9,8 +9,24 @@ export function agentHistory() {
 
 // Ответ идёт событиями через канал, а обещание кончается вместе с ответом.
 // Ключ модели окно не шлёт: его берёт Rust.
-export function agentSend(model: string, text: string, context: ChatContext, onEvent: (event: ChatEvent) => void) {
-  return invoke<null>("agent_send", { model, text, context, onEvent: new Channel<ChatEvent>(onEvent) });
+export function agentSend(
+  model: string,
+  text: string,
+  context: ChatContext,
+  oversight: Oversight,
+  onEvent: (event: ChatEvent) => void,
+) {
+  return invoke<null>("agent_send", { model, text, context, oversight, onEvent: new Channel<ChatEvent>(onEvent) });
+}
+
+// Окно открылось заново: события идущего ответа приходят сюда, открытый
+// вопрос приходит снова. Кончается вместе с ответом, true, если он шёл.
+export function agentAttach(onEvent: (event: ChatEvent) => void) {
+  return invoke<boolean>("agent_attach", { onEvent: new Channel<ChatEvent>(onEvent) });
+}
+
+export function agentAnswer(id: string, answer: Answer) {
+  return invoke<null>("agent_answer", { id, answer });
 }
 
 export function agentStop() {

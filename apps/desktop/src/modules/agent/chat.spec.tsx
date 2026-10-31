@@ -6,9 +6,9 @@ import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AgentChat } from "@/modules/agent";
-import type { ChatContext, ChatEntry, ChatEvent } from "./model/chat";
+import type { Answer, ChatContext, ChatEntry, ChatEvent, Question } from "./model/chat";
 
-type Sent = { model: string; text: string; context: ChatContext };
+type Sent = { model: string; text: string; context: ChatContext; oversight: string };
 
 // Сообщение в канал так, как его шлёт Rust. Каналы mockIPC держит здесь.
 function toChannel(channel: Channel<ChatEvent>, index: number, message: ChatEvent) {
@@ -20,10 +20,13 @@ function toChannel(channel: Channel<ChatEvent>, index: number, message: ChatEven
 
 // Rust за командами агента: история чата, ключ и ответ, который идёт
 // событиями через канал. Ответ кончается, когда тест его отпустит.
-function fakeRust({ key = true } = {}) {
+// ongoing это ответ, который уже идёт и ждёт ответа на вопрос, когда окно
+// открывается: так выглядит перезагрузка окна.
+function fakeRust({ key = true, ongoing = null }: { key?: boolean; ongoing?: Question | null } = {}) {
   const rust = {
     history: [] as ChatEntry[],
     sent: [] as Sent[],
+    answers: [] as { id: string; answer: Answer }[],
     stops: 0,
     undos: [] as number[],
     undoFails: false,
@@ -32,8 +35,38 @@ function fakeRust({ key = true } = {}) {
     fail: (_code: string) => {},
   };
 
+  function listen(onEvent: Channel<ChatEvent>) {
+    let index = 0;
+
+    rust.emit = (event) => {
+      toChannel(onEvent, index, event);
+      index += 1;
+    };
+  }
+
   mockIPC((command, args) => {
     switch (command) {
+      case "agent_attach": {
+        if (ongoing === null) {
+          return false;
+        }
+
+        listen((args as { onEvent: Channel<ChatEvent> }).onEvent);
+        rust.emit({ kind: "asked", question: ongoing });
+
+        return new Promise((resolve) => {
+          rust.finish = (answer) => {
+            rust.history.push(...answer);
+            resolve(true);
+          };
+        });
+      }
+      case "agent_answer":
+        rust.answers.push(args as { id: string; answer: Answer });
+        return null;
+      case "agent_clear":
+        rust.history = [];
+        return null;
       case "secret_status":
         return { ending: key ? "WXYZ" : null, kept: true };
       case "agent_history":
@@ -62,13 +95,9 @@ function fakeRust({ key = true } = {}) {
       }
       case "agent_send": {
         const { onEvent, ...sent } = args as Sent & { onEvent: Channel<ChatEvent> };
-        let index = 0;
 
         rust.sent.push(sent);
-        rust.emit = (event) => {
-          toChannel(onEvent, index, event);
-          index += 1;
-        };
+        listen(onEvent);
 
         return new Promise((resolve, reject) => {
           rust.finish = (answer) => {
@@ -134,7 +163,7 @@ describe("чат с агентом", () => {
 
     expect(field().value).toBe("");
     await waitFor(() => expect(rust.sent).toHaveLength(1));
-    expect(rust.sent[0]).toEqual({ model: "claude-sonnet-5-5", text: "Отметь релиз", context: CONTEXT });
+    expect(rust.sent[0]).toEqual({ model: "claude-sonnet-5-5", text: "Отметь релиз", context: CONTEXT, oversight: "ask" });
 
     const tool: ChatEntry = { kind: "tool", name: "edit_note", target: "Проекты/план.md", ok: true };
     rust.emit(tool);
@@ -292,5 +321,112 @@ describe("чат с агентом", () => {
 
     expect(screen.getByRole<HTMLButtonElement>("button", { name: "Отправить" }).disabled).toBe(true);
     expect(rust.sent).toHaveLength(0);
+  });
+});
+
+const WHERE: Question = { kind: "choice", id: "q1", question: "Куда записать?", options: ["Идеи", "План"] };
+
+// Переключатель в шапке перерисовывается после «Очистить», поэтому
+// ищется заново.
+function asking() {
+  return screen.getByRole<HTMLInputElement>("checkbox", { name: "Спрашивать перед правками" });
+}
+
+describe("вопросы и разрешения", () => {
+  it("на вопрос агента уходит и выбранный вариант, и написанный ответ", async () => {
+    const rust = fakeRust();
+    open();
+    await ask("Запиши мысль");
+    await waitFor(() => expect(rust.sent).toHaveLength(1));
+
+    rust.emit({ kind: "asked", question: WHERE });
+    const question = await screen.findByRole("group", { name: "Вопрос агента" });
+
+    expect(within(question).getByText("Куда записать?")).toBeDefined();
+    expect(screen.queryByText("Агент думает…")).toBeNull();
+    fireEvent.click(within(question).getByRole("button", { name: "Идеи" }));
+
+    expect(rust.answers).toEqual([{ id: "q1", answer: { kind: "text", text: "Идеи" } }]);
+    expect(within(question).queryByRole("button", { name: "План" })).toBeNull();
+    expect(within(question).getByText("Идеи")).toBeDefined();
+
+    rust.emit({ kind: "asked", question: { ...WHERE, id: "q2", question: "Как назвать?" } });
+    await screen.findByText("Как назвать?");
+    expect(field().placeholder).toBe("Свой ответ агенту, Enter отправит");
+    await ask("Мысли на ноябрь");
+
+    expect(rust.answers[1]).toEqual({ id: "q2", answer: { kind: "text", text: "Мысли на ноябрь" } });
+    expect(rust.sent).toHaveLength(1);
+    rust.finish([]);
+    expect(await screen.findByRole("button", { name: "Отправить" })).toBeDefined();
+  });
+
+  it("разрешение на правку: «Разрешить» и «Не разрешать» уходят агенту, просьба пропадает", async () => {
+    const rust = fakeRust();
+    open();
+    await ask("Поправь план");
+    await waitFor(() => expect(rust.sent).toHaveLength(1));
+
+    rust.emit({ kind: "asked", question: { kind: "permission", id: "e1", tool: "edit_note", path: "Проекты/план.md" } });
+    expect(await screen.findByText("Агент хочет изменить заметку Проекты/план.md.")).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: "Разрешить" }));
+
+    rust.emit({ kind: "asked", question: { kind: "permission", id: "w1", tool: "write_note", path: "Идеи.md" } });
+    expect(await screen.findByText("Агент хочет записать заметку Идеи.md целиком.")).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: "Не разрешать" }));
+
+    expect(rust.answers).toEqual([
+      { id: "e1", answer: { kind: "allow" } },
+      { id: "w1", answer: { kind: "deny" } },
+    ]);
+    expect(screen.queryByRole("group", { name: "Разрешение на правку" })).toBeNull();
+    rust.finish([]);
+    expect(await screen.findByRole("button", { name: "Отправить" })).toBeDefined();
+  });
+
+  it("без вопросов о правках до «Очистить», потом снова с вопросами", async () => {
+    const rust = fakeRust();
+    open();
+    await screen.findByLabelText("Сообщение агенту");
+    expect(asking().checked).toBe(true);
+    fireEvent.click(asking());
+    await ask("Поправь план");
+    await waitFor(() => expect(rust.sent).toHaveLength(1));
+    expect(rust.sent[0].oversight).toBe("trust");
+    rust.finish([{ kind: "user", text: "Поправь план" }]);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Очистить историю чата" }));
+    fireEvent.click(screen.getByRole("button", { name: "Очистить" }));
+
+    await waitFor(() => expect(asking().checked).toBe(true));
+    await ask("Ещё правка");
+    await waitFor(() => expect(rust.sent).toHaveLength(2));
+    expect(rust.sent[1].oversight).toBe("ask");
+    rust.finish([]);
+    expect(await screen.findByRole("button", { name: "Отправить" })).toBeDefined();
+  });
+
+  it("окно открылось заново при открытом вопросе: вопрос на месте, ответ доходит", async () => {
+    const rust = fakeRust({ ongoing: WHERE });
+    open();
+
+    const question = await screen.findByRole("group", { name: "Вопрос агента" });
+
+    expect(screen.getByRole("button", { name: "Стоп" })).toBeDefined();
+    fireEvent.click(within(question).getByRole("button", { name: "План" }));
+    expect(rust.answers).toEqual([{ id: "q1", answer: { kind: "text", text: "План" } }]);
+
+    rust.emit({ kind: "text", text: "Записал в план." });
+    expect(await screen.findByText("Записал в план.")).toBeDefined();
+
+    rust.finish([
+      { kind: "user", text: "Запиши мысль" },
+      { kind: "question", id: "q1", question: "Куда записать?", options: ["Идеи", "План"], answer: "План" },
+      { kind: "assistant", text: "Записал в план." },
+    ]);
+
+    expect(await screen.findByRole("button", { name: "Отправить" })).toBeDefined();
+    expect(screen.getByText("Запиши мысль")).toBeDefined();
+    expect(screen.getAllByText("Записал в план.")).toHaveLength(1);
   });
 });
