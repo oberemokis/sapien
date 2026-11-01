@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Runtime};
 
 /// Событие для интерфейса: в хранилище что-то поменялось, перечитай.
@@ -63,7 +63,7 @@ fn watch(
             .map(|events| events.into_iter().map(|event| event.path).collect())
             .unwrap_or_default();
 
-        on_change(ids.update(&base, &paths));
+        on_change(ids.update(&base, &paths, Instant::now()));
     })
     .ok()?;
 
@@ -80,11 +80,24 @@ fn watch(
 /// событий системы для этого не годятся: macOS ещё с минуту помечает
 /// только что созданный файл созданным, и его переименование выглядит
 /// как новый файл.
-struct Ids(HashMap<PathBuf, FileId>);
+///
+/// Половины одного переименования приходят и разными пачками: на Linux
+/// `notify` после переименования папки читает её новый путь, и у него
+/// появляется событие на доли миллисекунды позже, чем у старого. Поэтому
+/// пропавшее без пары ждёт её одно окно дебаунса (`lost`). Дольше нельзя:
+/// номер удалённого файла система отдаёт новому, и удаление с созданием
+/// выглядели бы переездом.
+struct Ids {
+    known: HashMap<PathBuf, FileId>,
+    lost: Vec<(PathBuf, FileId, Instant)>,
+}
 
 impl Ids {
     fn scan(root: &Path) -> Self {
-        let mut ids = Ids(HashMap::new());
+        let mut ids = Ids {
+            known: HashMap::new(),
+            lost: Vec::new(),
+        };
 
         ids.add(root);
         ids
@@ -97,7 +110,7 @@ impl Ids {
             return;
         };
 
-        self.0.insert(path.to_path_buf(), id);
+        self.known.insert(path.to_path_buf(), id);
 
         let Ok(entries) = fs::read_dir(path) else {
             return;
@@ -112,19 +125,19 @@ impl Ids {
 
     /// Пропавший путь, а у папки и всё, что было внутри.
     fn forget(&mut self, path: &Path) {
-        self.0.retain(|known, _| !known.starts_with(path));
+        self.known.retain(|known, _| !known.starts_with(path));
     }
 
-    /// Пачка путей, о которых сообщило слежение. Пропавший путь, чей номер
-    /// появился под другим путём, это переименование.
-    fn update(&mut self, root: &Path, paths: &[PathBuf]) -> Vec<Moved> {
+    /// Пачка путей, о которых сообщило слежение, на момент `now`. Пропавший
+    /// путь, чей номер появился под другим путём, это переименование.
+    fn update(&mut self, root: &Path, paths: &[PathBuf], now: Instant) -> Vec<Moved> {
         let mut gone = Vec::new();
         let mut appeared = Vec::new();
 
         for path in paths {
             match get_file_id(path) {
-                Ok(id) if self.0.get(path) != Some(&id) => appeared.push((path, id)),
-                Err(_) if self.0.contains_key(path) => gone.push(path),
+                Ok(id) if self.known.get(path) != Some(&id) => appeared.push((path, id)),
+                Err(_) if self.known.contains_key(path) => gone.push(path),
                 _ => {}
             }
         }
@@ -132,16 +145,29 @@ impl Ids {
         // Папка раньше своего содержимого: пропало вместе с ней.
         gone.sort_by_key(|path| path.components().count());
 
-        let moved = gone
+        let mut lost: Vec<_> = std::mem::take(&mut self.lost)
             .into_iter()
-            .filter_map(|from| {
-                let id = *self.0.get(from)?;
-                self.forget(from);
-                let (to, _) = appeared.iter().find(|(_, other)| *other == id)?;
-
-                visible_move(&relative(root, from)?, &relative(root, to)?, to.is_dir())
-            })
+            .filter(|(.., at)| now.saturating_duration_since(*at) < DEBOUNCE)
             .collect();
+
+        for from in gone {
+            if let Some(&id) = self.known.get(from) {
+                self.forget(from);
+                lost.push((from.clone(), id, now));
+            }
+        }
+
+        let pair = |from: &Path, to: &Path| -> Option<Moved> {
+            visible_move(&relative(root, from)?, &relative(root, to)?, to.is_dir())
+        };
+        let mut moved = Vec::new();
+
+        for (from, id, at) in lost {
+            match appeared.iter().find(|(_, other)| *other == id) {
+                Some((to, _)) => moved.extend(pair(&from, to)),
+                None => self.lost.push((from, id, at)),
+            }
+        }
 
         for (path, _) in appeared {
             self.add(path);
@@ -223,6 +249,55 @@ mod tests {
         assert_eq!(
             next_moves(&events),
             [moved("done/result.md", "done/final.md")]
+        );
+    }
+
+    // Половины переименования папки разными пачками, как их отдаёт
+    // дебаунсер на Linux: старый путь первым, новый следующим.
+    #[test]
+    fn переезд_папки_сводится_и_из_соседних_пачек() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        fs::create_dir(root.join("work")).unwrap();
+        fs::write(root.join("work/plan.md"), "план").unwrap();
+        let mut ids = Ids::scan(&root);
+        let now = Instant::now();
+
+        fs::rename(root.join("work"), root.join("done")).unwrap();
+
+        assert_eq!(ids.update(&root, &[root.join("work")], now), []);
+        assert_eq!(
+            ids.update(&root, &[root.join("done")], now + DEBOUNCE / 2),
+            [moved("work", "done")]
+        );
+
+        // Пара нашлась, второй раз переезд не приходит, а содержимое
+        // папки известно под новым путём.
+        fs::rename(root.join("done/plan.md"), root.join("done/final.md")).unwrap();
+        assert_eq!(
+            ids.update(
+                &root,
+                &[root.join("done/plan.md"), root.join("done/final.md")],
+                now + DEBOUNCE
+            ),
+            [moved("done/plan.md", "done/final.md")]
+        );
+    }
+
+    #[test]
+    fn давняя_пропажа_с_тем_же_номером_не_переезд() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        fs::write(root.join("plan.md"), "план").unwrap();
+        let mut ids = Ids::scan(&root);
+        let now = Instant::now();
+
+        fs::rename(root.join("plan.md"), root.join("other.md")).unwrap();
+
+        assert_eq!(ids.update(&root, &[root.join("plan.md")], now), []);
+        assert_eq!(
+            ids.update(&root, &[root.join("other.md")], now + DEBOUNCE),
+            []
         );
     }
 
