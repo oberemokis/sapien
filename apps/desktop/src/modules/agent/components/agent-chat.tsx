@@ -386,24 +386,13 @@ export function AgentChat({ session, project }: Props) {
   }
 
   const claudeSession = chat.claudeSession;
+  // Пустая сессия держит поле ввода посередине окна, первое сообщение
+  // уводит его вниз, под ленту.
+  const fresh = chat.loaded && chat.entries.length === 0 && !chat.running;
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex min-h-11 shrink-0 items-center gap-2 border-b-[0.5px] border-border-base px-4 py-1">
-        <div className="flex min-w-0 flex-1 items-baseline gap-2">
-          <h1 className="truncate text-[13px]/5 font-medium">{session.title || t("agent.sessions.untitled")}</h1>
-          <p title={project?.path} className="truncate text-[12px] text-text-muted">
-            {project?.name}
-          </p>
-        </div>
-        {claudeSession !== null && !chat.running && (
-          <IconButton
-            icon={ComputerTerminal01Icon}
-            label={t("agent.chat.terminal")}
-            onClick={() => toTerminal(claudeSession)}
-          />
-        )}
-      </div>
+    <div className={`flex min-h-0 flex-1 flex-col ${fresh ? "justify-center" : ""}`}>
+      {!fresh && (
       <div
         ref={logRef}
         role="log"
@@ -413,11 +402,6 @@ export function AgentChat({ session, project }: Props) {
         {/* Строки ленты не сжимаются: обрезанная строка инструмента иначе
             уходит в нулевую высоту, когда лента длиннее экрана. */}
         <div className="mx-auto flex w-full max-w-200 flex-1 flex-col gap-3 *:shrink-0">
-          {chat.loaded && chat.entries.length === 0 && (
-            <p className="m-auto text-center text-[13px]/5 text-text-muted">
-              {t("agent.chat.empty", { project: project?.name ?? "" })}
-            </p>
-          )}
           {chat.entries.map(({ id, entry }) => {
             if (entry.kind === "question" || entry.kind === "permission") {
               return (
@@ -447,6 +431,7 @@ export function AgentChat({ session, project }: Props) {
           )}
         </div>
       </div>
+      )}
       <div className="px-4">
         {!online && <Notice tone="warning">{t("agent.chat.offline")}</Notice>}
         {online && blocked}
@@ -564,6 +549,13 @@ export function AgentChat({ session, project }: Props) {
               items={access}
               shown="hidden @sm:inline"
             />
+            {claudeSession !== null && !chat.running && (
+              <IconButton
+                icon={ComputerTerminal01Icon}
+                label={t("agent.chat.terminal")}
+                onClick={() => toTerminal(claudeSession)}
+              />
+            )}
             <div className="flex-1" />
             {answering && (
               <button

@@ -1,7 +1,10 @@
-import { act, render, screen } from "@testing-library/react";
+import { clearMocks, mockIPC, mockWindows } from "@tauri-apps/api/mocks";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  AppearanceSettings,
   restoreTheme,
+  restoreUiScale,
   setThemePreference,
   useThemePreference,
   useThemeSync,
@@ -92,5 +95,73 @@ describe("тема", () => {
 
     system.change(false);
     expect(isLight()).toBe(true);
+  });
+});
+
+// Окно Tauri: масштаб webview уходит командой, она и есть граница.
+function fakeWebview() {
+  const zooms: number[] = [];
+
+  Object.assign(globalThis, { isTauri: true });
+  mockWindows("main");
+  mockIPC((command, args) => {
+    if (command === "plugin:webview|set_webview_zoom") {
+      zooms.push((args as { value: number }).value);
+    }
+
+    return null;
+  });
+
+  return zooms;
+}
+
+function scale() {
+  return screen.getByRole<HTMLSelectElement>("combobox", { name: "Масштаб" });
+}
+
+describe("масштаб", () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  afterEach(() => {
+    clearMocks();
+    Reflect.deleteProperty(globalThis, "isTauri");
+  });
+
+  it("без сохранённого выбора интерфейс мельче обычного, 90%", async () => {
+    const zooms = fakeWebview();
+
+    restoreUiScale();
+    render(<AppearanceSettings />);
+
+    expect(scale().value).toBe("90");
+    await vi.waitFor(() => expect(zooms).toEqual([0.9]));
+  });
+
+  it("выбор сразу меняет масштаб окна и переживает перезапуск", async () => {
+    const zooms = fakeWebview();
+
+    restoreUiScale();
+    const view = render(<AppearanceSettings />);
+    fireEvent.change(scale(), { target: { value: "110" } });
+
+    await vi.waitFor(() => expect(zooms.at(-1)).toBe(1.1));
+    view.unmount();
+
+    restoreUiScale();
+    render(<AppearanceSettings />);
+    expect(scale().value).toBe("110");
+    await vi.waitFor(() => expect(zooms.at(-1)).toBe(1.1));
+  });
+
+  it("битое сохранённое значение даёт 90%, а не падение", () => {
+    fakeWebview();
+    localStorage.setItem("sapien.scale", "137");
+
+    restoreUiScale();
+    render(<AppearanceSettings />);
+
+    expect(scale().value).toBe("90");
   });
 });

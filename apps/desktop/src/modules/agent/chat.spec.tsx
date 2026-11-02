@@ -243,7 +243,12 @@ function isRunning(title: string) {
 async function openSession(title: string) {
   await waitFor(() => panel().getByText(title));
   fireEvent.click(panel().getByRole("button", { name: (name) => name.startsWith(title) }));
-  await screen.findByRole("heading", { name: title });
+  await waitFor(() => expect(opened()?.startsWith(title)).toBe(true));
+}
+
+// Открытая сессия отмечена в левой панели.
+function opened() {
+  return panel().queryByRole("button", { current: "page" })?.textContent ?? null;
 }
 
 function field() {
@@ -293,20 +298,21 @@ describe("левая панель", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Новая сессия в «сайт»" }));
 
-    expect(
-      await screen.findByText("Опишите задачу. Агент работает в папке «сайт»: читает и правит файлы, запускает команды."),
-    ).toBeDefined();
+    await waitFor(() => expect(opened()).toBe("Новая сессия"));
     expect(rust.created.map((session) => session.project)).toEqual(["p2"]);
     expect(sessionTitles("сайт")).toEqual(["Новая сессия", "Лендинг"]);
-    expect(panel().getByRole("button", { current: "page" }).textContent).toBe("Новая сессия");
+    // Пустая сессия без ленты: поле ввода стоит посередине.
+    await screen.findByLabelText("Сообщение агенту");
+    expect(screen.queryByRole("log")).toBeNull();
 
     await ask("Сверстай шапку\nи подвал");
 
     await waitFor(() => expect(rust.sent).toHaveLength(1));
     expect(rust.sent[0]?.session).toBe(rust.created[0]?.id);
-    // Название видно сразу, ответ ещё идёт.
+    // Название видно сразу, ответ ещё идёт, лента над полем.
     expect(sessionTitles("сайт")).toEqual(["Сверстай шапку", "Лендинг"]);
-    expect(screen.getByRole("heading", { name: "Сверстай шапку" })).toBeDefined();
+    expect(opened()).toMatch(/^Сверстай шапку/);
+    expect(screen.getByRole("log", { name: "Чат с агентом" })).toBeDefined();
   });
 
   it("«Добавить проект» заводит проект и сразу открывает сессию в нём", async () => {
@@ -315,11 +321,7 @@ describe("левая панель", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Добавить проект" }));
 
-    expect(
-      await screen.findByText(
-        "Опишите задачу. Агент работает в папке «документы»: читает и правит файлы, запускает команды.",
-      ),
-    ).toBeDefined();
+    await waitFor(() => expect(opened()).toBe("Новая сессия"));
     expect(rust.created.map((session) => session.project)).toEqual(["p3"]);
     expect(sessionTitles("документы")).toEqual(["Новая сессия"]);
   });
@@ -374,7 +376,7 @@ describe("поиск сессии", () => {
     fireEvent.change(query, { target: { value: "парсер sapien" } });
     fireEvent.keyDown(query, { key: "Enter" });
 
-    expect(await screen.findByRole("heading", { name: "Рефакторинг парсера" })).toBeDefined();
+    await waitFor(() => expect(opened()).toBe("Рефакторинг парсера"));
     expect(screen.queryByRole("combobox", { name: "Поиск сессии" })).toBeNull();
   });
 });

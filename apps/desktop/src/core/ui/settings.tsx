@@ -24,7 +24,7 @@ export function SettingsSection({
   children: ReactNode;
 }) {
   return (
-    <div className="flex flex-col gap-10">
+    <div className="mx-auto flex w-full max-w-240 flex-col gap-10 px-8 py-10">
       <header className="flex flex-col gap-1.5">
         <h1 className="text-[15px]/5 font-[640]">{title}</h1>
         <p className="text-[13px]/5 text-text-muted">{description}</p>
