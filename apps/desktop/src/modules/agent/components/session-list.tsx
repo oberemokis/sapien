@@ -28,6 +28,13 @@ const ROW_SHAPE =
 const ROW = `${ROW_SHAPE} text-text-muted hover:text-text-base aria-[current=page]:text-text-base`;
 const SESSION_ROW = `${ROW_SHAPE} text-text-base`;
 
+// Ветка дерева от буквы проекта к сессии, углы прямые. Список сдвинут
+// под середину буквы, у каждой сессии свой отрезок вертикали и отвод
+// на середине строки: у последней вертикаль кончается на отводе.
+// Отрезки не перекрываются, поэтому полупрозрачная линия ровная.
+const SESSION_BRANCH =
+  "relative pl-2 before:absolute before:-top-0.5 before:bottom-0 before:left-0 before:w-px before:bg-border-base first:before:-top-1 last:before:bottom-3.5 after:absolute after:top-3.5 after:left-0 after:h-px after:w-2 after:bg-border-base";
+
 type Menu = { x: number; y: number; items: MenuItem[] };
 
 type ProjectProps = {
@@ -36,7 +43,8 @@ type ProjectProps = {
 };
 
 // Проект и его сессии, свежие сверху. Над сессиями мелкая шапка: буква
-// и имя проекта. Сессия открывается вкладкой своего проекта. Правая кнопка
+// и имя проекта, от буквы к сессиям идут линии дерева. Сессия открывается
+// вкладкой своего проекта. Правая кнопка
 // открывает меню проекта или сессии.
 function ProjectSessions({ project, onMenu }: ProjectProps) {
   const { t } = useTranslation();
@@ -93,9 +101,9 @@ function ProjectSessions({ project, onMenu }: ProjectProps) {
           {remove.isError && <p className="text-state-fg-danger">{t("agent.projects.removeFailed")}</p>}
         </div>
       )}
-      <ul className="flex flex-col gap-0.5">
+      <ul className="ml-4 flex flex-col gap-0.5">
         {list.map((session) => (
-          <li key={session.id}>
+          <li key={session.id} className={SESSION_BRANCH}>
             <button
               type="button"
               aria-current={(onChat && session.project === tabs.project && session.id === tabs.active && "page") || undefined}
