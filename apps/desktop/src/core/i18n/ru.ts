@@ -20,6 +20,7 @@ export const ru = {
       setUpClaude: "Настройки",
       slash: "Действия и команды",
       slashNone: "Ничего не нашлось, Enter отправит текст как сообщение.",
+      commandsFailed: "Команды агента не загрузились.",
       provider: "Провайдер",
       model: "Модель",
       modelDefault: "Модель по умолчанию",

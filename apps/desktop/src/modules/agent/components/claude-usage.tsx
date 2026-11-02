@@ -76,8 +76,12 @@ export function ClaudeUsage() {
       }
     }
 
+    // Escape, который никто не забрал раньше, закрывает карточку и гасится:
+    // тот же нажим не уведёт со страницы настроек. Поэтому слушает document,
+    // он получает событие раньше window.
     function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
+      if (event.key === "Escape" && !event.defaultPrevented) {
+        event.preventDefault();
         setOpen(false);
       }
     }

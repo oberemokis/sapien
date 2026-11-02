@@ -44,7 +44,7 @@ const LINK =
 const BUBBLE =
   "max-w-[82%] self-end rounded-xl bg-bg-layer-02 px-3 py-2 text-[14px]/[21px] font-[400] break-words whitespace-pre-wrap";
 
-// Квадратные кнопки под полем ввода: «+», отправка и «Стоп».
+// Квадратные кнопки под полем ввода: отправка и «Стоп».
 const SQUARE =
   "grid size-7 shrink-0 place-items-center rounded-md transition-colors duration-120 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus";
 
@@ -214,20 +214,24 @@ function Notice({
 // Чат сессии посередине окна. Enter отправляет, Shift+Enter переносит
 // строку. Пока идёт ответ, кнопка отправки становится «Стоп». «/» в начале
 // поля открывает список действий и команд агента: стрелки выбирают, Enter
-// запускает действие или вписывает команду, Escape закрывает. Под полем
+// запускает действие или вписывает команду, Escape прячет список до
+// следующего набора, а текст оставляет. Под полем
 // агент, его модель, размышление и доступ к инструментам. Агент выбирается,
 // пока сессия не отвечала.
 export function AgentChat({ session, project }: Props) {
   const { t } = useTranslation();
   const claude = useClaudeStatus();
   const { choice, providers, locked } = useChoice(session);
-  const { commands } = useCommands(choice?.provider ?? null, project);
+  const agentCommands = useCommands(choice?.provider ?? null, project);
+  const { commands } = agentCommands;
   const chat = useChat(session.id);
   const actions = useActionList();
   const runAction = useRunAction();
   const online = useOnline();
   const [draft, keepDraft] = useState(() => draftOf(session.id));
   const [picked, setPicked] = useState(0);
+  // Список «/» спрятан Escape и ждёт следующего набора.
+  const [dismissed, setDismissed] = useState(false);
   const fieldRef = useRef<HTMLTextAreaElement>(null);
   const logRef = useRef<HTMLDivElement>(null);
   const listId = useId();
@@ -279,20 +283,27 @@ export function AgentChat({ session, project }: Props) {
   const canRun = online && free;
   // Вписанная команда закрывает список: дальше идут её аргументы.
   const typed = commands.some((command) => draft.startsWith(`/${command.name} `));
+  const listing = /^\/[^\n]*$/.test(draft) && !typed && !dismissed;
   const query = draft.slice(1).trim().toLowerCase();
   let matches: Action[] = [];
   let found: typeof commands = [];
 
-  if (/^\/[^\n]*$/.test(draft) && !typed) {
+  if (listing) {
     matches = actions.filter((action) => action.name.toLowerCase().includes(query));
     found = commandsMatching(commands, query);
   }
 
   const listed = matches.length + found.length;
   // Пустой список после одной «/» не показывается, после набранного
-  // объясняет, что уйдёт сообщением.
-  const slash = listed > 0 || (draft.length > 1 && /^\/[^\n]*$/.test(draft) && !typed);
+  // объясняет, что уйдёт сообщением. Команды не загрузились: список
+  // говорит об этом, иначе это выглядело бы проектом без команд.
+  const slash = listed > 0 || (listing && (draft.length > 1 || agentCommands.failed));
   const active = Math.min(picked, Math.max(listed - 1, 0));
+
+  // Стрелки уводят выбор за край списка: выбранная строка остаётся на виду.
+  useEffect(() => {
+    document.getElementById(`${listId}-${active}`)?.scrollIntoView({ block: "nearest" });
+  }, [listId, active]);
 
   function setDraft(text: string) {
     keepDraft(text);
@@ -485,7 +496,9 @@ export function AgentChat({ session, project }: Props) {
         <div className="relative mx-auto max-w-200 rounded-xl bg-bg-dock shadow-raised">
           {slash && (
             <div className="absolute inset-x-0 bottom-full mb-2 max-h-60 overflow-y-auto rounded-xl bg-bg-dock p-1 shadow-raised">
-              {listed === 0 && <p className="px-3 py-1.5 text-[13px] text-text-muted">{t("agent.chat.slashNone")}</p>}
+              {listed === 0 && draft.length > 1 && (
+                <p className="px-3 py-1.5 text-[13px] text-text-muted">{t("agent.chat.slashNone")}</p>
+              )}
               <div id={listId} role="listbox" aria-label={t("agent.chat.slash")}>
                 {matches.map((action, index) => (
                   <div
@@ -526,6 +539,14 @@ export function AgentChat({ session, project }: Props) {
                   );
                 })}
               </div>
+              {agentCommands.failed && (
+                <p className="flex items-center gap-3 px-3 py-1.5 text-[13px] text-text-muted">
+                  <span className="min-w-0 flex-1">{t("agent.chat.commandsFailed")}</span>
+                  <button type="button" className={LINK} onClick={() => void agentCommands.retry()}>
+                    {t("agent.chat.retry")}
+                  </button>
+                </p>
+              )}
             </div>
           )}
           <textarea
@@ -543,13 +564,14 @@ export function AgentChat({ session, project }: Props) {
             onChange={(event) => {
               setDraft(event.target.value);
               setPicked(0);
+              setDismissed(false);
             }}
             onKeyDown={(event) => {
               const enter = event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing;
 
               if (slash && event.key === "Escape") {
                 event.preventDefault();
-                setDraft("");
+                setDismissed(true);
               } else if (listed > 0 && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
                 event.preventDefault();
                 setPicked((active + (event.key === "ArrowDown" ? 1 : listed - 1)) % listed);
