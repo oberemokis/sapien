@@ -2,7 +2,10 @@ import { ICONS, type IconName } from "./icons";
 
 type Props = {
   icon: IconName;
-  size?: number;
+  // Размеры opencode: 14 мелкая, 16 обычная, 20 крупная, 32 иконка
+  // на весь экран. Линии иконок в пиксель толщиной стоят на сетке 16
+  // и 20, и на промежуточном размере вроде 15 они расплываются.
+  size?: 14 | 16 | 20 | 32;
   className?: string;
 };
 

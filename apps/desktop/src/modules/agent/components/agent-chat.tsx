@@ -604,7 +604,7 @@ export function AgentChat({ session, project }: Props) {
                 className={SEND}
                 onClick={send}
               >
-                <Icon icon="arrow-up" size={15} />
+                <Icon icon="arrow-up" />
               </button>
             )}
             {chat.running && (
@@ -627,7 +627,7 @@ export function AgentChat({ session, project }: Props) {
                 className={SEND}
                 onClick={send}
               >
-                <Icon icon="arrow-up" size={15} />
+                <Icon icon="arrow-up" />
               </button>
             )}
           </div>

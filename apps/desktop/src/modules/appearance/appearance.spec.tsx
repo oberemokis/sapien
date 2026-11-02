@@ -129,14 +129,14 @@ describe("масштаб", () => {
     Reflect.deleteProperty(globalThis, "isTauri");
   });
 
-  it("без сохранённого выбора интерфейс мельче обычного, 90%", async () => {
+  it("без сохранённого выбора интерфейс в натуральную величину, 100%", async () => {
     const zooms = fakeWebview();
 
     restoreUiScale();
     render(<AppearanceSettings />);
 
-    expect(scale().value).toBe("90");
-    await vi.waitFor(() => expect(zooms).toEqual([0.9]));
+    expect(scale().value).toBe("100");
+    await vi.waitFor(() => expect(zooms).toEqual([1]));
   });
 
   it("выбор сразу меняет масштаб окна и переживает перезапуск", async () => {
@@ -155,13 +155,13 @@ describe("масштаб", () => {
     await vi.waitFor(() => expect(zooms.at(-1)).toBe(1.1));
   });
 
-  it("битое сохранённое значение даёт 90%, а не падение", () => {
+  it("битое сохранённое значение даёт 100%, а не падение", () => {
     fakeWebview();
     localStorage.setItem("sapien.scale", "137");
 
     restoreUiScale();
     render(<AppearanceSettings />);
 
-    expect(scale().value).toBe("90");
+    expect(scale().value).toBe("100");
   });
 });

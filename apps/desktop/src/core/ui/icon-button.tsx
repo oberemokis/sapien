@@ -23,7 +23,7 @@ export function IconButton({ icon, label, shortcut, pressed, onClick }: Props) {
       className="grid size-7 place-items-center rounded-md text-icon-muted transition-colors duration-120 hover:bg-overlay-hover hover:text-icon-base focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus active:bg-overlay-pressed aria-pressed:bg-overlay-pressed aria-pressed:text-icon-base"
       onClick={onClick}
     >
-      <Icon icon={icon} size={15} />
+      <Icon icon={icon} />
     </button>
   );
 }
