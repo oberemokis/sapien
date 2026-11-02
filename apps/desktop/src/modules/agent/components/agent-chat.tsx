@@ -9,7 +9,6 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/core/ui/button";
 import type { MenuItem } from "@/core/ui/context-menu";
 import { Icon } from "@/core/ui/icon";
-import { IconButton } from "@/core/ui/icon-button";
 import { MenuButton } from "@/core/ui/menu-button";
 import { useActionList, useRunAction } from "../interactions/actions";
 import { useChat, useOnline } from "../interactions/chat";
@@ -213,18 +212,6 @@ function Notice({
   );
 }
 
-// Команда, которая продолжает разговор в терминале: Claude Code ищет
-// сессию в папке, где его запустили.
-function terminalCommand(path: string | undefined, claudeSession: string) {
-  const resume = `claude --resume ${claudeSession}`;
-
-  if (path === undefined) {
-    return resume;
-  }
-
-  return `cd '${path.replaceAll("'", "'\\''")}' && ${resume}`;
-}
-
 // Чат сессии посередине окна. Enter отправляет, Shift+Enter переносит
 // строку. Пока идёт ответ, кнопка отправки становится «Стоп». «/» в начале
 // поля или «+» открывает список действий: стрелки выбирают, Enter запускает,
@@ -239,8 +226,6 @@ export function AgentChat({ session, project }: Props) {
   const online = useOnline();
   const [draft, setDraft] = useState("");
   const [picked, setPicked] = useState(0);
-  // Команда для терминала, которую только что скопировали.
-  const [copied, setCopied] = useState<{ command: string; ok: boolean } | null>(null);
   const fieldRef = useRef<HTMLTextAreaElement>(null);
   const logRef = useRef<HTMLDivElement>(null);
   const listId = useId();
@@ -261,17 +246,6 @@ export function AgentChat({ session, project }: Props) {
       log.scrollTop = log.scrollHeight;
     }
   }, [count, tail]);
-
-  // Скопированная команда видна несколько секунд.
-  useEffect(() => {
-    if (copied === null) {
-      return;
-    }
-
-    const timer = setTimeout(() => setCopied(null), 6000);
-
-    return () => clearTimeout(timer);
-  }, [copied]);
 
   // Агенту нечем или негде работать: Claude Code не готов или папки
   // проекта больше нет.
@@ -336,18 +310,6 @@ export function AgentChat({ session, project }: Props) {
     void runAction(action, session.id);
   }
 
-  // Сессию Claude Code продолжают в терминале обычным claude из папки
-  // проекта. Команда пишется в буфер сразу по нажатию, а не вышло, видна,
-  // чтобы её скопировали руками.
-  function toTerminal(claudeSession: string) {
-    const command = terminalCommand(project?.path, claudeSession);
-
-    navigator.clipboard.writeText(command).then(
-      () => setCopied({ command, ok: true }),
-      () => setCopied({ command, ok: false }),
-    );
-  }
-
   const models: MenuItem[] = AGENT_MODELS.map((value) => ({
     label: MODEL_NAMES[value],
     checked: value === model,
@@ -377,7 +339,6 @@ export function AgentChat({ session, project }: Props) {
     noMatch = t("agent.actions.noMatch");
   }
 
-  const claudeSession = chat.claudeSession;
   // Пустая сессия держит поле ввода посередине окна, первое сообщение
   // уводит его вниз, под ленту.
   const fresh = chat.loaded && chat.entries.length === 0 && !chat.running;
@@ -440,13 +401,6 @@ export function AgentChat({ session, project }: Props) {
           >
             {t(`agent.problems.${chat.problem}`)}
           </Notice>
-        )}
-        {copied !== null && (
-          <p role="status" className="mx-auto mb-2 max-w-200 text-[12px] break-all text-text-muted">
-            {copied.ok
-              ? t("agent.chat.copied", { command: copied.command })
-              : t("agent.chat.copyFailed", { command: copied.command })}
-          </p>
         )}
       </div>
       <div className="px-4 pb-4">
@@ -541,13 +495,6 @@ export function AgentChat({ session, project }: Props) {
               items={access}
               shown="hidden @sm:inline"
             />
-            {claudeSession !== null && !chat.running && (
-              <IconButton
-                icon="terminal"
-                label={t("agent.chat.terminal")}
-                onClick={() => toTerminal(claudeSession)}
-              />
-            )}
             <div className="flex-1" />
             {answering && (
               <button

@@ -59,7 +59,6 @@ function fakeRust({
     projects: [...projects],
     sessions: SESSIONS.filter((session) => projects.some((project) => project.id === session.project)),
     history: {} as Record<string, ChatEntry[]>,
-    claudeSessions: {} as Record<string, string>,
     // Сессии, которые Rust начал по просьбе окна.
     created: [] as SessionInfo[],
     removed: [] as string[],
@@ -120,8 +119,6 @@ function fakeRust({
       }
       case "agent_history":
         return rust.history[(args as { session: string }).session] ?? [];
-      case "agent_claude_session":
-        return rust.claudeSessions[(args as { session: string }).session] ?? null;
       case "agent_claude_status":
         return claude;
       case "actions_list":
@@ -493,30 +490,6 @@ describe("чат сессии", () => {
     await waitFor(() => expect(rust.sent).toHaveLength(2));
     expect(rust.sent[1]).toMatchObject({ session: "s2", text: "Допиши тесты" });
     expect(screen.queryByRole("alert")).toBeNull();
-  });
-
-  it("«Продолжить в терминале» копирует команду, которая переходит в папку проекта", async () => {
-    const rust = fakeRust();
-    let clipboard = "";
-    Object.defineProperty(navigator, "clipboard", {
-      configurable: true,
-      value: {
-        writeText: (text: string) => {
-          clipboard = text;
-          return Promise.resolve();
-        },
-      },
-    });
-    rust.claudeSessions.s3 = "4f1c-9a";
-    rust.history.s3 = [{ kind: "user", text: "Привет" }];
-    open();
-    await openSession("Лендинг");
-
-    fireEvent.click(await screen.findByRole("button", { name: "Продолжить в терминале" }));
-
-    const command = "cd '/Users/me/O'\\''Brien/сайт' && claude --resume 4f1c-9a";
-    expect(await screen.findByText(`Скопировано, вставьте в терминал: ${command}`)).toBeDefined();
-    expect(clipboard).toBe(command);
   });
 
   it("папки проекта больше нет: история видна, отправить нельзя, новую сессию не начать", async () => {

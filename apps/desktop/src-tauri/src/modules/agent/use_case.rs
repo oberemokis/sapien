@@ -87,11 +87,6 @@ pub fn history(store: &impl Sessions, id: &str) -> Result<Vec<Entry>, AppError> 
     Ok(transcript(&store.load(id)?.chat.messages))
 }
 
-/// Сессия Claude Code сессии `id`, чтобы продолжить её в терминале.
-pub fn claude_session(store: &impl Sessions, id: &str) -> Result<Option<String>, AppError> {
-    Ok(store.load(id)?.chat.session.map(|session| session.id))
-}
-
 /// Сообщение человека в сессии `session`. Пустой текст продолжает историю,
 /// которая кончается его вопросом: так «Повторить» шлёт его снова после
 /// ошибки. `now` это время сообщения в миллисекундах Unix.
@@ -1044,7 +1039,6 @@ mod tests {
                 seen: Some(stamp),
             })
         );
-        assert_eq!(claude_session(&sessions, "s1"), Ok(Some("c1".into())));
     }
 
     #[test]
@@ -1256,7 +1250,10 @@ mod tests {
                 },
             ]
         );
-        assert_eq!(claude_session(&sessions, "s1"), Ok(Some("c3".into())));
+        assert_eq!(
+            sessions.get("s1").chat.session.map(|session| session.id),
+            Some("c3".into())
+        );
     }
 
     #[test]

@@ -85,7 +85,6 @@ pub fn run() {
             agent::transport::agent_history,
             agent::transport::agent_send,
             agent::transport::agent_running,
-            agent::transport::agent_claude_session,
             agent::transport::agent_attach,
             agent::transport::agent_answer,
             agent::transport::agent_stop,

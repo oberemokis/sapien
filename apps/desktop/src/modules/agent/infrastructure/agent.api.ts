@@ -63,12 +63,6 @@ export function agentStop() {
   return invoke<null>("agent_stop");
 }
 
-// Сессия Claude Code этого разговора: её продолжают в терминале. null,
-// пока разговора не было.
-export function agentClaudeSession(session: string) {
-  return invoke<string | null>("agent_claude_session", { session });
-}
-
 // Есть ли Claude Code на устройстве, его версия и вход.
 export function agentClaudeStatus() {
   return invoke<ClaudeStatus>("agent_claude_status");

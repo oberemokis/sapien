@@ -86,8 +86,6 @@ function fakeRust({
       }
       case "agent_history":
         return [];
-      case "agent_claude_session":
-        return null;
       case "agent_claude_status":
         return { state: "ready", version: "2.1.316" };
       case "agent_send": {
