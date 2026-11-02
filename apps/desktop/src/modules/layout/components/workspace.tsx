@@ -69,9 +69,11 @@ export function Workspace({ files, main, chat, title, actions }: Props) {
           className="flex shrink-0 items-center"
           // Открытое дерево задаёт ширину левой части, и вкладки начинаются
           // над карточкой. Скрытое отдаёт место, и вкладки уходят к кнопкам окна.
+          // Кнопки окна не масштабируются вместе со страницей, поэтому место
+          // под них делится на масштаб интерфейса.
           style={{
             width: layout.files.visible ? GUTTER + layout.files.width : undefined,
-            paddingLeft: windowButtonsVisible ? WINDOW_BUTTONS_WIDTH : GUTTER,
+            paddingLeft: windowButtonsVisible ? `calc(${WINDOW_BUTTONS_WIDTH}px / var(--ui-scale, 1))` : GUTTER,
           }}
         >
           <span data-files-peek-trigger className="flex">

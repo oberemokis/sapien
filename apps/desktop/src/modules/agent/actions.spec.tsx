@@ -169,10 +169,22 @@ function panel() {
   return within(screen.getByRole("navigation", { name: "Сессии" }));
 }
 
+// Открытая сессия отмечена в левой панели, за названием может стоять
+// отметка идущего ответа.
+function opened() {
+  return panel().queryByRole("button", { current: "page" })?.textContent ?? "";
+}
+
+// Чат открытой сессии на экране: поле ввода есть только в нём.
+async function chatOf(title: string) {
+  await screen.findByLabelText("Сообщение агенту");
+  await waitFor(() => expect(opened().startsWith(title)).toBe(true));
+}
+
 async function openSession(title: string) {
   await waitFor(() => panel().getByText(title));
   fireEvent.click(panel().getByRole("button", { name: title }));
-  await screen.findByRole("heading", { name: title });
+  await chatOf(title);
 }
 
 async function type(text: string) {
@@ -258,7 +270,7 @@ describe("действия в чате", () => {
 
     hotkey("KeyJ");
 
-    expect(await screen.findByRole("heading", { name: "Рефакторинг парсера" })).toBeDefined();
+    await chatOf("Рефакторинг парсера");
     await waitFor(() => expect(rust.sent).toHaveLength(1));
     expect(rust.sent).toEqual([{ session: "s1", model: "claude-sonnet-5-5", text: "Посмотри изменения", oversight: "ask" }]);
     expect(rust.created).toEqual([]);
@@ -363,7 +375,7 @@ describe("действия по расписанию", () => {
     await waitFor(() => expect(rust.sent).toHaveLength(1));
     expect(rust.created.map((session) => session.project)).toEqual(["p2"]);
     expect(rust.sent[0]).toMatchObject({ session: rust.created[0]?.id, oversight: "away" });
-    expect(screen.getByRole("heading", { name: "Лендинг" })).toBeDefined();
+    expect(opened().startsWith("Лендинг")).toBe(true);
     await waitFor(() => expect(screen.queryByText(/Отложено/)).toBeNull());
   });
 
@@ -541,7 +553,7 @@ describe("экран «Действия»", () => {
     fireEvent.click(screen.getByRole("link", { name: "Действия" }));
     fireEvent.click((await row("Сводка")).getByRole("button", { name: "Запустить" }));
 
-    expect(await screen.findByRole("heading", { name: "Рефакторинг парсера" })).toBeDefined();
+    await chatOf("Рефакторинг парсера");
     await waitFor(() => expect(rust.sent).toHaveLength(1));
     expect(rust.sent[0]).toEqual({
       session: "s1",

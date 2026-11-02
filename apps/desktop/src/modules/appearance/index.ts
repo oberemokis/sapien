@@ -6,3 +6,4 @@ export {
   useThemePreference,
   useThemeSync,
 } from "./interactions/theme";
+export { restoreUiScale } from "./interactions/scale";

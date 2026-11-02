@@ -1,7 +1,9 @@
 import { useId } from "react";
 import { useTranslation } from "react-i18next";
-import { SettingsSection } from "@/core/ui/settings";
+import { SettingsGroup, SettingsRow, SettingsSection, SettingsSelect } from "@/core/ui/settings";
+import { setUiScale, useUiScale } from "../interactions/scale";
 import { setThemePreference, useThemePreference } from "../interactions/theme";
+import { UI_SCALES } from "../model/scale";
 import { THEME_PREFERENCES, type Theme, type ThemePreference } from "../model/theme";
 
 // Цвета превью берутся из шкал, а не из смысловых токенов: превью
@@ -99,10 +101,21 @@ function ThemePicker() {
 // Раздел «Внешний вид». Выбор применяется сразу, кнопки «Сохранить» нет.
 export function AppearanceSettings() {
   const { t } = useTranslation();
+  const scale = useUiScale();
 
   return (
     <SettingsSection title={t("appearance.title")} description={t("appearance.description")}>
       <ThemePicker />
+      <SettingsGroup>
+        <SettingsRow title={t("appearance.scale.title")} description={t("appearance.scale.description")}>
+          <SettingsSelect
+            label={t("appearance.scale.title")}
+            value={String(scale)}
+            options={UI_SCALES.map((value) => ({ value: String(value), label: `${value}%` }))}
+            onChange={(value) => setUiScale(UI_SCALES.find((candidate) => String(candidate) === value) ?? scale)}
+          />
+        </SettingsRow>
+      </SettingsGroup>
     </SettingsSection>
   );
 }
