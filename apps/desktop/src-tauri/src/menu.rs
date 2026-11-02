@@ -2,7 +2,7 @@ use tauri::menu::{AboutMetadata, Menu, MenuBuilder, SubmenuBuilder};
 use tauri::{AppHandle, Runtime};
 
 // Меню macOS по образцу меню Tauri по умолчанию, но без «Закрыть окно»:
-// его ⌘W срабатывает раньше страницы, а там ⌘W закрывает вкладку.
+// окно одно, и случайный ⌘W закрыл бы приложение посреди ответа агента.
 // «Правка» остаётся: без неё в WKWebView не работают ⌘C, ⌘V и ⌘Z.
 pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     let info = app.package_info();

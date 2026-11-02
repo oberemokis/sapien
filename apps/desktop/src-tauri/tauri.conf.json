@@ -35,11 +35,6 @@
     }
   },
   "plugins": {
-    "deep-link": {
-      "desktop": {
-        "schemes": ["sapien"]
-      }
-    },
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEI1MzIyMTlENjc0RkQzMEIKUldRTDAwOW5uU0V5dFRBTGViZlNwRnhTZUU1T1FTQlUySEJ3TXl6d055YlgvSE9vcjBUVUVab28K",
       "endpoints": ["https://github.com/oberemokis/sapien/releases/latest/download/latest.json"],

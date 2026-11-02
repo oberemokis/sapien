@@ -6,19 +6,16 @@ mod links;
 #[cfg(target_os = "macos")]
 mod menu;
 mod modules;
-mod sealed;
 mod secrets;
-mod security;
 mod unlock;
 mod updates;
-mod window_store;
 
-use modules::{agent, vault, youtrack};
+use modules::{actions, agent, forge, projects};
 use tauri::Manager;
 
-/// `sapien mcp <сокет>`: так приложение запускает Claude Code, когда чат
-/// идёт подпиской. Процесс без окна только перекачивает stdio в сокет
-/// открытого приложения, инструменты выполняет оно. Код выхода для `exit`.
+/// `sapien mcp <сокет>`: так Claude Code запускает сервер MCP sapien.
+/// Процесс без окна только перекачивает stdio в сокет открытого
+/// приложения, вопросы и разрешения разбирает оно. Код выхода для `exit`.
 pub fn mcp(socket: Option<String>) -> i32 {
     #[cfg(unix)]
     if let Some(socket) = socket {
@@ -51,7 +48,6 @@ pub fn run() {
                 .build(),
         )
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_deep_link::init())
         // Ссылки окна открывает только links.rs: скрипт плагина, который
         // перехватывает клики по ссылкам, окну не нужен.
         .plugin(
@@ -61,33 +57,17 @@ pub fn run() {
         )
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(updates::Pending::default())
-        .manage(vault::Watch::default())
-        .manage(vault::Opened::default())
-        .manage(vault::Pinned::default())
         .manage(secrets::Secrets::default())
-        .manage(youtrack::Http::default())
-        .manage(agent::Anthropic::default())
+        .manage(forge::Http::default())
         .manage(agent::Running::default())
-        .manage(window_store::WindowStore::default())
         .setup(|app| {
-            let data = app.path().app_data_dir()?;
-
-            // Ключ данных первым: и перенос, и всё остальное читают файлы
-            // приложения через sealed.rs. Пропавший ключ запуск не держит,
-            // окно предложит начать с чистыми данными.
-            let sealed = sealed::start(&secrets::SystemKeychain, &data);
-            if !matches!(sealed, sealed::State::Sealed | sealed::State::Plain) {
-                log::warn!("данные приложения не читаются: {sealed:?}");
-            }
-
-            // До окна и слежения за хранилищем: никто не должен прочитать
-            // файлы приложения в прежнем формате. Отказ не держит запуск,
-            // шаг повторится при следующем.
-            if let Err(error) = data_format::migrate(&data) {
+            // До окна: никто не должен прочитать файлы приложения
+            // в прежнем формате. Отказ не держит запуск, шаг повторится
+            // при следующем.
+            if let Err(error) = data_format::migrate(&app.path().app_data_dir()?) {
                 log::error!("перенос данных приложения не закончен: {error}");
             }
             links::main_window(app)?;
-            vault::start(app.handle());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -95,53 +75,28 @@ pub fn run() {
             updates::app_version,
             updates::app_update_check,
             updates::app_update_install,
-            security::security_status,
-            security::security_reset,
             unlock::app_unlock,
-            window_store::window_store_read,
-            window_store::window_store_write,
-            secrets::secret_status,
-            secrets::secret_set,
-            secrets::secret_delete,
-            youtrack::transport::youtrack_status,
-            youtrack::transport::youtrack_connect,
-            youtrack::transport::youtrack_disconnect,
-            youtrack::transport::youtrack_publish,
-            youtrack::transport::youtrack_issue_state,
-            youtrack::transport::youtrack_check,
-            youtrack::transport::youtrack_similar,
-            youtrack::transport::youtrack_assignees,
-            youtrack::transport::youtrack_projects,
-            youtrack::transport::youtrack_project_issues,
-            youtrack::transport::youtrack_feed,
-            youtrack::transport::youtrack_issue_detail,
-            youtrack::transport::youtrack_graph,
+            projects::transport::projects_list,
+            projects::transport::projects_add,
+            projects::transport::projects_remove,
+            agent::transport::agent_sessions,
+            agent::transport::agent_session_new,
+            agent::transport::agent_session_delete,
             agent::transport::agent_history,
             agent::transport::agent_send,
-            agent::transport::agent_stop,
-            agent::transport::agent_clear,
-            agent::transport::agent_undo,
-            agent::transport::agent_meeting_tasks,
-            agent::transport::agent_claude_status,
+            agent::transport::agent_running,
+            agent::transport::agent_claude_session,
             agent::transport::agent_attach,
             agent::transport::agent_answer,
-            agent::transport::agent_claude_session,
-            vault::transport::vault_opened,
-            vault::transport::vault_status,
-            vault::transport::vault_tree,
-            vault::transport::vault_choose,
-            vault::transport::vault_create,
-            vault::transport::vault_close_for_agent,
-            vault::transport::vault_read,
-            vault::transport::vault_write,
-            vault::transport::vault_texts,
-            vault::transport::vault_unsaved,
-            vault::transport::vault_forget_unsaved,
-            vault::transport::vault_trash,
-            vault::transport::vault_versions,
-            vault::transport::vault_version,
-            vault::transport::vault_restore,
-            vault::transport::vault_deleted,
+            agent::transport::agent_stop,
+            agent::transport::agent_claude_status,
+            actions::transport::actions_list,
+            actions::transport::actions_create,
+            actions::transport::actions_write,
+            actions::transport::actions_delete,
+            forge::transport::forge_status,
+            forge::transport::forge_connect,
+            forge::transport::forge_disconnect,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

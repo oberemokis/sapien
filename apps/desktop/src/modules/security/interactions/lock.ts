@@ -8,7 +8,7 @@ import {
   subscribeReturn,
   writeLockSettings,
 } from "../infrastructure/lock.device";
-import { appUnlock } from "../infrastructure/security.api";
+import { appUnlock } from "../infrastructure/lock.api";
 import {
   idleFor,
   parseLockSettings,

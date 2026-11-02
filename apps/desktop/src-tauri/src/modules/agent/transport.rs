@@ -1,52 +1,45 @@
 use super::domain::{
-    ANSWER_WAIT, Answer, ClaudeState, ClaudeStatus, Context, Entry, Event, MeetingTask, Method,
-    Oversight, Question,
+    ANSWER_WAIT, Answer, ClaudeState, ClaudeStatus, Entry, Event, Oversight, Question, SessionInfo,
 };
-use super::infrastructure::anthropic::Anthropic;
-use super::infrastructure::chat_file::ChatFile;
 use super::infrastructure::claude_code::ClaudeCode;
-use super::infrastructure::neighbours::{VaultNotes, YoutrackIssues};
+use super::infrastructure::neighbours::ProjectFolders;
+use super::infrastructure::sessions_dir::SessionsDir;
 use super::ports::{Claude, Human};
 use super::use_case::{self, Turn};
+use crate::durable;
 use crate::error::AppError;
-use crate::modules::vault;
-use crate::secrets::Secrets;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager, Runtime, State};
 use tokio::sync::{Notify, oneshot, watch};
 use tokio::time::timeout;
 
-/// История чата способа `method`: у подписки и ключа API она своя.
-fn chat<R: Runtime>(app: &AppHandle<R>, method: Method) -> Result<ChatFile, AppError> {
-    let data = app
-        .path()
+fn data_dir<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, AppError> {
+    app.path()
         .app_data_dir()
-        .map_err(|_| AppError::unavailable("data_dir_unavailable"))?;
-    let vault = vault::transport::vault_root(app).unwrap_or_default();
+        .map_err(|_| AppError::unavailable("data_dir_unavailable"))
+}
 
-    Ok(match method {
-        Method::Key => ChatFile::new(&data, &vault),
-        Method::Subscription => ChatFile::claude(&data, &vault),
-    })
+fn sessions<R: Runtime>(app: &AppHandle<R>) -> Result<SessionsDir, AppError> {
+    Ok(SessionsDir::new(&data_dir(app)?))
 }
 
 /// Подписка Claude через Claude Code пока только на macOS.
 const CLAUDE_SUPPORTED: bool = cfg!(target_os = "macos");
 
-/// Claude Code устройства. Рабочая папка у него своя и пустая.
+/// Claude Code устройства. Сокет его сервера MCP лежит в папке данных
+/// приложения, поэтому она должна быть.
 fn claude<R: Runtime>(app: &AppHandle<R>) -> Result<ClaudeCode, AppError> {
-    let unavailable = |_| AppError::unavailable("data_dir_unavailable");
-    let home = app.path().home_dir().map_err(unavailable)?;
-    let work = app
+    let home = app
         .path()
-        .app_data_dir()
-        .map_err(unavailable)?
-        .join("claude");
+        .home_dir()
+        .map_err(|_| AppError::unavailable("data_dir_unavailable"))?;
+    let data = data_dir(app)?;
 
-    std::fs::create_dir_all(&work).map_err(|_| AppError::unavailable("data_dir_unavailable"))?;
+    std::fs::create_dir_all(&data).map_err(|_| AppError::unavailable("data_dir_unavailable"))?;
 
-    Ok(ClaudeCode::new(&home, &work))
+    Ok(ClaudeCode::new(&home, &data))
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -69,18 +62,20 @@ struct Open {
     reply: oneshot::Sender<Answer>,
 }
 
-/// Идущий ответ агента или откат: «Стоп», окно, куда идут события,
-/// и открытый вопрос. Окно, открытое заново, подключается к нему.
+/// Идущий ответ агента в сессии `session`: «Стоп», окно, куда идут
+/// события, и открытый вопрос. Окно, открытое заново, подключается к нему.
 struct Live {
+    session: String,
     stop: Notify,
-    sink: Mutex<Option<Sink>>,
+    sink: Mutex<Sink>,
     open: Mutex<Option<Open>>,
     ended: watch::Sender<bool>,
 }
 
 impl Live {
-    fn new(sink: Option<Sink>) -> Self {
+    fn new(session: String, sink: Sink) -> Self {
         Self {
+            session,
             stop: Notify::new(),
             sink: Mutex::new(sink),
             open: Mutex::default(),
@@ -89,9 +84,7 @@ impl Live {
     }
 
     fn emit(&self, event: Event) {
-        if let Some(sink) = &*lock(&self.sink) {
-            sink(event);
-        }
+        (lock(&self.sink))(event);
     }
 }
 
@@ -119,10 +112,15 @@ impl Human for Live {
     }
 }
 
-/// Идущий ответ агента или откат. Он один на приложение: второй поверх
-/// первого перемешал бы историю.
+/// Идущий ответ агента. Он один на приложение: Claude Code по подписке
+/// отвечает по одному, а «Стоп» и вопрос в окне относятся к одному ответу.
 #[derive(Default)]
 pub struct Running(Mutex<Option<Arc<Live>>>);
+
+/// Сессия, по которой идёт ответ.
+fn running_session(slot: &Option<Arc<Live>>) -> Option<&str> {
+    slot.as_ref().map(|live| live.session.as_str())
+}
 
 impl Running {
     fn slot(&self) -> MutexGuard<'_, Option<Arc<Live>>> {
@@ -154,7 +152,7 @@ impl Running {
             });
         }
 
-        *lock(&live.sink) = Some(sink);
+        *lock(&live.sink) = sink;
         Some(live.ended.subscribe())
     }
 
@@ -185,115 +183,106 @@ impl Drop for Busy<'_> {
     }
 }
 
+/// Сессии всех проектов, свежие первыми.
 #[tauri::command]
-pub fn agent_history(app: AppHandle, method: Method) -> Result<Vec<Entry>, AppError> {
-    use_case::history(&chat(&app, method)?)
+pub fn agent_sessions(app: AppHandle) -> Result<Vec<SessionInfo>, AppError> {
+    use_case::sessions(&sessions(&app)?)
 }
 
-/// «Очистить»: у подписки это и новая сессия Claude Code.
 #[tauri::command]
-pub fn agent_clear(
+pub fn agent_session_new(app: AppHandle, project: String) -> Result<SessionInfo, AppError> {
+    use_case::new_session(
+        &sessions(&app)?,
+        &ProjectFolders(app.clone()),
+        &project,
+        durable::fresh_id(),
+        durable::now(),
+    )
+}
+
+/// Пока сессия стирается, место ответа держится: ответ по ней не начнётся
+/// посреди удаления и не запишет её заново.
+#[tauri::command]
+pub fn agent_session_delete(
     app: AppHandle,
     running: State<'_, Running>,
-    method: Method,
+    id: String,
 ) -> Result<(), AppError> {
-    if running.slot().is_some() {
-        return Err(AppError::conflict("agent_busy"));
-    }
+    let slot = running.slot();
 
-    use_case::clear(&chat(&app, method)?)
+    use_case::delete_session(&sessions(&app)?, running_session(&slot), &id)
 }
 
-/// «Откатить» у ответа на сообщение `turn`, вместе с более поздними,
-/// которые трогали те же заметки.
-#[tauri::command]
-pub fn agent_undo(
-    app: AppHandle,
-    running: State<'_, Running>,
-    pinned: State<'_, vault::Pinned>,
-    method: Method,
-    turn: usize,
-) -> Result<(), AppError> {
-    let _busy = running.claim(Arc::new(Live::new(None)))?;
-    let _pin = pinned.pin();
+/// Дверь для модуля projects: стирает сессии проекта, который убирают
+/// из списка. По одной из них идёт ответ, значит, `agent_busy`, и не
+/// стирается ни одна.
+pub fn forget_project<R: Runtime>(app: &AppHandle<R>, project: &str) -> Result<(), AppError> {
+    let running = app.state::<Running>();
+    let slot = running.slot();
 
-    use_case::undo(&chat(&app, method)?, &VaultNotes(app.clone()), turn)
+    use_case::forget_project(&sessions(app)?, running_session(&slot), project)
 }
 
-/// Ответ агента способом `method`. Ключ берётся в Rust из системного
-/// хранилища паролей, а подписку держит Claude Code: окно не присылает
-/// и не получает ни того, ни другого. Ответ идёт в окно через канал
-/// по мере появления, а команда кончается вместе с ответом. Пока он идёт,
-/// хранилище не меняется.
 #[tauri::command]
-#[expect(clippy::too_many_arguments, reason = "вход команды и состояния Tauri")]
+pub fn agent_history(app: AppHandle, session: String) -> Result<Vec<Entry>, AppError> {
+    use_case::history(&sessions(&app)?, &session)
+}
+
+/// Ответ агента в сессии `session`. Подписку держит Claude Code: окно
+/// не присылает и не получает ни ключей, ни токенов. Ответ идёт в окно
+/// через канал по мере появления, а команда кончается вместе с ответом.
+#[tauri::command]
 pub async fn agent_send(
     app: AppHandle,
-    model_api: State<'_, Anthropic>,
-    secrets: State<'_, Secrets>,
     running: State<'_, Running>,
-    pinned: State<'_, vault::Pinned>,
-    method: Method,
+    session: String,
     model: String,
     text: String,
-    context: Context,
     oversight: Oversight,
     on_event: Channel<Event>,
 ) -> Result<(), AppError> {
-    if method == Method::Subscription && !CLAUDE_SUPPORTED {
+    if !CLAUDE_SUPPORTED {
         return Err(AppError::invalid("claude_unsupported"));
     }
 
-    let chat = chat(&app, method)?;
-    let live = Arc::new(Live::new(Some(sink(on_event))));
+    let live = Arc::new(Live::new(session.clone(), sink(on_event)));
+    // Место занимается до чтения сессии: удаление сессии или проекта,
+    // которое уже идёт, ответ дожидается, и удалённая сессия остаётся
+    // удалённой.
     let _busy = running.claim(live.clone())?;
-    let _pin = pinned.pin();
-    let notes = VaultNotes(app.clone());
-    let tracker = YoutrackIssues(app.clone());
     let mut events = |event| live.emit(event);
     let turn = Turn {
+        session: &session,
         model: &model,
         text: &text,
-        context,
         oversight,
+        now: durable::now(),
     };
 
-    match method {
-        Method::Key => {
-            use_case::send(
-                &*model_api,
-                &notes,
-                &tracker,
-                &chat,
-                &secrets,
-                &*live,
-                &live.stop,
-                turn,
-                &mut events,
-            )
-            .await
-        }
-        Method::Subscription => {
-            use_case::send_via_claude(
-                &claude(&app)?,
-                &notes,
-                &tracker,
-                &chat,
-                &*live,
-                &live.stop,
-                turn,
-                &mut events,
-            )
-            .await
-        }
-    }
+    use_case::send(
+        &claude(&app)?,
+        &ProjectFolders(app.clone()),
+        &sessions(&app)?,
+        &*live,
+        &live.stop,
+        turn,
+        &mut events,
+    )
+    .await
 }
 
-/// Сессия Claude Code чата, чтобы продолжить разговор в терминале
-/// командой `claude --resume`. Разговора ещё не было, значит, `None`.
+/// Сессия, по которой сейчас идёт ответ. Ответа нет, значит, `None`.
 #[tauri::command]
-pub fn agent_claude_session(app: AppHandle) -> Result<Option<String>, AppError> {
-    use_case::session(&chat(&app, Method::Subscription)?)
+pub fn agent_running(running: State<'_, Running>) -> Option<String> {
+    running_session(&running.slot()).map(str::to_owned)
+}
+
+/// Сессия Claude Code сессии `session`, чтобы продолжить разговор
+/// в терминале командой `claude --resume`. Разговора ещё не было,
+/// значит, `None`.
+#[tauri::command]
+pub fn agent_claude_session(app: AppHandle, session: String) -> Result<Option<String>, AppError> {
+    use_case::claude_session(&sessions(&app)?, &session)
 }
 
 /// Окно открылось заново, например после перезагрузки: события идущего
@@ -313,7 +302,7 @@ pub async fn agent_attach(
     Ok(true)
 }
 
-/// Ответ человека на вопрос агента или на просьбу разрешить правку.
+/// Ответ человека на вопрос агента или на просьбу разрешить вызов.
 #[tauri::command]
 pub fn agent_answer(
     running: State<'_, Running>,
@@ -331,39 +320,6 @@ pub async fn agent_claude_status(app: AppHandle) -> Result<ClaudeStatus, AppErro
     }
 
     Ok(claude(&app)?.status().await)
-}
-
-/// «Задачи из встречи» по заметке `path` способом `method`. Ключ берётся
-/// в Rust, как у чата, а чат при этом свободен: ответ не идёт в его историю.
-#[tauri::command]
-pub async fn agent_meeting_tasks(
-    app: AppHandle,
-    model_api: State<'_, Anthropic>,
-    secrets: State<'_, Secrets>,
-    method: Method,
-    model: String,
-    path: String,
-    today: String,
-) -> Result<Vec<MeetingTask>, AppError> {
-    if method == Method::Key {
-        return use_case::meeting(
-            &*model_api,
-            &VaultNotes(app),
-            &secrets,
-            &model,
-            &path,
-            &today,
-        )
-        .await;
-    }
-
-    if !CLAUDE_SUPPORTED {
-        return Err(AppError::invalid("claude_unsupported"));
-    }
-
-    let claude = claude(&app)?;
-
-    use_case::meeting_via_claude(&claude, &VaultNotes(app), &model, &path, &today).await
 }
 
 #[tauri::command]
@@ -396,13 +352,21 @@ mod tests {
     fn окно_открытое_заново_видит_вопрос_ответ_и_конец_ответа() {
         let running = Running::default();
         let (old, first) = window();
-        let live = Arc::new(Live::new(Some(first)));
+        let live = Arc::new(Live::new("s1".into(), first));
         let busy = running.claim(live.clone()).unwrap();
         let question = Question::Permission {
             id: "toolu_1".into(),
-            tool: "edit_note".into(),
-            path: "план.md".into(),
+            tool: "Bash".into(),
+            target: "cargo test".into(),
         };
+
+        assert_eq!(running_session(&running.slot()), Some("s1"));
+        assert_eq!(
+            running
+                .claim(Arc::new(Live::new("s2".into(), window().1)))
+                .err(),
+            Some(AppError::conflict("agent_busy"))
+        );
 
         let (answer, new, mut ended) = block_on(async {
             let mut asked = pin!(live.ask(&question));
@@ -439,5 +403,6 @@ mod tests {
         drop(busy);
         assert!(*ended.borrow_and_update());
         assert!(running.attach(window().1).is_none());
+        assert_eq!(running_session(&running.slot()), None);
     }
 }

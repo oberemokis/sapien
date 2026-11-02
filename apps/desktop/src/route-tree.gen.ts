@@ -9,20 +9,19 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from "./pages/__root";
-import { Route as IndexRouteImport } from "./pages/index";
+import { Route as ShellRouteImport } from "./pages/_shell";
 import { Route as SettingsRouteImport } from "./pages/settings";
+import { Route as ShellIndexRouteImport } from "./pages/_shell.index";
+import { Route as ShellActionsRouteImport } from "./pages/_shell.actions";
+import { Route as ShellInboxRouteImport } from "./pages/_shell.inbox";
 import { Route as SettingsIndexRouteImport } from "./pages/settings.index";
-import { Route as SettingsAboutRouteImport } from "./pages/settings.about";
-import { Route as SettingsActionsRouteImport } from "./pages/settings.actions";
 import { Route as SettingsAgentRouteImport } from "./pages/settings.agent";
 import { Route as SettingsAppearanceRouteImport } from "./pages/settings.appearance";
 import { Route as SettingsIntegrationsRouteImport } from "./pages/settings.integrations";
 import { Route as SettingsSecurityRouteImport } from "./pages/settings.security";
-import { Route as SettingsVaultRouteImport } from "./pages/settings.vault";
 
-const IndexRoute = IndexRouteImport.update({
-  id: "/",
-  path: "/",
+const ShellRoute = ShellRouteImport.update({
+  id: "/_shell",
   getParentRoute: () => rootRouteImport,
 } as any);
 const SettingsRoute = SettingsRouteImport.update({
@@ -30,19 +29,24 @@ const SettingsRoute = SettingsRouteImport.update({
   path: "/settings",
   getParentRoute: () => rootRouteImport,
 } as any);
+const ShellIndexRoute = ShellIndexRouteImport.update({
+  id: "/",
+  path: "/",
+  getParentRoute: () => ShellRoute,
+} as any);
+const ShellActionsRoute = ShellActionsRouteImport.update({
+  id: "/actions",
+  path: "/actions",
+  getParentRoute: () => ShellRoute,
+} as any);
+const ShellInboxRoute = ShellInboxRouteImport.update({
+  id: "/inbox",
+  path: "/inbox",
+  getParentRoute: () => ShellRoute,
+} as any);
 const SettingsIndexRoute = SettingsIndexRouteImport.update({
   id: "/",
   path: "/",
-  getParentRoute: () => SettingsRoute,
-} as any);
-const SettingsAboutRoute = SettingsAboutRouteImport.update({
-  id: "/about",
-  path: "/about",
-  getParentRoute: () => SettingsRoute,
-} as any);
-const SettingsActionsRoute = SettingsActionsRouteImport.update({
-  id: "/actions",
-  path: "/actions",
   getParentRoute: () => SettingsRoute,
 } as any);
 const SettingsAgentRoute = SettingsAgentRouteImport.update({
@@ -65,46 +69,39 @@ const SettingsSecurityRoute = SettingsSecurityRouteImport.update({
   path: "/security",
   getParentRoute: () => SettingsRoute,
 } as any);
-const SettingsVaultRoute = SettingsVaultRouteImport.update({
-  id: "/vault",
-  path: "/vault",
-  getParentRoute: () => SettingsRoute,
-} as any);
 
 export interface FileRoutesByFullPath {
-  "/": typeof IndexRoute;
+  "/": typeof ShellIndexRoute;
   "/settings": typeof SettingsRouteWithChildren;
-  "/settings/about": typeof SettingsAboutRoute;
-  "/settings/actions": typeof SettingsActionsRoute;
+  "/actions": typeof ShellActionsRoute;
+  "/inbox": typeof ShellInboxRoute;
   "/settings/agent": typeof SettingsAgentRoute;
   "/settings/appearance": typeof SettingsAppearanceRoute;
   "/settings/integrations": typeof SettingsIntegrationsRoute;
   "/settings/security": typeof SettingsSecurityRoute;
-  "/settings/vault": typeof SettingsVaultRoute;
   "/settings/": typeof SettingsIndexRoute;
 }
 export interface FileRoutesByTo {
-  "/": typeof IndexRoute;
-  "/settings/about": typeof SettingsAboutRoute;
-  "/settings/actions": typeof SettingsActionsRoute;
+  "/actions": typeof ShellActionsRoute;
+  "/inbox": typeof ShellInboxRoute;
   "/settings/agent": typeof SettingsAgentRoute;
   "/settings/appearance": typeof SettingsAppearanceRoute;
   "/settings/integrations": typeof SettingsIntegrationsRoute;
   "/settings/security": typeof SettingsSecurityRoute;
-  "/settings/vault": typeof SettingsVaultRoute;
+  "/": typeof ShellIndexRoute;
   "/settings": typeof SettingsIndexRoute;
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport;
-  "/": typeof IndexRoute;
+  "/_shell": typeof ShellRouteWithChildren;
   "/settings": typeof SettingsRouteWithChildren;
-  "/settings/about": typeof SettingsAboutRoute;
-  "/settings/actions": typeof SettingsActionsRoute;
+  "/_shell/actions": typeof ShellActionsRoute;
+  "/_shell/inbox": typeof ShellInboxRoute;
   "/settings/agent": typeof SettingsAgentRoute;
   "/settings/appearance": typeof SettingsAppearanceRoute;
   "/settings/integrations": typeof SettingsIntegrationsRoute;
   "/settings/security": typeof SettingsSecurityRoute;
-  "/settings/vault": typeof SettingsVaultRoute;
+  "/_shell/": typeof ShellIndexRoute;
   "/settings/": typeof SettingsIndexRoute;
 }
 export interface FileRouteTypes {
@@ -112,51 +109,49 @@ export interface FileRouteTypes {
   fullPaths:
     | "/"
     | "/settings"
-    | "/settings/about"
-    | "/settings/actions"
+    | "/actions"
+    | "/inbox"
     | "/settings/agent"
     | "/settings/appearance"
     | "/settings/integrations"
     | "/settings/security"
-    | "/settings/vault"
     | "/settings/";
   fileRoutesByTo: FileRoutesByTo;
   to:
-    | "/"
-    | "/settings/about"
-    | "/settings/actions"
+    | "/actions"
+    | "/inbox"
     | "/settings/agent"
     | "/settings/appearance"
     | "/settings/integrations"
     | "/settings/security"
-    | "/settings/vault"
+    | "/"
     | "/settings";
   id:
     | "__root__"
-    | "/"
+    | "/_shell"
     | "/settings"
-    | "/settings/about"
-    | "/settings/actions"
+    | "/_shell/actions"
+    | "/_shell/inbox"
     | "/settings/agent"
     | "/settings/appearance"
     | "/settings/integrations"
     | "/settings/security"
-    | "/settings/vault"
+    | "/_shell/"
     | "/settings/";
   fileRoutesById: FileRoutesById;
 }
 export interface RootRouteChildren {
-  IndexRoute: typeof IndexRoute;
+  ShellRoute: typeof ShellRouteWithChildren;
   SettingsRoute: typeof SettingsRouteWithChildren;
 }
 
 declare module "@tanstack/react-router" {
   interface FileRoutesByPath {
-    "/": {
-      id: "/";
-      path: "/";
+    "/_shell": {
+      id: "/_shell";
+      path: "";
       fullPath: "/";
-      preLoaderRoute: typeof IndexRouteImport;
+      preLoaderRoute: typeof ShellRouteImport;
       parentRoute: typeof rootRouteImport;
     };
     "/settings": {
@@ -166,25 +161,32 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof SettingsRouteImport;
       parentRoute: typeof rootRouteImport;
     };
+    "/_shell/": {
+      id: "/_shell/";
+      path: "/";
+      fullPath: "/";
+      preLoaderRoute: typeof ShellIndexRouteImport;
+      parentRoute: typeof ShellRoute;
+    };
+    "/_shell/actions": {
+      id: "/_shell/actions";
+      path: "/actions";
+      fullPath: "/actions";
+      preLoaderRoute: typeof ShellActionsRouteImport;
+      parentRoute: typeof ShellRoute;
+    };
+    "/_shell/inbox": {
+      id: "/_shell/inbox";
+      path: "/inbox";
+      fullPath: "/inbox";
+      preLoaderRoute: typeof ShellInboxRouteImport;
+      parentRoute: typeof ShellRoute;
+    };
     "/settings/": {
       id: "/settings/";
       path: "/";
       fullPath: "/settings/";
       preLoaderRoute: typeof SettingsIndexRouteImport;
-      parentRoute: typeof SettingsRoute;
-    };
-    "/settings/about": {
-      id: "/settings/about";
-      path: "/about";
-      fullPath: "/settings/about";
-      preLoaderRoute: typeof SettingsAboutRouteImport;
-      parentRoute: typeof SettingsRoute;
-    };
-    "/settings/actions": {
-      id: "/settings/actions";
-      path: "/actions";
-      fullPath: "/settings/actions";
-      preLoaderRoute: typeof SettingsActionsRouteImport;
       parentRoute: typeof SettingsRoute;
     };
     "/settings/agent": {
@@ -215,35 +217,36 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof SettingsSecurityRouteImport;
       parentRoute: typeof SettingsRoute;
     };
-    "/settings/vault": {
-      id: "/settings/vault";
-      path: "/vault";
-      fullPath: "/settings/vault";
-      preLoaderRoute: typeof SettingsVaultRouteImport;
-      parentRoute: typeof SettingsRoute;
-    };
   }
 }
 
+interface ShellRouteChildren {
+  ShellActionsRoute: typeof ShellActionsRoute;
+  ShellInboxRoute: typeof ShellInboxRoute;
+  ShellIndexRoute: typeof ShellIndexRoute;
+}
+
+const ShellRouteChildren: ShellRouteChildren = {
+  ShellActionsRoute: ShellActionsRoute,
+  ShellInboxRoute: ShellInboxRoute,
+  ShellIndexRoute: ShellIndexRoute,
+};
+
+const ShellRouteWithChildren = ShellRoute._addFileChildren(ShellRouteChildren);
+
 interface SettingsRouteChildren {
-  SettingsAboutRoute: typeof SettingsAboutRoute;
-  SettingsActionsRoute: typeof SettingsActionsRoute;
   SettingsAgentRoute: typeof SettingsAgentRoute;
   SettingsAppearanceRoute: typeof SettingsAppearanceRoute;
   SettingsIntegrationsRoute: typeof SettingsIntegrationsRoute;
   SettingsSecurityRoute: typeof SettingsSecurityRoute;
-  SettingsVaultRoute: typeof SettingsVaultRoute;
   SettingsIndexRoute: typeof SettingsIndexRoute;
 }
 
 const SettingsRouteChildren: SettingsRouteChildren = {
-  SettingsAboutRoute: SettingsAboutRoute,
-  SettingsActionsRoute: SettingsActionsRoute,
   SettingsAgentRoute: SettingsAgentRoute,
   SettingsAppearanceRoute: SettingsAppearanceRoute,
   SettingsIntegrationsRoute: SettingsIntegrationsRoute,
   SettingsSecurityRoute: SettingsSecurityRoute,
-  SettingsVaultRoute: SettingsVaultRoute,
   SettingsIndexRoute: SettingsIndexRoute,
 };
 
@@ -252,7 +255,7 @@ const SettingsRouteWithChildren = SettingsRoute._addFileChildren(
 );
 
 const rootRouteChildren: RootRouteChildren = {
-  IndexRoute: IndexRoute,
+  ShellRoute: ShellRouteWithChildren,
   SettingsRoute: SettingsRouteWithChildren,
 };
 export const routeTree = rootRouteImport

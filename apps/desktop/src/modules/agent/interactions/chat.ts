@@ -1,38 +1,34 @@
-import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useSelector } from "@tanstack/react-store";
 import { useCallback, useEffect } from "react";
 import {
   agentAnswer,
   agentAttach,
   agentClaudeSession,
-  agentClear,
   agentHistory,
+  agentRunning,
   agentSend,
   agentStop,
-  agentUndo,
 } from "../infrastructure/agent.api";
 import {
   applyEvent,
   chatProblemOf,
   isNoted,
   type Answer,
-  type ChatContext,
   type ChatEntry,
   type ChatEvent,
   type ChatProblem,
   type Oversight,
 } from "../model/chat";
-import type { AgentMethod } from "../model/method";
+import type { SessionInfo } from "../model/sessions";
 import { chatStore } from "../store/chat.store";
-import { modelStore } from "../store/model.store";
-import { currentMethod, useAgentMethod } from "./method";
+import { SESSIONS_KEY } from "./sessions";
 
-// История у каждого способа своя. Ключ ответа заканчивается способом,
-// а конец ответа перечитывает все истории сразу.
+// История у каждой сессии своя, конец ответа перечитывает все сразу.
 const HISTORY_KEY = ["agent", "history"] as const;
 
-function historyKey(method: AgentMethod) {
-  return [...HISTORY_KEY, method] as const;
+function historyKey(session: string) {
+  return [...HISTORY_KEY, session] as const;
 }
 
 // Событие идущего ответа: его строки и вопрос, который ждёт человека.
@@ -53,42 +49,33 @@ function receive(event: ChatEvent) {
 }
 
 // Ответ кончился: история читается заново из Rust, там уже всё, что дошло.
+// Список сессий тоже: у сессии новое название и время.
 async function finish(queryClient: QueryClient) {
-  await queryClient.invalidateQueries({ queryKey: HISTORY_KEY });
-  chatStore.setState((state) => ({ ...state, live: null, open: null }));
-}
-
-// «Откатить» у ответа на сообщение с этим номером. Заметки после отката
-// дерево и редактор узнают сами: Rust шлёт событие об изменении хранилища.
-export function useUndo() {
-  const queryClient = useQueryClient();
-  const method = useAgentMethod();
-
-  return useMutation({
-    mutationFn: (turn: number) => agentUndo(method, turn),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: HISTORY_KEY }),
-  });
+  await Promise.all([
+    queryClient.invalidateQueries({ queryKey: HISTORY_KEY }),
+    queryClient.invalidateQueries({ queryKey: SESSIONS_KEY }),
+  ]);
+  chatStore.setState((state) => ({ ...state, session: null, live: null, open: null }));
 }
 
 export { useOnline } from "@/core/network/online";
 
-// Причина, почему работа не началась, без запроса к Rust: например,
-// действию нужна интеграция, которой нет. null убирает причину.
-export function reportProblem(problem: ChatProblem | null) {
-  chatStore.setState((state) => ({ ...state, problem }));
+// Причина, почему ответ сессии не дошёл. null убирает причину.
+export function reportProblem(session: string, code: ChatProblem | null) {
+  chatStore.setState((state) => ({ ...state, problem: code && { session, code } }));
 }
 
-// Сообщение агенту способом, который выбран в момент отправки. Пока ответ
-// идёт, его строки живут в chatStore, а после него история читается заново
-// из Rust. Второе сообщение, пока идёт первое, не уходит. away это действие
-// по расписанию: человека нет, и агент правит без вопросов, а на свои
+// Сообщение агенту в сессию. Пока ответ идёт, его строки живут в chatStore,
+// а после него история читается заново из Rust. Ответ в приложении один:
+// второе сообщение, пока идёт первое, не уходит. away это действие по
+// расписанию: человека нет, и агент работает без вопросов, а на свои
 // вопросы решает сам. Отказ, который Rust записал строкой в историю, внизу
 // чата второй раз не встаёт.
 export function useSend() {
   const queryClient = useQueryClient();
 
   return useCallback(
-    async (model: string, text: string, context: ChatContext, away = false) => {
+    async (session: string, model: string, text: string, away = false) => {
       const { live, askEdits } = chatStore.get();
 
       if (live !== null) {
@@ -108,132 +95,145 @@ export function useSend() {
         oversight = "ask";
       }
 
-      chatStore.setState((state) => ({ ...state, live: asked, problem: null }));
+      chatStore.setState((state) => ({ ...state, session, live: asked, problem: null }));
+      // Название новой сессии Rust берёт из первой строки первого сообщения,
+      // а список перечитается только в конце ответа: до тех пор оно здесь.
+      queryClient.setQueryData<SessionInfo[]>(SESSIONS_KEY, (list) =>
+        list?.map((item) => {
+          if (item.id !== session || item.title !== "") {
+            return item;
+          }
 
-      const method = await currentMethod(queryClient);
+          return { ...item, title: text.split("\n")[0]?.slice(0, 60) ?? "" };
+        }),
+      );
+
       let problem: ChatProblem | null = null;
 
       try {
-        await agentSend(method, model, text, context, oversight, receive);
+        await agentSend(session, model, text, oversight, receive);
       } catch (error) {
         problem = chatProblemOf(error);
       }
 
       await finish(queryClient);
 
-      if (problem !== null && !isNoted(queryClient.getQueryData(historyKey(method)), problem)) {
-        reportProblem(problem);
+      if (problem !== null && !isNoted(queryClient.getQueryData(historyKey(session)), problem)) {
+        reportProblem(session, problem);
       }
     },
     [queryClient],
   );
 }
 
-// Задание агенту от кнопки соседнего модуля, например «Разбить на задачи».
-// Уходит обычным сообщением выбранной модели, ход виден в чате.
-export function useAsk() {
-  const send = useSend();
+// Окно открылось заново посреди ответа, например после перезагрузки:
+// ответ и открытый вопрос снова видны в его сессии. Подключается один раз
+// за жизнь окна: второй канал задвоил бы строки. Не вышло подключиться,
+// и чат просто покажет историю, когда ответ кончится.
+let attached = false;
 
-  return useCallback(
-    (text: string, context: ChatContext) => {
-      reportProblem(null);
-      void send(modelStore.get(), text, context);
-    },
-    [send],
-  );
+export function useAttach() {
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    if (attached) {
+      return;
+    }
+
+    attached = true;
+
+    async function attach() {
+      const session = await agentRunning();
+
+      if (session === null || chatStore.get().live !== null) {
+        return;
+      }
+
+      chatStore.setState((state) => ({ ...state, session, live: [] }));
+      await agentAttach(receive);
+      await finish(queryClient);
+    }
+
+    attach().catch(() => {});
+  }, [queryClient]);
 }
 
-// Чат хранилища способом, который выбран сейчас: сохранённая история
-// и ответ, который идёт сейчас.
-export function useChat() {
-  const queryClient = useQueryClient();
-  const method = useAgentMethod();
-  const history = useQuery({ queryKey: historyKey(method), queryFn: () => agentHistory(method) });
+// Чат сессии: сохранённая история и ответ, если он идёт в этой сессии.
+// busy: ответ идёт в другой сессии, и новое сообщение подождёт его.
+export function useChat(session: string) {
+  const history = useQuery({ queryKey: historyKey(session), queryFn: () => agentHistory(session) });
   // Сессия Claude Code, чтобы продолжить разговор в терминале. Читается
   // заранее: в буфер обмена окно пишет сразу по нажатию.
-  const session = useQuery({
-    queryKey: [...HISTORY_KEY, "session"],
-    queryFn: agentClaudeSession,
-    enabled: method === "subscription",
-  });
-  const { live, problem, open, askEdits } = useSelector(chatStore);
+  const claude = useQuery({ queryKey: [...historyKey(session), "claude"], queryFn: () => agentClaudeSession(session) });
+  const state = useSelector(chatStore);
   const send = useSend();
+  const here = state.session === session;
+  let live: ChatEntry[] | null = null;
+  let open: string | null = null;
+  let problem: ChatProblem | null = null;
 
-  // Окно открылось заново посреди ответа, например после перезагрузки:
-  // ответ и открытый вопрос снова видны здесь. Не вышло подключиться,
-  // и чат просто покажет историю, когда ответ кончится.
-  useEffect(() => {
-    void agentAttach(receive).then(
-      async (ran) => {
-        if (ran) {
-          await finish(queryClient);
-        }
-      },
-      () => {},
-    );
-  }, [queryClient]);
+  if (here) {
+    live = state.live;
+    open = state.open;
+  }
 
-  // Ответ на вопрос агента или на просьбу разрешить правку. Лента ставит
-  // его сразу, тем же событием, что потом пришлёт Rust.
-  const answer = useCallback(async (id: string, reply: Answer) => {
-    let shown: string | null = null;
+  if (state.problem?.session === session) {
+    problem = state.problem.code;
+  }
 
-    if (reply.kind === "text") {
-      shown = reply.text;
-    }
+  // Ответ на вопрос агента или на просьбу разрешить инструмент. Лента
+  // ставит его сразу, тем же событием, что потом пришлёт Rust.
+  const answer = useCallback(
+    async (id: string, reply: Answer) => {
+      let shown: string | null = null;
 
-    receive({ kind: "answered", id, answer: shown });
+      if (reply.kind === "text") {
+        shown = reply.text;
+      }
 
-    try {
-      await agentAnswer(id, reply);
-    } catch (error) {
-      reportProblem(chatProblemOf(error));
-    }
-  }, []);
+      receive({ kind: "answered", id, answer: shown });
+
+      try {
+        await agentAnswer(id, reply);
+      } catch (error) {
+        reportProblem(session, chatProblemOf(error));
+      }
+    },
+    [session],
+  );
 
   // «Стоп» снимает и открытый вопрос.
   const stop = useCallback(() => {
-    chatStore.setState((state) => ({ ...state, open: null }));
+    chatStore.setState((current) => ({ ...current, open: null }));
 
     return agentStop();
   }, []);
 
   const setAskEdits = useCallback((value: boolean) => {
-    chatStore.setState((state) => ({ ...state, askEdits: value }));
+    chatStore.setState((current) => ({ ...current, askEdits: value }));
   }, []);
-
-  // Новый разговор снова спрашивает разрешения на правки. У подписки это
-  // и новая сессия Claude Code.
-  const clear = useCallback(async () => {
-    reportProblem(null);
-    setAskEdits(true);
-
-    try {
-      await agentClear(method);
-    } catch (error) {
-      reportProblem(chatProblemOf(error));
-    }
-
-    await queryClient.invalidateQueries({ queryKey: HISTORY_KEY });
-  }, [method, queryClient, setAskEdits]);
 
   // Строки только дописываются в конец, поэтому номер строки годится ей
   // в ключ: после конца ответа строки истории встают на те же номера.
   const entries = [...(history.data ?? []), ...(live ?? [])].map((entry, id) => ({ id, entry }));
 
   return {
-    method,
     entries,
     loaded: history.data !== undefined,
     running: live !== null,
+    busy: state.live !== null && !here,
     problem,
     open,
-    askEdits,
-    session: session.data ?? null,
+    askEdits: state.askEdits,
+    claudeSession: claude.data ?? null,
     setAskEdits,
-    send,
+    send: (model: string, text: string) => send(session, model, text),
     answer,
     stop,
-    clear,
   };
+}
+
+// Сессия, чей ответ идёт сейчас: список сессий отмечает её.
+export function useRunningSession() {
+  return useSelector(chatStore, (state) => state.live && state.session);
 }

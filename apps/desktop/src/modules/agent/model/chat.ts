@@ -14,20 +14,21 @@ export function parseAgentModel(value: string | null): AgentModel {
   return AGENT_MODELS.find((model) => model === value) ?? AGENT_MODELS[0];
 }
 
-// Строки чата, как Entry в domain.rs. Инструмент назван, как его зовёт
-// модель, цель это путь заметки, запрос или номер задачи.
-export type ToolEntry = { kind: "tool"; name: string; target: string; ok: boolean };
+// Claude Code на устройстве, как ClaudeStatus в domain.rs.
+export type ClaudeState = "unsupported" | "missing" | "outdated" | "logged_out" | "not_subscription" | "ready";
 
-// Ответ на сообщение человека с номером turn поменял заметки. with это
-// более поздние ответы, которые откатятся вместе с ним.
-export type ChangedEntry = { kind: "changed"; turn: number; paths: string[]; undone: boolean; with: number[] };
+export type ClaudeStatus = { state: ClaudeState; version: string | null };
+
+// Строки чата, как Entry в domain.rs. Инструмент назван, как его зовёт
+// Claude Code, цель это файл, команда, шаблон поиска или адрес.
+export type ToolEntry = { kind: "tool"; name: string; target: string; ok: boolean };
 
 // Вопрос агента с вариантами. answer null: ответа ещё нет, не дождались
 // или человека не было.
 export type QuestionEntry = { kind: "question"; id: string; question: string; options: string[]; answer: string | null };
 
-// Просьба разрешить правку заметки. Её видно, только пока она открыта.
-export type PermissionEntry = { kind: "permission"; id: string; tool: string; path: string };
+// Просьба разрешить инструмент. Её видно, только пока она открыта.
+export type PermissionEntry = { kind: "permission"; id: string; tool: string; target: string };
 
 // Отметка в истории: ответ не вышел с кодом отказа (у лимита подписки
 // resets, когда он сбросится, в секундах Unix) или Claude Code начал
@@ -40,28 +41,18 @@ export type ChatEntry =
   | ToolEntry
   | QuestionEntry
   | PermissionEntry
-  | ChangedEntry
   | NoticeEntry;
-
-// Сообщения человека с этими номерами, по порядку. Номер это место
-// сообщения среди всех сообщений человека, как turn в domain.rs.
-export function questionsOf(entries: ChatEntry[], turns: number[]): { turn: number; text: string }[] {
-  return entries
-    .filter((entry) => entry.kind === "user")
-    .map((entry, turn) => ({ turn, text: entry.text }))
-    .filter((question) => turns.includes(question.turn));
-}
 
 // Вопрос человеку посреди ответа, как Question в domain.rs.
 export type Question =
   | { kind: "choice"; id: string; question: string; options: string[] }
-  | { kind: "permission"; id: string; tool: string; path: string };
+  | { kind: "permission"; id: string; tool: string; target: string };
 
 // Ответ человека, как Answer в domain.rs.
 export type Answer = { kind: "text"; text: string } | { kind: "allow" } | { kind: "deny" };
 
 // Кто следит за ответом, как Oversight в domain.rs: человек разрешает
-// правки, доверяет их агенту или его нет, как у действия по расписанию.
+// инструменты, доверяет их агенту или его нет, как у действия по расписанию.
 export type Oversight = "ask" | "trust" | "away";
 
 // Событие, пока идёт ответ: кусок текста, отработавший инструмент,
@@ -72,12 +63,9 @@ export type ChatEvent =
   | { kind: "asked"; question: Question }
   | { kind: "answered"; id: string; answer: string | null };
 
-// Что человек видит сейчас. Это уходит агенту вместе с сообщением.
-export type ChatContext = { path: string | null; selection: string };
-
 // Кусок текста дописывается к ответу, который идёт, инструмент и вопрос
 // встают своей строкой. Закрытый вопрос получает ответ, а просьба
-// о разрешении уходит: дальше видно саму правку. Вопрос, который окно
+// о разрешении уходит: дальше видно сам инструмент. Вопрос, который окно
 // уже показывает, второй раз не встаёт.
 export function applyEvent(entries: ChatEntry[], event: ChatEvent): ChatEntry[] {
   const last = entries.at(-1);
@@ -119,15 +107,22 @@ export function applyEvent(entries: ChatEntry[], event: ChatEvent): ChatEntry[] 
   return [...entries, { kind: "assistant", text: event.text }];
 }
 
+// Встроенные инструменты Claude Code, у которых есть подпись. Чужой
+// инструмент, например из MCP, виден своим именем.
 const TOOLS = [
-  "list_notes",
-  "search_notes",
-  "read_note",
-  "write_note",
-  "edit_note",
-  "youtrack_search",
-  "youtrack_issue",
-  "youtrack_epic_changes",
+  "Read",
+  "Write",
+  "Edit",
+  "MultiEdit",
+  "NotebookEdit",
+  "Bash",
+  "Grep",
+  "Glob",
+  "LS",
+  "WebFetch",
+  "WebSearch",
+  "Task",
+  "TodoWrite",
 ] as const;
 
 export type ToolName = (typeof TOOLS)[number];
@@ -136,31 +131,20 @@ export function isToolName(name: string): name is ToolName {
   return TOOLS.some((tool) => tool === name);
 }
 
-// Коды отказов из domain.rs, use_case.rs, chat_file.rs и claude_code.rs,
-// у каждого своя подсказка. Чужой код окно показывает общей.
+// Коды отказов из domain.rs, use_case.rs и claude_code.rs, у каждого своя
+// подсказка. Чужой код окно показывает общей.
 const PROBLEMS = [
-  "agent_key_missing",
   "agent_model_unknown",
   "agent_unreachable",
-  "agent_key_rejected",
-  "agent_billing",
-  "agent_rate_limited",
-  "agent_overloaded",
-  "agent_too_large",
-  "agent_model_unavailable",
-  "agent_rejected",
-  "agent_refused",
-  "agent_too_long",
   "agent_too_many_steps",
   "agent_busy",
-  "agent_bad_answer",
   "agent_question_closed",
-  "note_closed",
-  "chat_unreadable",
-  "chat_unwritable",
+  "session_unreadable",
+  "session_unwritable",
+  "project_missing",
+  "session_missing",
   "claude_unsupported",
   "claude_missing",
-  "claude_outdated",
   "claude_incompatible",
   "claude_logged_out",
   "claude_not_subscription",
@@ -170,8 +154,7 @@ const PROBLEMS = [
   "claude_failed",
 ] as const;
 
-// needsYoutrack ставит окно само: действию нужен YouTrack, а он не подключён.
-export type ChatProblem = (typeof PROBLEMS)[number] | "failed" | "needsYoutrack";
+export type ChatProblem = (typeof PROBLEMS)[number] | "failed";
 
 // Отказ команды приходит как AppError из error.rs: { kind, code }.
 export function chatProblemOf(error: unknown): ChatProblem {

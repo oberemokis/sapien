@@ -1,100 +1,168 @@
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  actionsCreate,
+  actionsDelete,
+  actionsList,
+  actionsWrite,
+  agentSessionNew,
+} from "../infrastructure/agent.api";
 import { readRuns, writeRun } from "../infrastructure/agent.device";
-import { actionsOf, dueActions, hotkeyOf, isRunnable, taskAt, type Action, type Integration } from "../model/actions";
-import type { ChatContext, ChatProblem } from "../model/chat";
+import { actionsOf, dueActions, hotkeyOf, isRunnable, taskAt, type Action } from "../model/actions";
+import { homeProject } from "../model/sessions";
 import { chatStore } from "../store/chat.store";
 import { modelStore } from "../store/model.store";
 import { reportProblem, useOnline, useSend } from "./chat";
+import { selectSession, SESSIONS_KEY, useProjects, useSelectedSession, useSessions } from "./sessions";
 
-// Отказ, когда интеграция действия не подключена.
-const MISSING: Record<Integration, ChatProblem> = { youtrack: "needsYoutrack" };
+const ACTIONS_KEY = ["agent", "actions"] as const;
 
-// Действие по расписанию запускается без открытой заметки: оно не про то,
-// что у человека на экране в эту минуту.
-const NOWHERE: ChatContext = { path: null, selection: "" };
+export function useActionFiles() {
+  return useQuery({ queryKey: ACTIONS_KEY, queryFn: actionsList });
+}
 
-type Options = {
-  // Заметки папки действий: их приносит страница из хранилища.
-  notes: { path: string; text: string }[] | undefined;
-  // Что открыто и выделено сейчас: с этим действие уходит по клавише.
-  context: ChatContext;
-  // Подключена ли интеграция прямо сейчас: её проверяет свой модуль.
-  check: Record<Integration, () => Promise<boolean>>;
-  // Действие запущено: страница показывает панель чата, ход виден там.
-  onRun: () => void;
-};
+// Действия, которые можно запустить: с заданием.
+export function useActionList() {
+  const files = useActionFiles();
 
-export type ActionLauncher = ReturnType<typeof useActions>;
+  return useMemo(() => actionsOf(files.data ?? []).filter(isRunnable), [files.data]);
+}
 
-// Действия хранилища и их запуск. Задание уходит агенту обычным сообщением
-// с тем, что открыто, поэтому правки идут по тем же правилам, что в чате.
-// Без сети и без нужной интеграции работа не начинается, причина видна
-// в чате. Горячие клавиши слушает окно, пока смонтирована страница.
-export function useActions({ notes, context, check, onRun }: Options) {
+function useInvalidateActions() {
+  const queryClient = useQueryClient();
+
+  return () => queryClient.invalidateQueries({ queryKey: ACTIONS_KEY });
+}
+
+export function useCreateAction() {
+  const invalidate = useInvalidateActions();
+
+  return useMutation({
+    mutationFn: ({ name, text }: { name: string; text: string }) => actionsCreate(name, text),
+    onSettled: invalidate,
+  });
+}
+
+export function useWriteAction() {
+  const invalidate = useInvalidateActions();
+
+  return useMutation({
+    mutationFn: ({ path, text }: { path: string; text: string }) => actionsWrite(path, text),
+    onSettled: invalidate,
+  });
+}
+
+export function useDeleteAction() {
+  const invalidate = useInvalidateActions();
+
+  return useMutation({ mutationFn: actionsDelete, onSettled: invalidate });
+}
+
+// Задание уходит с датами периода, а запуск запоминается: от него
+// считается {{since}} следующего. away у запуска по расписанию: человека
+// рядом нет.
+function useStart() {
   const send = useSend();
-  const online = useOnline();
-  const actions = useMemo(() => actionsOf(notes ?? []).filter(isRunnable), [notes]);
-  // Действия по расписанию, чей срок прошёл, а сети или интеграции нет.
-  const [deferred, setDeferred] = useState<string[]>([]);
 
-  const ready = useCallback(
-    async (action: Action) => {
-      for (const integration of action.integrations) {
-        // Проверки идут по очереди: первая же отсутствующая и есть причина.
-        // oxlint-disable-next-line no-await-in-loop
-        if (!(await check[integration]())) {
-          return MISSING[integration];
-        }
-      }
-
-      return null;
-    },
-    [check],
-  );
-
-  // Задание уходит с датами периода, а запуск запоминается: от него
-  // считается {{since}} следующего. away у запуска по расписанию: человека
-  // рядом нет.
-  const start = useCallback(
-    (action: Action, where: ChatContext, away = false) => {
+  return useCallback(
+    (action: Action, session: string, away = false) => {
       const now = new Date();
       const task = taskAt(action, readRuns()[action.path], now);
 
       writeRun(action.path, { at: now.getTime(), ran: true });
+      reportProblem(session, null);
 
-      return send(modelStore.get(), task, where, away);
+      return send(session, modelStore.get(), task, away);
     },
     [send],
   );
+}
 
-  const run = useCallback(
-    async (action: Action, where: ChatContext) => {
+// Запуск действия в сессии, например из «/» в чате. Задание уходит
+// обычным сообщением, поэтому инструменты идут по тем же правилам.
+export function useRunAction() {
+  return useStart();
+}
+
+// Новая сессия для действия. null: годного проекта нет или Rust отказал,
+// например папка пропала между проверкой и запросом. Запускать негде.
+function useFreshSession() {
+  const queryClient = useQueryClient();
+  const projects = useProjects().data;
+  const sessions = useSessions().data;
+  const selected = useSelectedSession();
+
+  return useCallback(async () => {
+    const project = homeProject(projects ?? [], sessions ?? [], selected);
+
+    if (project === null) {
+      return null;
+    }
+
+    const session = await agentSessionNew(project).catch(() => null);
+
+    await queryClient.invalidateQueries({ queryKey: SESSIONS_KEY });
+
+    return session?.id ?? null;
+  }, [projects, sessions, selected, queryClient]);
+}
+
+// Запуск по клавише или кнопке: в открытой сессии, а без неё в новой.
+// Сессия открывается, onRun показывает чат. Без сети сессия открывается,
+// а задание не уходит: причину покажет чат.
+export function useLaunchAction(onRun: () => void) {
+  const start = useStart();
+  const fresh = useFreshSession();
+  const online = useOnline();
+  const selected = useSelectedSession();
+
+  return useCallback(
+    async (action: Action) => {
+      const session = selected ?? (await fresh());
+
+      if (session === null) {
+        onRun();
+        return;
+      }
+
+      selectSession(session);
       onRun();
 
-      if (!online) {
-        return;
+      if (online) {
+        await start(action, session);
       }
-
-      reportProblem(null);
-
-      const missing = await ready(action);
-
-      if (missing !== null) {
-        reportProblem(missing);
-
-        return;
-      }
-
-      await start(action, where);
     },
-    [online, onRun, ready, start],
+    [selected, fresh, online, onRun, start],
   );
+}
 
-  // Расписание проверяется при открытии и раз в минуту. Новое действие
-  // только замечается. Пропущенный срок без сети или интеграции ждёт их,
-  // и окно говорит, что действие отложено. Чат берёт одно сообщение
-  // за раз, поэтому за проверку уходит одно действие.
+type Options = {
+  // Действие запущено клавишей: страница показывает чат.
+  onRun: () => void;
+};
+
+// Клавиши и расписание действий, пока смонтирована оболочка окна.
+// Действие по расписанию идёт в новой сессии, чтобы не вмешиваться
+// в разговор человека, и экран за ним не переключается. Срок, пропущенный
+// без сети или без проекта, ждёт их, и окно говорит, что действие
+// отложено. Ответ в приложении один, поэтому за проверку уходит одно
+// действие.
+export function useActionTriggers({ onRun }: Options) {
+  const start = useStart();
+  const online = useOnline();
+  const actions = useActionList();
+  const projects = useProjects().data;
+  const sessions = useSessions().data;
+  const freshSession = useFreshSession();
+  const launch = useLaunchAction(onRun);
+  const [deferred, setDeferred] = useState<string[]>([]);
+  const ready = projects !== undefined && sessions !== undefined;
+
   useEffect(() => {
+    if (!ready) {
+      return;
+    }
+
     let stopped = false;
 
     async function tick() {
@@ -109,18 +177,22 @@ export function useActions({ notes, context, check, onRun }: Options) {
       }
 
       for (const action of dueActions(actions, runs, now)) {
-        // oxlint-disable-next-line no-await-in-loop -- за проверку уходит одно действие
-        const prepared = online && (await ready(action)) === null;
-
-        if (stopped) {
-          return;
-        }
-
-        if (!prepared) {
+        if (!online) {
           waiting.push(action.name);
         } else if (chatStore.get().live === null) {
-          onRun();
-          void start(action, NOWHERE, true);
+          // oxlint-disable-next-line no-await-in-loop -- за проверку уходит одно действие
+          const session = await freshSession();
+
+          if (stopped) {
+            return;
+          }
+
+          if (session === null) {
+            waiting.push(action.name);
+            continue;
+          }
+
+          void start(action, session, true);
           break;
         }
       }
@@ -135,7 +207,7 @@ export function useActions({ notes, context, check, onRun }: Options) {
       stopped = true;
       clearInterval(timer);
     };
-  }, [actions, online, onRun, ready, start]);
+  }, [ready, actions, online, freshSession, start]);
 
   // Удалённое действие пропадает из списка, и его клавиша больше ничего
   // не делает.
@@ -149,13 +221,13 @@ export function useActions({ notes, context, check, onRun }: Options) {
       }
 
       event.preventDefault();
-      void run(action, context);
+      void launch(action);
     }
 
     window.addEventListener("keydown", onKeyDown);
 
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [actions, context, run]);
+  }, [actions, launch]);
 
-  return { actions, online, run, deferred };
+  return { deferred };
 }

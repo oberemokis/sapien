@@ -77,8 +77,8 @@ function isDomainImport(spec, file) {
 
 // Куда ведёт импорт: «@/modules/social/ports» и «../../social/ports» означают
 // одно и то же, поэтому псевдоним и относительный путь сводятся к одной паре
-// «модуль плюс остаток». Псевдонимов два: desktop и mobile резолвят через
-// tsconfig и пишут «@/modules», api через imports пакета и пишет «#modules»,
+// «модуль плюс остаток». Псевдонимов два: desktop резолвит через tsconfig и
+// пишет «@/modules», api через imports пакета и пишет «#modules»,
 // потому что Node запрещает внутренние подпути вида «#/».
 function targetOf(spec, file) {
   const alias = /^(?:@\/|#)modules\/(.+)$/.exec(spec);
@@ -142,8 +142,8 @@ function reachesIntoLayer(spec, layers) {
 const IMPORT =
   /(?:^|\n)\s*(?:import\s+(type\s+)?[^;]*?|export\s+(type\s+)?(?:\*|\{)[^;]*?)from\s+["']([^"']+)["']/g;
 
-// Приложения с интерфейсом: окно Tauri и телефон. Слои у них общие.
-const UI = "apps/{desktop,mobile}";
+// Приложение с интерфейсом: окно Tauri.
+const UI = "apps/desktop";
 
 const rules = [
   {
@@ -224,14 +224,7 @@ const rules = [
       /\.\.\/(interactions|infrastructure|flows|components|ui)(\/|$)/.test(spec) ||
       (!isType &&
         (isTauri(spec) ||
-          /^expo(-|\/|$)/.test(spec) ||
-          isPackage(spec, [
-            "react",
-            "react-dom",
-            "react-native",
-            "@tanstack",
-            "hono",
-          ]))),
+          isPackage(spec, ["react", "react-dom", "@tanstack", "hono"]))),
     hint: "модель это правила показа, данные ей приносят",
   },
   {

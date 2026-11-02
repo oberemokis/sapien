@@ -1,4 +1,4 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { YoutrackSettings } from "@/modules/youtrack";
+import { ForgeSettings } from "@/modules/forge";
 
-export const Route = createFileRoute("/settings/integrations")({ component: YoutrackSettings });
+export const Route = createFileRoute("/settings/integrations")({ component: ForgeSettings });

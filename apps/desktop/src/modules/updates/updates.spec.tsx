@@ -3,7 +3,7 @@ import type { Channel } from "@tauri-apps/api/core";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { AboutSettings, UpdateOffer } from "@/modules/updates";
+import { UpdateOffer } from "@/modules/updates";
 import type { Update, UpdateProgress } from "./model/update";
 
 const HOUR = 3_600_000;
@@ -68,12 +68,10 @@ function fakeRust(release: Release) {
   return rust;
 }
 
-// Окно: настройки «О приложении» и карточка обновления поверх, как
-// в __root.tsx.
+// Окно: карточка обновления поверх, как в __root.tsx.
 function launch() {
   return render(
     <QueryClientProvider client={new QueryClient()}>
-      <AboutSettings />
       <UpdateOffer />
     </QueryClientProvider>,
   );
@@ -91,14 +89,13 @@ afterEach(() => {
 });
 
 describe("обновление приложения", () => {
-  it("без сети проверки нет и на экране ничего, кроме пометки в настройках, а с сетью она проходит", async () => {
+  it("без сети проверки нет и на экране ничего, а с сетью она проходит", async () => {
     const online = vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
     const rust = fakeRust({ latest: UPDATE });
 
     launch();
 
-    expect(await screen.findByText("Нет сети: проверка пройдёт, когда сеть вернётся.")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Проверить обновления" })).toHaveProperty("disabled", true);
+    await act(() => Promise.resolve());
     expect(rust.checks).toBe(0);
     expect(screen.queryByRole("region", { name: "Обновление приложения" })).toBeNull();
 
@@ -111,23 +108,23 @@ describe("обновление приложения", () => {
     expect(rust.checks).toBe(1);
   });
 
-  it("новой версии нет: окно молчит, настройки говорят, что версия последняя", async () => {
-    fakeRust({ latest: null });
+  it("новой версии нет: окно молчит", async () => {
+    const rust = fakeRust({ latest: null });
 
     launch();
 
-    expect(await screen.findByText("Установлена последняя версия.")).toBeTruthy();
-    expect(screen.getByText("0.1.0")).toBeTruthy();
+    await waitFor(() => expect(rust.checks).toBe(1));
     expect(screen.queryByRole("region", { name: "Обновление приложения" })).toBeNull();
   });
 
-  it("сбой проверки по расписанию не показывается поверх окна, а виден в настройках", async () => {
-    fakeRust({ latest: null, failure: "update_unreachable" });
+  it("сбой проверки по расписанию не показывается поверх окна", async () => {
+    const rust = fakeRust({ latest: null, failure: "update_unreachable" });
 
     launch();
 
-    expect(await screen.findByText("Нет связи с GitHub. Установленная версия работает как прежде.")).toBeTruthy();
+    await waitFor(() => expect(rust.checks).toBe(1));
     expect(screen.queryByRole("region", { name: "Обновление приложения" })).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("новая версия: что изменилось без служебного текста GitHub и страница релиза", async () => {
@@ -143,20 +140,13 @@ describe("обновление приложения", () => {
       "Обновление из релизов GitHub",
       "Курсор не прыгает после сохранения",
     ]);
-    expect(screen.getByText("Доступна версия 0.2.0.")).toBeTruthy();
-
     fireEvent.click(within(card).getByRole("button", { name: "Страница релиза" }));
-    fireEvent.click(screen.getByRole("button", { name: "Что нового" }));
 
-    await waitFor(() =>
-      expect(rust.opened).toEqual([
-        "https://github.com/oberemokis/sapien/releases/tag/v0.2.0",
-        "https://github.com/oberemokis/sapien/releases/tag/v0.1.0",
-      ]),
-    );
+    await waitFor(() => expect(rust.opened).toEqual(["https://github.com/oberemokis/sapien/releases/tag/v0.2.0"]));
   });
 
   it("«Позже» молчит до следующей проверки", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
     const rust = fakeRust({ latest: UPDATE });
 
     launch();
@@ -165,7 +155,7 @@ describe("обновление приложения", () => {
 
     expect(screen.queryByRole("region", { name: "Обновление приложения" })).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "Проверить обновления" }));
+    await act(() => vi.advanceTimersByTimeAsync(6 * HOUR));
 
     expect(await offer()).toBeTruthy();
     expect(rust.checks).toBe(2);
@@ -177,8 +167,7 @@ describe("обновление приложения", () => {
 
     launch();
 
-    await screen.findByText("Установлена последняя версия.");
-    expect(rust.checks).toBe(1);
+    await waitFor(() => expect(rust.checks).toBe(1));
 
     await act(() => vi.advanceTimersByTimeAsync(5 * HOUR));
     expect(rust.checks).toBe(1);
