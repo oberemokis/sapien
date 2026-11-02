@@ -97,8 +97,11 @@ export function Workspace({ files, main, chat, title, actions }: Props) {
         </div>
       </header>
       <div className="flex min-h-0 flex-1 px-2 pb-2">
+        {/* Справа у панели тот же отступ, что слева у края окна: строки
+            не прилипают к карточке. Отступ внутри ширины панели, поэтому
+            расчёт раскладки его не видит. */}
         {layout.files.visible && (
-          <aside className="relative flex shrink-0 flex-col" style={{ width: layout.files.width }}>
+          <aside className="relative flex shrink-0 flex-col pr-2" style={{ width: layout.files.width }}>
             {files}
             <ResizeHandle
               panel="files"
