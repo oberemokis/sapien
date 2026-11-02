@@ -1,7 +1,6 @@
 import { Outlet, createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useCallback } from "react";
 import {
-  ClaudeUsage,
   SessionList,
   SessionSearch,
   SessionTabs,
@@ -30,7 +29,6 @@ function Shell() {
         main={<Outlet />}
         title={<SessionTabs />}
         actions={<SettingsButton />}
-        footer={<ClaudeUsage />}
       />
       <SessionSearch />
     </>

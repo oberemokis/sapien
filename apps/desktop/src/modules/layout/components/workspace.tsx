@@ -49,13 +49,11 @@ type Props = {
   title?: ReactNode;
   // Кнопки у правого края верхней полосы.
   actions?: ReactNode;
-  // Нижняя полоса окна под карточкой, как верхняя, только без вкладок.
-  footer?: ReactNode;
 };
 
 // Слева дерево файлов, посередине редактор, справа чат. Что в каждой панели,
 // решает страница: модуль даёт только места под них.
-export function Workspace({ files, main, chat, title, actions, footer }: Props) {
+export function Workspace({ files, main, chat, title, actions }: Props) {
   const { t } = useTranslation();
   const withChat = chat !== undefined;
   const layout = useFittedLayout(withChat);
@@ -98,8 +96,7 @@ export function Workspace({ files, main, chat, title, actions, footer }: Props) 
           )}
         </div>
       </header>
-      {/* С нижней полосой отступ под карточкой даёт она сама. */}
-      <div className={`flex min-h-0 flex-1 px-2 ${footer === undefined ? "pb-2" : ""}`}>
+      <div className="flex min-h-0 flex-1 px-2 pb-2">
         {/* Справа у панели тот же отступ, что слева у края окна: строки
             не прилипают к карточке. Отступ внутри ширины панели, поэтому
             расчёт раскладки его не видит. */}
@@ -136,16 +133,6 @@ export function Workspace({ files, main, chat, title, actions, footer }: Props) 
           )}
         </div>
       </div>
-      {/* Нижняя полоса начинается под карточкой, как вкладки над ней:
-          боковая панель над полосой своё место оставляет пустым. */}
-      {footer !== undefined && (
-        <footer
-          className="flex h-8 shrink-0 select-none items-center"
-          style={{ paddingLeft: GUTTER + (layout.files.visible ? layout.files.width : 0) }}
-        >
-          <div className="flex min-w-0 flex-1 items-center px-1.5">{footer}</div>
-        </footer>
-      )}
       {!layout.files.visible && <FilesPeek width={layout.files.width}>{files}</FilesPeek>}
     </div>
   );
