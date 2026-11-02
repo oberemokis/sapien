@@ -1,19 +1,3 @@
-// Модели на выбор, как MODELS в src-tauri/src/modules/agent/domain.rs.
-// Первая по умолчанию.
-export const AGENT_MODELS = ["claude-sonnet-5-5", "claude-opus-5-5", "claude-haiku-5-5"] as const;
-
-export type AgentModel = (typeof AGENT_MODELS)[number];
-
-export const MODEL_NAMES: Record<AgentModel, string> = {
-  "claude-sonnet-5-5": "Sonnet 5.5",
-  "claude-opus-5-5": "Opus 5.5",
-  "claude-haiku-5-5": "Haiku 5.5",
-};
-
-export function parseAgentModel(value: string | null): AgentModel {
-  return AGENT_MODELS.find((model) => model === value) ?? AGENT_MODELS[0];
-}
-
 // Claude Code на устройстве, как ClaudeStatus в domain.rs.
 export type ClaudeState = "unsupported" | "missing" | "outdated" | "logged_out" | "not_subscription" | "ready";
 
@@ -134,7 +118,10 @@ export function isToolName(name: string): name is ToolName {
 // Коды отказов из domain.rs, use_case.rs и claude_code.rs, у каждого своя
 // подсказка. Чужой код окно показывает общей.
 const PROBLEMS = [
+  "agent_provider_unknown",
+  "agent_provider_locked",
   "agent_model_unknown",
+  "agent_effort_unknown",
   "agent_unreachable",
   "agent_too_many_steps",
   "agent_busy",

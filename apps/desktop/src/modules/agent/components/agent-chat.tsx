@@ -1,7 +1,7 @@
-// Список действий после «/» это combobox по ARIA, как поиск сессии: фокус
-// остаётся в поле, строку выбирают стрелками через aria-activedescendant,
-// мышь только дублирует их. Родной datalist не показывает клавишу действия
-// и пометку «нет сети».
+// Список действий и команд агента после «/» это combobox по ARIA, как поиск
+// сессии: фокус остаётся в поле, строку выбирают стрелками через
+// aria-activedescendant, мышь только дублирует их. Родной datalist
+// не показывает клавишу действия, подсказку команды и пометку «нет сети».
 /* oxlint-disable jsx-a11y/prefer-tag-over-role, jsx-a11y/click-events-have-key-events */
 import { Link } from "@tanstack/react-router";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
@@ -13,12 +13,11 @@ import { MenuButton } from "@/core/ui/menu-button";
 import { useActionList, useRunAction } from "../interactions/actions";
 import { draftOf, useChat, useOnline, writeDraft } from "../interactions/chat";
 import { useClaudeStatus } from "../interactions/claude";
-import { setAgentModel, useAgentModel } from "../interactions/model";
+import { setChoice, useChoice, useCommands } from "../interactions/agents";
 import { hotkeyLabel, type Action } from "../model/actions";
+import { commandsMatching, fitChoice, isEffort, modelOf, type AgentModel, type Choice } from "../model/agents";
 import {
-  AGENT_MODELS,
   isToolName,
-  MODEL_NAMES,
   problemOf,
   resetsAt,
   type Answer,
@@ -36,7 +35,7 @@ type Props = {
 };
 
 const OPTION =
-  "flex h-7 cursor-default items-center gap-2 rounded-sm pr-1.5 pl-3 text-[13px] aria-disabled:opacity-50 aria-selected:bg-overlay-pressed";
+  "flex h-7 cursor-default items-center gap-2 rounded-md px-3 text-[13px] aria-disabled:opacity-50 aria-selected:bg-overlay-pressed";
 
 // Действие внутри строки, как link-action дизайн-системы.
 const LINK =
@@ -214,12 +213,15 @@ function Notice({
 
 // Чат сессии посередине окна. Enter отправляет, Shift+Enter переносит
 // строку. Пока идёт ответ, кнопка отправки становится «Стоп». «/» в начале
-// поля или «+» открывает список действий: стрелки выбирают, Enter запускает,
-// Escape закрывает. Под полем модель и доступ агента к инструментам.
+// поля открывает список действий и команд агента: стрелки выбирают, Enter
+// запускает действие или вписывает команду, Escape закрывает. Под полем
+// агент, его модель, размышление и доступ к инструментам. Агент выбирается,
+// пока сессия не отвечала.
 export function AgentChat({ session, project }: Props) {
   const { t } = useTranslation();
   const claude = useClaudeStatus();
-  const model = useAgentModel();
+  const { choice, providers, locked } = useChoice(session);
+  const { commands } = useCommands(choice?.provider ?? null, project);
   const chat = useChat(session.id);
   const actions = useActionList();
   const runAction = useRunAction();
@@ -272,18 +274,25 @@ export function AgentChat({ session, project }: Props) {
 
   // Пока агент ждёт ответа, написанное уходит ответом на его вопрос.
   const answering = chat.open !== null;
-  const free = !chat.running && blocked === null;
+  const free = !chat.running && blocked === null && choice !== null;
   const canSend = online && draft.trim() !== "" && (answering || free);
   const canRun = online && free;
-  const slash = /^\/[^\n]*$/.test(draft);
+  // Вписанная команда закрывает список: дальше идут её аргументы.
+  const typed = commands.some((command) => draft.startsWith(`/${command.name} `));
   const query = draft.slice(1).trim().toLowerCase();
   let matches: Action[] = [];
+  let found: typeof commands = [];
 
-  if (slash) {
+  if (/^\/[^\n]*$/.test(draft) && !typed) {
     matches = actions.filter((action) => action.name.toLowerCase().includes(query));
+    found = commandsMatching(commands, query);
   }
 
-  const active = Math.min(picked, Math.max(matches.length - 1, 0));
+  const listed = matches.length + found.length;
+  // Пустой список после одной «/» не показывается, после набранного
+  // объясняет, что уйдёт сообщением.
+  const slash = listed > 0 || (draft.length > 1 && /^\/[^\n]*$/.test(draft) && !typed);
+  const active = Math.min(picked, Math.max(listed - 1, 0));
 
   function setDraft(text: string) {
     keepDraft(text);
@@ -302,7 +311,16 @@ export function AgentChat({ session, project }: Props) {
       return;
     }
 
-    void chat.send(model, draft);
+    if (choice !== null) {
+      void chat.send(choice, draft);
+    }
+  }
+
+  // «Повторить» просит агента продолжить с того же места.
+  function resend() {
+    if (choice !== null) {
+      void chat.send(choice, "");
+    }
   }
 
   function run(action: Action | undefined) {
@@ -315,11 +333,73 @@ export function AgentChat({ session, project }: Props) {
     void runAction(action, session.id);
   }
 
-  const models: MenuItem[] = AGENT_MODELS.map((value) => ({
-    label: MODEL_NAMES[value],
-    checked: value === model,
-    onSelect: () => setAgentModel(value),
+  // Строка списка по общему номеру: сначала действия, за ними команды.
+  // Команда вписывается в поле, аргументы человек допишет сам.
+  function choose(index: number) {
+    const command = found[index - matches.length];
+
+    if (index < matches.length) {
+      run(matches[index]);
+    } else if (command !== undefined) {
+      setDraft(`/${command.name} `);
+      setPicked(0);
+      fieldRef.current?.focus();
+    }
+  }
+
+  const provider = providers.find((candidate) => candidate.id === choice?.provider);
+  let model: AgentModel | undefined;
+
+  if (provider !== undefined) {
+    model = modelOf(provider, choice?.model ?? null);
+  }
+
+  const efforts = (model?.efforts ?? []).filter(isEffort);
+
+  // Другой агент начинает со своей первой модели, другая модель оставляет
+  // размышление, если умеет его.
+  function pick(next: Partial<Choice>) {
+    const fitted = choice && fitChoice({ ...choice, ...next }, providers);
+
+    if (fitted) {
+      setChoice(session.id, fitted);
+    }
+  }
+
+  const providerItems: MenuItem[] = providers.map((candidate) => ({
+    id: candidate.id,
+    label: candidate.name,
+    checked: candidate.id === choice?.provider,
+    onSelect: () => pick({ provider: candidate.id, model: null, effort: null }),
   }));
+
+  const modelItems: MenuItem[] = (provider?.models ?? []).map((candidate) => ({
+    id: candidate.id,
+    label: candidate.name,
+    hint: candidate.description,
+    checked: candidate.id === model?.id,
+    onSelect: () => pick({ model: candidate.id }),
+  }));
+
+  const effortItems: MenuItem[] = [
+    { id: "default", label: t("agent.chat.effortDefault"), checked: choice?.effort === null, onSelect: () => pick({ effort: null }) },
+    ...efforts.map((effort) => ({
+      id: effort,
+      label: t(`agent.chat.efforts.${effort}`),
+      checked: choice?.effort === effort,
+      onSelect: () => pick({ effort }),
+    })),
+  ];
+
+  let effortValue: string = t("agent.chat.effortDefault");
+  // Уровень по умолчанию кнопка подписывает самим выбором: «По умолчанию»
+  // рядом с моделью не говорит, о чём он.
+  let effortText: string = t("agent.chat.effort");
+
+  if (choice?.effort != null) {
+    effortValue = t(`agent.chat.efforts.${choice.effort}`);
+    effortText = effortValue;
+  }
 
   const access: MenuItem[] = [
     {
@@ -335,14 +415,6 @@ export function AgentChat({ session, project }: Props) {
       onSelect: () => chat.setAskEdits(false),
     },
   ];
-
-  let noMatch: string | null = null;
-
-  if (slash && actions.length === 0) {
-    noMatch = t("agent.actions.none");
-  } else if (slash && matches.length === 0) {
-    noMatch = t("agent.actions.noMatch");
-  }
 
   // Пустая сессия держит поле ввода посередине окна, первое сообщение
   // уводит его вниз, под ленту.
@@ -376,7 +448,7 @@ export function AgentChat({ session, project }: Props) {
               let retry: (() => void) | null = null;
 
               if (id === count - 1 && free) {
-                retry = () => void chat.send(model, "");
+                retry = resend;
               }
 
               return <Noticed key={id} entry={entry} retry={retry} />;
@@ -397,7 +469,7 @@ export function AgentChat({ session, project }: Props) {
           <Notice
             action={
               free && (
-                <button type="button" className={LINK} onClick={() => void chat.send(model, "")}>
+                <button type="button" className={LINK} onClick={resend}>
                   {t("agent.chat.retry")}
                 </button>
               )
@@ -408,11 +480,13 @@ export function AgentChat({ session, project }: Props) {
         )}
       </div>
       <div className="px-4 pb-4">
-        <div className="mx-auto max-w-200 rounded-xl bg-bg-dock shadow-raised">
+        {/* Подсказки висят карточкой над полем и не двигают его: в пустой
+            сессии поле стоит посередине окна. */}
+        <div className="relative mx-auto max-w-200 rounded-xl bg-bg-dock shadow-raised">
           {slash && (
-            <div className="max-h-48 overflow-y-auto border-b-[0.5px] border-border-base p-0.5">
-              {noMatch !== null && <p className="px-3 py-1.5 text-[12px] text-text-muted">{noMatch}</p>}
-              <div id={listId} role="listbox" aria-label={t("agent.actions.title")}>
+            <div className="absolute inset-x-0 bottom-full mb-2 max-h-60 overflow-y-auto rounded-xl bg-bg-dock p-1 shadow-raised">
+              {listed === 0 && <p className="px-3 py-1.5 text-[13px] text-text-muted">{t("agent.chat.slashNone")}</p>}
+              <div id={listId} role="listbox" aria-label={t("agent.chat.slash")}>
                 {matches.map((action, index) => (
                   <div
                     key={action.path}
@@ -423,15 +497,34 @@ export function AgentChat({ session, project }: Props) {
                     aria-disabled={!canRun}
                     className={OPTION}
                     onMouseMove={() => setPicked(index)}
-                    onClick={() => run(action)}
+                    onClick={() => choose(index)}
                   >
                     <span className="min-w-0 flex-1 truncate">{action.name}</span>
-                    {!online && <span className="text-[12px]">{t("agent.actions.offline")}</span>}
+                    {!online && <span className="text-text-muted">{t("agent.actions.offline")}</span>}
                     {online && action.hotkey !== null && (
-                      <kbd className="font-sans text-[11px] text-text-faint">{hotkeyLabel(action.hotkey)}</kbd>
+                      <kbd className="font-sans text-text-faint">{hotkeyLabel(action.hotkey)}</kbd>
                     )}
                   </div>
                 ))}
+                {found.map((command, place) => {
+                  const index = matches.length + place;
+
+                  return (
+                    <div
+                      key={command.name}
+                      id={`${listId}-${index}`}
+                      role="option"
+                      tabIndex={-1}
+                      aria-selected={index === active}
+                      className={OPTION}
+                      onMouseMove={() => setPicked(index)}
+                      onClick={() => choose(index)}
+                    >
+                      <span className="shrink-0">/{command.name}</span>
+                      <span className="min-w-0 flex-1 truncate text-text-muted">{command.description}</span>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -442,7 +535,7 @@ export function AgentChat({ session, project }: Props) {
             aria-expanded={slash ? true : undefined}
             aria-controls={slash ? listId : undefined}
             aria-autocomplete={slash ? "list" : undefined}
-            aria-activedescendant={matches.length > 0 ? `${listId}-${active}` : undefined}
+            aria-activedescendant={listed > 0 ? `${listId}-${active}` : undefined}
             placeholder={answering ? t("agent.chat.answerPlaceholder") : t("agent.chat.placeholder")}
             value={draft}
             rows={3}
@@ -457,47 +550,49 @@ export function AgentChat({ session, project }: Props) {
               if (slash && event.key === "Escape") {
                 event.preventDefault();
                 setDraft("");
-              } else if (matches.length > 0 && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+              } else if (listed > 0 && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
                 event.preventDefault();
-                setPicked((active + (event.key === "ArrowDown" ? 1 : matches.length - 1)) % matches.length);
-              } else if (enter && matches.length > 0) {
+                setPicked((active + (event.key === "ArrowDown" ? 1 : listed - 1)) % listed);
+              } else if (enter && listed > 0) {
                 event.preventDefault();
-                run(matches[active]);
+                choose(active);
               } else if (enter) {
                 event.preventDefault();
                 send();
               }
             }}
           />
-          {/* Узкому окну обе подписи не влезают: доступ остаётся значком. */}
-          <div className="@container flex h-11 items-center gap-0.5 px-2">
-            <button
-              type="button"
-              aria-label={t("agent.actions.title")}
-              title={t("agent.actions.title")}
-              className={`${SQUARE} text-icon-muted hover:bg-overlay-hover hover:text-icon-base`}
-              onClick={() => {
-                setDraft("/");
-                setPicked(0);
-                fieldRef.current?.focus();
-              }}
-            >
-              <Icon icon="plus" size={14} />
-            </button>
+          <div className="flex h-11 min-w-0 items-center gap-0.5 px-2">
+            {choice !== null && (
+              <>
+                <MenuButton
+                  label={t("agent.chat.provider")}
+                  value={provider?.name ?? choice.provider}
+                  items={providerItems}
+                  disabled={locked || chat.running || count > 0}
+                />
+                <MenuButton
+                  label={t("agent.chat.model")}
+                  value={model?.name ?? t("agent.chat.modelDefault")}
+                  items={modelItems}
+                  disabled={chat.running || modelItems.length === 0}
+                />
+                {efforts.length > 0 && (
+                  <MenuButton
+                    label={t("agent.chat.effort")}
+                    value={effortValue}
+                    text={effortText}
+                    items={effortItems}
+                    disabled={chat.running}
+                  />
+                )}
+              </>
+            )}
             <MenuButton
-              icon="models"
-              label={t("agent.chat.model")}
-              value={MODEL_NAMES[model]}
-              items={models}
-              disabled={chat.running}
-            />
-            <MenuButton
-              icon={chat.askEdits ? "shield" : "warning"}
               tint={chat.askEdits ? undefined : "text-state-fg-warning"}
               label={t("agent.chat.access")}
               value={chat.askEdits ? t("agent.chat.accessAsk") : t("agent.chat.accessFull")}
               items={access}
-              shown="hidden @sm:inline"
             />
             <div className="flex-1" />
             {answering && (

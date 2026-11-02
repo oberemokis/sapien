@@ -13,13 +13,35 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { useCallback } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ActionsView, SessionList, SessionView, useActionTriggers } from "@/modules/agent";
+import type { AgentCommand } from "./model/agents";
 import type { Oversight } from "./model/chat";
 import type { Project, SessionInfo } from "./model/sessions";
 import { NO_TABS } from "./model/tabs";
 import { chatStore, draftStore, tabsStore } from "./store/chat.store";
+import { choiceStore } from "./store/choice.store";
 
-type Sent = { session: string; model: string; text: string; oversight: Oversight };
+type Sent = {
+  session: string;
+  provider: string;
+  model: string | null;
+  effort: string | null;
+  text: string;
+  oversight: Oversight;
+};
 type File = { path: string; text: string };
+
+// Claude Code с одной моделью: действие уходит с ней.
+const CLAUDE = {
+  id: "claude",
+  name: "Claude Code",
+  models: [{ id: "sonnet", resolved: "claude-sonnet-5-5", name: "Sonnet 5.5", description: "", efforts: [] }],
+};
+
+// Сессия, которая ещё не отвечала.
+const FRESH = { provider: "claude", model: null, effort: null };
+
+// То, с чем уходит каждое задание действия в этих тестах.
+const AGENT = { provider: "claude", model: "sonnet", effort: null };
 
 const SAPIEN: Project = { id: "p1", name: "sapien", path: "/Users/me/sapien", missing: false };
 const SITE: Project = { id: "p2", name: "сайт", path: "/Users/me/сайт", missing: false };
@@ -28,9 +50,9 @@ const DOCS: Project = { id: "p3", name: "документы", path: "/Users/me/�
 
 // Последняя сессия во втором проекте: новая сессия без открытой встаёт туда.
 const SESSIONS: SessionInfo[] = [
-  { id: "s1", project: "p1", title: "Рефакторинг парсера", updated: 3000 },
-  { id: "s2", project: "p1", title: "Тесты окна", updated: 5000 },
-  { id: "s3", project: "p2", title: "Лендинг", updated: 4000 },
+  { id: "s1", project: "p1", title: "Рефакторинг парсера", updated: 3000, ...FRESH },
+  { id: "s2", project: "p1", title: "Тесты окна", updated: 5000, ...FRESH },
+  { id: "s3", project: "p2", title: "Лендинг", updated: 4000, ...FRESH },
 ];
 
 // Действия лежат файлами в папке приложения: путь это имя файла.
@@ -40,17 +62,28 @@ const ACTIONS: File[] = [
   { path: "Пустое.md", text: "---\nhotkey: Mod+Shift+E\n---\n" },
 ];
 
+// Команды Claude Code в папке проекта: свой скил с подсказкой аргументов
+// и встроенная команда с другим именем.
+const COMMANDS: AgentCommand[] = [
+  { name: "review", description: "Проверить пул-реквест", hint: "<pr>", aliases: [], builtin: false },
+  { name: "clear", description: "Начать разговор заново", hint: "", aliases: ["reset"], builtin: true },
+];
+
 // Rust за командами агента и действий. Ответ агента приходит сразу.
-// refuse это код отказа actions_create.
+// refuse это код отказа actions_create. commands это команды агента
+// в папке проекта, по умолчанию их нет.
 function fakeRust({
   actions = ACTIONS,
   projects = [SAPIEN, SITE],
+  commands = [],
   refuse,
-}: { actions?: File[]; projects?: Project[]; refuse?: string } = {}) {
+}: { actions?: File[]; projects?: Project[]; commands?: AgentCommand[]; refuse?: string } = {}) {
   const rust = {
     projects: [...projects],
     sessions: SESSIONS.filter((session) => projects.some((project) => project.id === session.project)),
     actions: [...actions],
+    // У кого и где окно спрашивало команды.
+    asked: [] as { provider: string; project: string }[],
     // Сессии, которые Rust начал по просьбе окна.
     created: [] as SessionInfo[],
     written: [] as File[],
@@ -79,6 +112,7 @@ function fakeRust({
           project,
           title: "",
           updated: 10_000 + rust.created.length,
+          ...FRESH,
         };
 
         rust.created.push(session);
@@ -89,10 +123,18 @@ function fakeRust({
         return [];
       case "agent_claude_status":
         return { state: "ready", version: "2.1.316" };
-      case "agent_send": {
-        const { session, model, text, oversight } = args as Sent;
+      case "agent_providers":
+        return [CLAUDE];
+      case "agent_commands": {
+        const { provider, project } = args as { provider: string; project: string };
 
-        rust.sent.push({ session, model, text, oversight });
+        rust.asked.push({ provider, project });
+        return { commands, agents: [] };
+      }
+      case "agent_send": {
+        const { session, provider, model, effort, text, oversight } = args as Sent;
+
+        rust.sent.push({ session, provider, model, effort, text, oversight });
         return null;
       }
       case "actions_list":
@@ -221,6 +263,7 @@ afterEach(() => {
   chatStore.setState(() => ({ runs: {}, problems: {}, askEdits: true }));
   tabsStore.setState(() => NO_TABS);
   draftStore.setState(() => ({}));
+  choiceStore.setState(() => ({ last: null, sessions: {} }));
 });
 
 describe("действия в чате", () => {
@@ -238,7 +281,7 @@ describe("действия в чате", () => {
     await waitFor(() => expect(rust.sent).toHaveLength(1));
     expect(rust.sent[0]).toEqual({
       session: "s1",
-      model: "claude-sonnet-5-5",
+      ...AGENT,
       text: `Сводка за ${today()}`,
       oversight: "ask",
     });
@@ -254,11 +297,65 @@ describe("действия в чате", () => {
     await waitFor(() => expect(options()).toEqual(["СводкаCtrl+Shift+S"]));
     await type("/погода");
     expect(options()).toEqual([]);
-    expect(screen.getByText(/Такого действия нет/)).toBeDefined();
+    expect(screen.getByText(/Ничего не нашлось/)).toBeDefined();
     press("Enter");
 
     await waitFor(() => expect(rust.sent).toHaveLength(1));
     expect(rust.sent[0]).toMatchObject({ session: "s1", text: "/погода" });
+  });
+
+  it("за действиями идут команды агента из папки проекта, Enter вписывает команду, и она уходит как есть", async () => {
+    const rust = fakeRust({ commands: COMMANDS });
+    open();
+    await openSession("Рефакторинг парсера");
+
+    await type("/");
+    await waitFor(() =>
+      expect(options()).toEqual([
+        "Обзор измененийCtrl+Shift+J",
+        "СводкаCtrl+Shift+S",
+        "/reviewПроверить пул-реквест",
+        "/clearНачать разговор заново",
+      ]),
+    );
+    expect(rust.asked).toEqual([{ provider: "claude", project: "p1" }]);
+
+    await type("/rev");
+    expect(options()).toEqual(["/reviewПроверить пул-реквест"]);
+    press("Enter");
+
+    const field = screen.getByLabelText<HTMLTextAreaElement>("Сообщение агенту");
+    expect(field.value).toBe("/review ");
+    expect(screen.queryByRole("listbox")).toBeNull();
+    expect(rust.sent).toEqual([]);
+
+    await type("/review 12");
+    press("Enter");
+
+    await waitFor(() => expect(rust.sent).toHaveLength(1));
+    expect(rust.sent[0]).toMatchObject({ session: "s1", text: "/review 12" });
+  });
+
+  it("команду находит и её другое имя", async () => {
+    fakeRust({ commands: COMMANDS });
+    open();
+    await openSession("Рефакторинг парсера");
+
+    await type("/reset");
+
+    await waitFor(() => expect(options()).toEqual(["/clearНачать разговор заново"]));
+  });
+
+  it("без действий и команд одна «/» списка не открывает", async () => {
+    fakeRust({ actions: [] });
+    open();
+    await openSession("Рефакторинг парсера");
+
+    await type("/");
+    await settle();
+
+    expect(screen.queryByRole("listbox")).toBeNull();
+    expect(screen.queryByText(/Ничего не нашлось/)).toBeNull();
   });
 
   it("клавиша с другого экрана возвращает в чат открытой сессии и запускает там действие", async () => {
@@ -272,7 +369,7 @@ describe("действия в чате", () => {
 
     await chatOf("Рефакторинг парсера");
     await waitFor(() => expect(rust.sent).toHaveLength(1));
-    expect(rust.sent).toEqual([{ session: "s1", model: "claude-sonnet-5-5", text: "Посмотри изменения", oversight: "ask" }]);
+    expect(rust.sent).toEqual([{ session: "s1", ...AGENT, text: "Посмотри изменения", oversight: "ask" }]);
     expect(rust.created).toEqual([]);
   });
 
@@ -343,7 +440,7 @@ describe("действия по расписанию", () => {
     expect(rust.created.map((session) => session.project)).toEqual(["p1"]);
     expect(rust.sent[0]).toEqual({
       session: rust.created[0]?.id,
-      model: "claude-sonnet-5-5",
+      ...AGENT,
       text: `Изменения с ${since} по ${today()}`,
       oversight: "away",
     });
@@ -557,7 +654,7 @@ describe("экран «Действия»", () => {
     await waitFor(() => expect(rust.sent).toHaveLength(1));
     expect(rust.sent[0]).toEqual({
       session: "s1",
-      model: "claude-sonnet-5-5",
+      ...AGENT,
       text: `Сводка за ${today()}`,
       oversight: "ask",
     });

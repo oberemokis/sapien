@@ -1,4 +1,5 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
+import type { Choice, Commands, Provider } from "../model/agents";
 import type { Answer, ChatEntry, ChatEvent, ClaudeStatus, Oversight } from "../model/chat";
 import type { Project, SessionInfo } from "../model/sessions";
 
@@ -36,12 +37,31 @@ export function agentHistory(session: string) {
 // Ответы разных сессий идут параллельно, в одной сессии по одному.
 export function agentSend(
   session: string,
-  model: string,
+  choice: Choice,
   text: string,
   oversight: Oversight,
   onEvent: (event: ChatEvent) => void,
 ) {
-  return invoke<null>("agent_send", { session, model, text, oversight, onEvent: new Channel<ChatEvent>(onEvent) });
+  return invoke<null>("agent_send", {
+    session,
+    provider: choice.provider,
+    model: choice.model,
+    effort: choice.effort,
+    text,
+    oversight,
+    onEvent: new Channel<ChatEvent>(onEvent),
+  });
+}
+
+// Агенты, установленные на устройстве, с их моделями. Rust спрашивает
+// каждого агента, поэтому список читается редко.
+export function agentProviders() {
+  return invoke<Provider[]>("agent_providers");
+}
+
+// Команды, скилы и субагенты агента в папке проекта.
+export function agentCommands(provider: string, project: string) {
+  return invoke<Commands>("agent_commands", { provider, project });
 }
 
 // Сессии, чьи ответы идут сейчас.

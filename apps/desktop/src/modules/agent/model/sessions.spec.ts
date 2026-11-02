@@ -8,6 +8,9 @@ const session = (id: string, projectId: string, title: string, updated: number):
   project: projectId,
   title,
   updated,
+  provider: "claude",
+  model: null,
+  effort: null,
 });
 
 const PROJECTS = [project("p1", "sapien"), project("p2", "сайт")];

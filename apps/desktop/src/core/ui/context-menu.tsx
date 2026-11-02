@@ -136,14 +136,17 @@ export function ContextMenu({ x, y, items, onClose, above = false, anchor = null
             role={item.checked === undefined ? "menuitem" : "menuitemradio"}
             aria-checked={item.checked}
             disabled={item.disabled}
-            className="flex h-7 w-full items-center gap-4 rounded-sm pr-1.5 pl-3 text-left text-[13px] outline-none transition-colors duration-120 hover:bg-overlay-hover focus-visible:bg-overlay-hover disabled:opacity-50 disabled:hover:bg-transparent"
+            className="flex min-h-7 w-full items-center gap-4 rounded-sm py-1 pr-1.5 pl-3 text-left text-[13px] outline-none transition-colors duration-120 hover:bg-overlay-hover focus-visible:bg-overlay-hover disabled:opacity-50 disabled:hover:bg-transparent"
             onClick={() => {
               onClose();
               item.onSelect();
             }}
           >
-            <span className="flex-1 truncate">{item.label}</span>
-            {item.hint !== undefined && <span className="text-[12px] text-text-faint">{item.hint}</span>}
+            {/* Подсказка стоит под названием пункта, а не рядом. */}
+            <span className="flex min-w-0 flex-1 flex-col">
+              <span className="truncate">{item.label}</span>
+              {item.hint !== undefined && <span className="text-[12px]/4 text-text-faint">{item.hint}</span>}
+            </span>
             {item.checked !== undefined && (
               <span className="grid size-3.5 shrink-0 place-items-center">
                 {item.checked && <Icon icon="check" size={14} />}

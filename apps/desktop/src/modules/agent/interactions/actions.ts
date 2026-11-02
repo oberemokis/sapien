@@ -10,7 +10,7 @@ import {
 import { readRuns, writeRun } from "../infrastructure/agent.device";
 import { actionsOf, dueActions, hotkeyOf, isRunnable, taskAt, type Action } from "../model/actions";
 import { homeProject } from "../model/sessions";
-import { modelStore } from "../store/model.store";
+import { choiceFor } from "./agents";
 import { reportProblem, useOnline, useSend } from "./chat";
 import { openSession, SESSIONS_KEY, useActiveSession, useProjects, useSessions } from "./sessions";
 
@@ -61,19 +61,28 @@ export function useDeleteAction() {
 // считается {{since}} следующего. away у запуска по расписанию: человека
 // рядом нет.
 function useStart() {
+  const queryClient = useQueryClient();
   const send = useSend();
 
   return useCallback(
-    (action: Action, session: string, away = false) => {
+    async (action: Action, session: string, away = false) => {
       const now = new Date();
       const task = taskAt(action, readRuns()[action.path], now);
 
       writeRun(action.path, { at: now.getTime(), ran: true });
-      reportProblem(session, null);
 
-      return send(session, modelStore.get(), task, away);
+      const choice = await choiceFor(queryClient, session);
+
+      // Агентов на устройстве нет: запуск помечен, причину видно в чате.
+      if (choice === null) {
+        reportProblem(session, "claude_missing");
+        return;
+      }
+
+      reportProblem(session, null);
+      await send(session, choice, task, away);
     },
-    [send],
+    [queryClient, send],
   );
 }
 

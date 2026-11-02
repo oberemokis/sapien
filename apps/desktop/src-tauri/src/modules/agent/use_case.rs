@@ -1,8 +1,8 @@
 use super::domain::{
-    APPEND, AWAY, Answer, Chat, ClaudeSession, Entry, Event, Oversight, Question, SILENCE, STOPPED,
-    Session, SessionInfo, Tool, approval, choice_result, claude_blocks, claude_failure,
-    claude_init_problem, claude_result, notice, parse_model, prompt, push_assistant, push_user,
-    short_name, title, tool_target, transcript,
+    APPEND, AWAY, Answer, CLAUDE, ClaudeSession, Commands, EFFORTS, Entry, Event, Oversight,
+    Provider, Question, SILENCE, STOPPED, Session, SessionInfo, Tool, approval, choice_result,
+    claude_blocks, claude_failure, claude_init_problem, claude_result, notice, prompt,
+    push_assistant, push_user, short_name, title, tool_target, transcript, valid_model,
 };
 use super::ports::{Claude, Conversation, Human, Incoming, Projects, Run, Sessions};
 use crate::error::AppError;
@@ -31,17 +31,44 @@ pub fn new_session(
         return Err(AppError::not_found("project_missing"));
     }
 
-    let session = Session {
-        id,
-        project: project.to_owned(),
-        title: String::new(),
-        created: now,
-        updated: now,
-        chat: Chat::default(),
-    };
+    let session = Session::new(id, project, now);
 
     store.save(&session)?;
     Ok(session.info())
+}
+
+/// Агенты на устройстве с их моделями. Нет Claude Code, и агентов нет.
+/// Модели не узнались, и агент есть, а выбрать можно только его модель
+/// по умолчанию.
+pub async fn providers(claude: &impl Claude) -> Vec<Provider> {
+    match claude.models().await {
+        Err(error) if error.code == "claude_missing" => vec![],
+        models => vec![Provider {
+            id: CLAUDE.to_owned(),
+            name: "Claude Code".to_owned(),
+            models: models.unwrap_or_default(),
+        }],
+    }
+}
+
+/// Команды, скилы и субагенты агента `provider` в папке проекта `project`.
+/// Не узнались, и это ошибка: пустой список выглядел бы как проект без
+/// команд.
+pub async fn commands(
+    claude: &impl Claude,
+    projects: &impl Projects,
+    provider: &str,
+    project: &str,
+) -> Result<Commands, AppError> {
+    if provider != CLAUDE {
+        return Err(AppError::invalid("agent_provider_unknown"));
+    }
+
+    let dir = projects
+        .folder(project)
+        .ok_or(AppError::not_found("project_missing"))?;
+
+    claude.commands(&dir).await
 }
 
 /// Удаляет сессию `id`. По ней идёт ответ (`running`), и она остаётся:
@@ -86,10 +113,14 @@ pub fn history(store: &impl Sessions, id: &str) -> Result<Vec<Entry>, AppError> 
 
 /// Сообщение человека в сессии `session`. Пустой текст продолжает историю,
 /// которая кончается его вопросом: так «Повторить» шлёт его снова после
-/// ошибки. `now` это время сообщения в миллисекундах Unix.
+/// ошибки. `now` это время сообщения в миллисекундах Unix. `provider`
+/// это агент, `model` и `effort` его модель и уровень размышления: без
+/// них агент решает сам.
 pub struct Turn<'a> {
     pub session: &'a str,
-    pub model: &'a str,
+    pub provider: &'a str,
+    pub model: Option<&'a str>,
+    pub effort: Option<&'a str>,
     pub text: &'a str,
     pub oversight: Oversight,
     pub now: u64,
@@ -202,13 +233,32 @@ pub async fn send(
     turn: Turn<'_>,
     events: &mut (impl FnMut(Event) + Send),
 ) -> Result<(), AppError> {
-    let model = parse_model(turn.model).ok_or(AppError::invalid("agent_model_unknown"))?;
+    if turn.provider != CLAUDE {
+        return Err(AppError::invalid("agent_provider_unknown"));
+    }
+
+    if turn.model.is_some_and(|model| !valid_model(model)) {
+        return Err(AppError::invalid("agent_model_unknown"));
+    }
+
+    if turn.effort.is_some_and(|effort| !EFFORTS.contains(&effort)) {
+        return Err(AppError::invalid("agent_effort_unknown"));
+    }
+
     let mut session = store.load(turn.session)?;
     let dir = projects
         .folder(&session.project)
         .ok_or(AppError::not_found("project_missing"))?;
 
+    // Разговор держит агент, который его начал: другой не продолжит его.
+    if !session.chat.messages.is_empty() && session.provider != turn.provider {
+        return Err(AppError::invalid("agent_provider_locked"));
+    }
+
     session.updated = turn.now;
+    session.provider = turn.provider.to_owned();
+    session.model = turn.model.map(str::to_owned);
+    session.effort = turn.effort.map(str::to_owned);
 
     if !turn.text.trim().is_empty() {
         push_user(
@@ -245,7 +295,8 @@ pub async fn send(
             .is_some_and(|resumed| claude.stamp(&dir, &resumed.id) != resumed.seen);
         let run = Run {
             dir: &dir,
-            model,
+            model: turn.model,
+            effort: turn.effort,
             append: APPEND,
             prompt: &prompt,
             oversight: turn.oversight,
@@ -462,7 +513,9 @@ async fn listen(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::modules::agent::domain::{ClaudeState, ClaudeStatus, Stamp};
+    use crate::modules::agent::domain::{
+        AgentCommand, AgentModel, ClaudeState, ClaudeStatus, Stamp,
+    };
     use std::collections::{BTreeMap, HashMap, VecDeque};
     use std::path::{Path, PathBuf};
     use std::sync::{Arc, Mutex};
@@ -587,6 +640,8 @@ mod tests {
     #[derive(Debug, PartialEq)]
     struct Started {
         dir: PathBuf,
+        model: Option<String>,
+        effort: Option<String>,
         resume: Option<String>,
         fork: bool,
         prompt: String,
@@ -643,11 +698,13 @@ mod tests {
 
     /// Claude Code, который отвечает в сессии по сценарию `talks`: шаги
     /// и что он пишет в stderr. Файл сессии лежит таким, как `stamp`.
+    /// Модели он отдаёт как `models`, без них пустой список.
     #[derive(Default)]
     struct FakeClaude {
         talks: Mutex<VecDeque<(Vec<Step>, &'static str)>>,
         seen: Arc<Mutex<Seen>>,
         stamp: Mutex<Option<Stamp>>,
+        models: Mutex<Option<Result<Vec<AgentModel>, AppError>>>,
     }
 
     impl FakeClaude {
@@ -674,6 +731,24 @@ mod tests {
             ClaudeStatus::of_state(ClaudeState::Ready)
         }
 
+        async fn models(&self) -> Result<Vec<AgentModel>, AppError> {
+            self.models.lock().unwrap().take().unwrap_or(Ok(vec![]))
+        }
+
+        /// Команда в каждом проекте одна: папка, где её спросили.
+        async fn commands(&self, dir: &Path) -> Result<Commands, AppError> {
+            Ok(Commands {
+                commands: vec![AgentCommand {
+                    name: dir.display().to_string(),
+                    description: String::new(),
+                    hint: String::new(),
+                    aliases: vec![],
+                    builtin: false,
+                }],
+                agents: vec![],
+            })
+        }
+
         async fn converse(&self, run: &Run<'_>) -> Result<FakeTalk, AppError> {
             let (steps, errors) = self
                 .talks
@@ -684,6 +759,8 @@ mod tests {
 
             self.seen.lock().unwrap().runs.push(Started {
                 dir: run.dir.to_owned(),
+                model: run.model.map(str::to_owned),
+                effort: run.effort.map(str::to_owned),
                 resume: run.resume.map(str::to_owned),
                 fork: run.fork,
                 prompt: run.prompt.to_owned(),
@@ -762,7 +839,9 @@ mod tests {
         let mut events = vec![];
         let turn = Turn {
             session,
-            model: "claude-opus-5-5",
+            provider: CLAUDE,
+            model: Some("claude-opus-5-5"),
+            effort: None,
             text,
             oversight,
             now: 7,
@@ -814,6 +893,9 @@ mod tests {
                 project: "p1".into(),
                 title: String::new(),
                 updated: 1,
+                provider: "claude".into(),
+                model: None,
+                effort: None,
             }
         );
 
@@ -893,20 +975,37 @@ mod tests {
         );
     }
 
+    /// Ответ в сессии `s1` с выбором агента, модели и размышления.
+    fn choosing(
+        claude: &FakeClaude,
+        sessions: &FakeSessions,
+        (provider, model, effort): (&str, Option<&str>, Option<&str>),
+    ) -> Result<(), AppError> {
+        block_on(send(
+            claude,
+            &FakeProjects::default(),
+            sessions,
+            &nobody(),
+            &Notify::new(),
+            Turn {
+                session: "s1",
+                provider,
+                model,
+                effort,
+                text: "Привет",
+                oversight: Oversight::Trust,
+                now: 1,
+            },
+            &mut |_| {},
+        ))
+    }
+
     #[test]
-    fn без_папки_проекта_и_с_чужой_моделью_ответа_нет() {
+    fn без_папки_проекта_и_с_непонятным_выбором_ответа_нет() {
         let claude = FakeClaude::default();
         let sessions = FakeSessions::default();
-
         sessions
-            .save(&Session {
-                id: "s1".into(),
-                project: "убран".into(),
-                title: String::new(),
-                created: 1,
-                updated: 1,
-                chat: Chat::default(),
-            })
+            .save(&Session::new("s1".into(), "убран", 1))
             .unwrap();
 
         assert_eq!(
@@ -918,26 +1017,148 @@ mod tests {
             Err(AppError::not_found("session_missing"))
         );
 
-        let fable = block_on(send(
-            &claude,
-            &FakeProjects::default(),
-            &FakeSessions::one(),
-            &nobody(),
-            &Notify::new(),
-            Turn {
-                session: "s1",
-                model: "claude-fable-5-1",
-                text: "Привет",
-                oversight: Oversight::Trust,
-                now: 1,
-            },
-            &mut |_| {},
-        ));
+        let fresh = FakeSessions::one();
 
-        assert_eq!(fable, Err(AppError::invalid("agent_model_unknown")));
+        for (choice, code) in [
+            (("codex", None, None), "agent_provider_unknown"),
+            // Модель уходит аргументом: флаг вместо неё не пройдёт.
+            (("claude", Some("--help"), None), "agent_model_unknown"),
+            (("claude", Some("opus; rm"), None), "agent_model_unknown"),
+            (("claude", Some(""), None), "agent_model_unknown"),
+            (("claude", None, Some("extreme")), "agent_effort_unknown"),
+        ] {
+            assert_eq!(
+                choosing(&claude, &fresh, choice),
+                Err(AppError::invalid(code))
+            );
+        }
+
         // Сообщение не легло в историю, а Claude Code не запускался.
-        assert!(sessions.get("s1").chat.messages.is_empty());
+        assert!(fresh.get("s1").chat.messages.is_empty());
         assert_eq!(claude.runs(), 0);
+    }
+
+    #[test]
+    fn сессия_помнит_выбор_а_агент_закреплён_за_ней() {
+        let claude = FakeClaude::talking(vec![
+            (vec![init("c1"), done()], ""),
+            (vec![init("c1"), done()], ""),
+        ]);
+        let sessions = FakeSessions::one();
+
+        // Псевдоним и модель с окном в миллион токенов тоже модели.
+        choosing(
+            &claude,
+            &sessions,
+            ("claude", Some("opus[1m]"), Some("xhigh")),
+        )
+        .unwrap();
+
+        let info = sessions.get("s1").info();
+
+        assert_eq!(
+            (
+                info.provider.as_str(),
+                info.model.as_deref(),
+                info.effort.as_deref()
+            ),
+            ("claude", Some("opus[1m]"), Some("xhigh"))
+        );
+
+        // Без модели и размышления решает Claude Code, и сессия это помнит.
+        choosing(&claude, &sessions, ("claude", None, None)).unwrap();
+
+        let info = sessions.get("s1").info();
+
+        assert_eq!((info.model, info.effort), (None, None));
+
+        let runs: Vec<_> = claude
+            .seen
+            .lock()
+            .unwrap()
+            .runs
+            .iter()
+            .map(|run| (run.model.clone(), run.effort.clone()))
+            .collect();
+
+        assert_eq!(
+            runs,
+            [
+                (Some("opus[1m]".to_owned()), Some("xhigh".to_owned())),
+                (None, None)
+            ]
+        );
+
+        // Сессию с сообщениями другой агент не продолжит.
+        let mut other = sessions.get("s1");
+
+        other.provider = "codex".into();
+        sessions.save(&other).unwrap();
+
+        assert_eq!(
+            choosing(&claude, &sessions, ("claude", None, None)),
+            Err(AppError::invalid("agent_provider_locked"))
+        );
+        assert_eq!(sessions.get("s1"), other);
+        assert_eq!(claude.runs(), 2);
+    }
+
+    #[test]
+    fn агент_есть_только_на_устройстве() {
+        let opus = AgentModel {
+            id: "opus".into(),
+            resolved: Some("claude-opus-5-5".into()),
+            name: "Opus".into(),
+            description: "Самая умная".into(),
+            efforts: vec!["low".into(), "max".into()],
+        };
+        let with = |models| FakeClaude {
+            models: Mutex::new(Some(models)),
+            ..FakeClaude::default()
+        };
+        let claude = |models: Vec<AgentModel>| {
+            vec![Provider {
+                id: "claude".into(),
+                name: "Claude Code".into(),
+                models,
+            }]
+        };
+
+        assert_eq!(
+            block_on(providers(&with(Ok(vec![opus.clone()])))),
+            claude(vec![opus])
+        );
+        assert_eq!(
+            block_on(providers(&with(Err(AppError::not_found("claude_missing"))))),
+            []
+        );
+        // Модели не узнались: агент есть, его модель по умолчанию тоже.
+        assert_eq!(
+            block_on(providers(&with(Err(AppError::unavailable(
+                "claude_failed"
+            ))))),
+            claude(vec![])
+        );
+    }
+
+    #[test]
+    fn команды_агента_спрашиваются_в_папке_проекта() {
+        let claude = FakeClaude::default();
+        let projects = FakeProjects::default();
+        let asked = |provider, project| block_on(commands(&claude, &projects, provider, project));
+
+        assert_eq!(
+            asked("claude", "p2").map(|found| found.commands[0].name.clone()),
+            Ok("/код/сайт".to_owned())
+        );
+        assert_eq!(
+            asked("claude", "убран"),
+            Err(AppError::not_found("project_missing"))
+        );
+        assert_eq!(
+            asked("codex", "p1"),
+            Err(AppError::invalid("agent_provider_unknown"))
+        );
     }
 
     #[test]
@@ -1005,6 +1226,8 @@ mod tests {
             claude.seen.lock().unwrap().runs,
             [Started {
                 dir: "/код/sapien".into(),
+                model: Some("claude-opus-5-5".into()),
+                effort: None,
                 resume: None,
                 fork: false,
                 prompt: "Поправь README".into(),

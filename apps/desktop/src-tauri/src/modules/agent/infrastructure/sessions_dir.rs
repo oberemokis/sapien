@@ -108,6 +108,9 @@ mod tests {
             title: "Почини сборку".into(),
             created: 1,
             updated: 2,
+            provider: "claude".into(),
+            model: Some("opus[1m]".into()),
+            effort: Some("high".into()),
             chat: Chat {
                 messages: vec![
                     json!({ "role": "user", "content": [{ "type": "text", "text": "Привет" }] }),
@@ -149,6 +152,21 @@ mod tests {
             [session("a1", "p1").info(), session("b2", "p2").info()]
         );
         assert_eq!(again.load("a1"), Ok(session("a1", "p1")));
+
+        // Сессия из версии без выбора агента: агент Claude Code, модели нет.
+        fs::write(
+            data.path().join("sessions/d4.json"),
+            r#"{"id":"d4","project":"p1","title":"","created":1,"updated":1}"#,
+        )
+        .unwrap();
+
+        let old = again.load("d4").unwrap().info();
+
+        assert_eq!(
+            (old.provider.as_str(), old.model.clone(), old.effort.clone()),
+            ("claude", None, None)
+        );
+        assert!(again.list().unwrap().contains(&old));
 
         again.delete("a1").unwrap();
         again.delete("a1").unwrap();

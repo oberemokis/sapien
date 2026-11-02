@@ -1,5 +1,8 @@
 use crate::error::AppError;
-use crate::modules::agent::domain::{ClaudeState, ClaudeStatus, Oversight, Stamp};
+use crate::modules::agent::domain::{
+    AgentModel, ClaudeState, ClaudeStatus, Commands, INIT_REQUEST, Init, Oversight, Stamp,
+    init_reply,
+};
 use crate::modules::agent::ports::{Claude, Run};
 use serde_json::{Value, json};
 use std::io::ErrorKind;
@@ -7,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Output, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, UNIX_EPOCH};
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::time::timeout;
 
@@ -59,6 +62,10 @@ const TOOL_WAIT: u64 = 900_000;
 
 /// Версия и вход отвечают за секунды.
 const CHECK: Duration = Duration::from_secs(15);
+
+/// Ответ на `initialize` дольше: до него Claude Code поднимает настройки,
+/// плагины и серверы MCP человека.
+const INIT_WAIT: Duration = Duration::from_secs(20);
 
 /// Сколько ходов Claude Code делает за один ответ. Работа в проекте идёт
 /// десятками вызовов, а дальше это уже цикл, а не ответ.
@@ -154,6 +161,59 @@ impl ClaudeCode {
             .map_err(|_| AppError::unavailable("claude_failed"))?
             .map_err(|_| AppError::unavailable("claude_failed"))
     }
+
+    /// Модели, команды и субагенты Claude Code отдаёт в ответ на запрос
+    /// `initialize` протокола stream-json, как Agent SDK в
+    /// `supportedModels()`. Запуск идёт в папке `dir`: команды и плагины
+    /// у проекта свои. Сообщения ему не уходит, поэтому ни ответа модели,
+    /// ни расхода подписки нет. Ввод открыт до ответа: закрытый ввод
+    /// Claude Code понял бы как конец.
+    async fn initialize(&self, dir: &Path) -> Result<Init, AppError> {
+        let failed = || AppError::unavailable("claude_failed");
+        let mut child = self.spawn(
+            dir,
+            &[
+                "-p",
+                "--input-format",
+                "stream-json",
+                "--output-format",
+                "stream-json",
+                "--verbose",
+            ],
+            &[],
+        )?;
+        let mut stdin = child.stdin.take().ok_or_else(failed)?;
+        let stdout = child.stdout.take().ok_or_else(failed)?;
+        let request = json!({
+            "type": "control_request",
+            "request_id": INIT_REQUEST,
+            "request": { "subtype": "initialize" },
+        });
+
+        stdin
+            .write_all(format!("{request}\n").as_bytes())
+            .await
+            .map_err(|_| failed())?;
+
+        // ponytail: stderr не читается. Короткий запуск в трубу почти
+        // ничего не пишет, а Claude Code снимается вместе с `child`.
+        let mut lines = BufReader::new(stdout).lines();
+        let reply = async {
+            while let Ok(Some(line)) = lines.next_line().await {
+                let Ok(line) = serde_json::from_str::<Value>(&line) else {
+                    continue;
+                };
+
+                if let Some(reply) = init_reply(&line) {
+                    return reply;
+                }
+            }
+
+            Err(failed())
+        };
+
+        timeout(INIT_WAIT, reply).await.map_err(|_| failed())?
+    }
 }
 
 impl Claude for ClaudeCode {
@@ -177,6 +237,14 @@ impl Claude for ClaudeCode {
             .and_then(|output| serde_json::from_slice::<Value>(&output.stdout).ok());
 
         ClaudeStatus::of(&version, auth.as_ref())
+    }
+
+    async fn models(&self) -> Result<Vec<AgentModel>, AppError> {
+        Ok(self.initialize(&self.data).await?.models)
+    }
+
+    async fn commands(&self, dir: &Path) -> Result<Commands, AppError> {
+        Ok(self.initialize(dir).await?.commands)
     }
 
     /// К инструментам Claude Code добавляется сервер sapien: Claude Code
@@ -220,9 +288,15 @@ impl Claude for ClaudeCode {
             MAX_TURNS,
             "--append-system-prompt",
             run.append,
-            "--model",
-            run.model,
         ];
+
+        if let Some(model) = run.model {
+            args.extend(["--model", model]);
+        }
+
+        if let Some(effort) = run.effort {
+            args.extend(["--effort", effort]);
+        }
 
         args.extend(access(run.oversight));
 
@@ -533,6 +607,7 @@ mod talk {
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
+    use crate::modules::agent::domain::{AgentCommand, Subagent};
     use crate::modules::agent::ports::{Conversation, Incoming};
     use std::collections::HashSet;
     use std::fs;
@@ -667,6 +742,125 @@ esac"#;
         }
     }
 
+    /// Claude Code отвечает на `initialize` после своих строк и чужого
+    /// ответа, а потом ждёт следующего ввода.
+    const INITIALIZE: &str = r#"
+printf '%s\n' "$@" > "$here/args"
+pwd -P > "$here/pwd"
+read -r line
+printf '%s\n' "$line" > "$here/request"
+echo '{"type":"system","subtype":"init"}'
+echo 'не json'
+echo '{"type":"control_response","response":{"subtype":"success","request_id":"чужой","response":{"models":[{"value":"чужая"}]}}}'
+echo '{"type":"control_response","response":{"subtype":"success","request_id":"sapien-init","response":{"account":{"email":"me@example.com"},"models":[{"value":"default","displayName":"По умолчанию","description":"Рекомендуемая","supportsEffort":true,"supportedEffortLevels":["low","medium","high","xhigh","max","ultra"]},{"value":"opus[1m]","resolvedModel":"claude-opus-5-5","displayName":"Opus","description":"","supportsEffort":false,"supportedEffortLevels":["low"]},{"value":"haiku","displayName":"Haiku","description":"Быстрая"},{"value":"--bad","displayName":"Флаг"}],"commands":[{"name":"review","description":"Ревью изменений","argumentHint":"[ветка]","aliases":["r"]},{"name":"compact","description":"Сжать разговор","builtin":true},{"description":"без имени"}],"agents":[{"name":"Explore","description":"Ищет по коду","model":"haiku"},{"name":"tester"},{"model":"opus"}]}}}'
+while true; do sleep 0.02; done"#;
+
+    #[test]
+    fn модели_и_команды_claude_code_отдаёт_на_initialize_без_сообщения() {
+        let _one = ONE_AT_A_TIME
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let (dir, claude) = fake(INITIALIZE);
+        let model =
+            |id: &str, resolved: Option<&str>, name: &str, description: &str, efforts: &[&str]| {
+                AgentModel {
+                    id: id.into(),
+                    resolved: resolved.map(str::to_owned),
+                    name: name.into(),
+                    description: description.into(),
+                    efforts: efforts.iter().map(|effort| (*effort).to_owned()).collect(),
+                }
+            };
+
+        assert_eq!(
+            block_on(claude.models()),
+            Ok(vec![
+                model(
+                    "default",
+                    None,
+                    "По умолчанию",
+                    "Рекомендуемая",
+                    &["low", "medium", "high", "xhigh", "max"]
+                ),
+                // Размышление модель не принимает: уровней нет.
+                model("opus[1m]", Some("claude-opus-5-5"), "Opus", "", &[]),
+                model("haiku", None, "Haiku", "Быстрая", &[]),
+            ])
+        );
+        // Модели не зависят от проекта: Claude Code спрашивается из папки данных.
+        assert_eq!(written(&dir, "pwd").trim(), real(&dir.path().join("data")));
+        assert_eq!(
+            written(&dir, "args").lines().collect::<Vec<_>>(),
+            [
+                "-p",
+                "--input-format",
+                "stream-json",
+                "--output-format",
+                "stream-json",
+                "--verbose"
+            ]
+        );
+        assert_eq!(
+            serde_json::from_str::<Value>(&written(&dir, "request")).unwrap(),
+            json!({ "type": "control_request", "request_id": "sapien-init", "request": { "subtype": "initialize" } })
+        );
+
+        let project = dir.path().join("проект");
+
+        assert_eq!(
+            block_on(claude.commands(&project)),
+            Ok(Commands {
+                commands: vec![
+                    AgentCommand {
+                        name: "review".into(),
+                        description: "Ревью изменений".into(),
+                        hint: "[ветка]".into(),
+                        aliases: vec!["r".into()],
+                        builtin: false,
+                    },
+                    AgentCommand {
+                        name: "compact".into(),
+                        description: "Сжать разговор".into(),
+                        hint: String::new(),
+                        aliases: vec![],
+                        builtin: true,
+                    },
+                ],
+                agents: vec![
+                    Subagent {
+                        name: "Explore".into(),
+                        description: "Ищет по коду".into(),
+                    },
+                    Subagent {
+                        name: "tester".into(),
+                        description: String::new(),
+                    },
+                ],
+            })
+        );
+        // Команды у проекта свои: Claude Code спрашивается из его папки.
+        assert_eq!(written(&dir, "pwd").trim(), real(&project));
+
+        let failed = Some(AppError::unavailable("claude_failed"));
+
+        // Отказ на запрос и конец вывода без ответа.
+        let (_dir, refusing) = fake(
+            r#"read -r line
+echo '{"type":"control_response","response":{"subtype":"error","request_id":"sapien-init","error":"нет"}}'"#,
+        );
+        assert_eq!(block_on(refusing.models()).err(), failed);
+
+        let (_dir, silent) = fake("read -r line\necho '{\"type\":\"system\"}'");
+        assert_eq!(block_on(silent.commands(&project)).err(), failed);
+
+        // Claude Code пропал после того, как его нашли.
+        fs::remove_file(dir.path().join("home/.local/bin/claude")).unwrap();
+        assert_eq!(
+            block_on(claude.models()),
+            Err(AppError::not_found("claude_missing"))
+        );
+    }
+
     const TALKING: &str = r#"
 printf '%s\n' "$@" > "$here/args"
 env > "$here/env"
@@ -681,7 +875,8 @@ echo '{"type":"result","subtype":"success","is_error":false}'"#;
     fn run<'a>(dir: &'a Path, oversight: Oversight, resume: Option<&'static str>) -> Run<'a> {
         Run {
             dir,
-            model: "claude-opus-5-5",
+            model: Some("claude-opus-5-5"),
+            effort: Some("high"),
             append: "Спрашивай через sapien",
             prompt: "Привет",
             oversight,
@@ -818,6 +1013,7 @@ echo '{"type":"result","subtype":"success","is_error":false}'"#;
             ["--max-turns", "200"],
             ["--resume", "s0"],
             ["--model", "claude-opus-5-5"],
+            ["--effort", "high"],
             ["--append-system-prompt", "Спрашивай через sapien"],
         ] {
             assert!(pairs.contains(&&pair[..]), "{pair:?}");

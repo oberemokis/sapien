@@ -89,6 +89,8 @@ pub fn run() {
             agent::transport::agent_answer,
             agent::transport::agent_stop,
             agent::transport::agent_claude_status,
+            agent::transport::agent_providers,
+            agent::transport::agent_commands,
             actions::transport::actions_list,
             actions::transport::actions_create,
             actions::transport::actions_write,
