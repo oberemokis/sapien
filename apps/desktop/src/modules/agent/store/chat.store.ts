@@ -1,27 +1,30 @@
 import { createStore } from "@tanstack/react-store";
 import type { ChatEntry, ChatProblem } from "../model/chat";
+import { NO_TABS, type Tabs } from "../model/tabs";
 
-// Ответ, который идёт сейчас, и сессия, к которой он относится, почему
-// последний ответ сессии не дошёл, вопрос, который ждёт человека,
-// и спрашивать ли разрешения на инструменты. Ответ в приложении один
-// на все сессии. Живёт здесь, а не в чате: действие запускают и с другого
-// экрана.
+// Ответ, который идёт сейчас: его строки и вопрос, который ждёт человека.
+export type LiveRun = { entries: ChatEntry[]; open: string | null };
+
+// Ответы, которые идут сейчас, по сессиям: ответы разных сессий идут
+// параллельно. problems: почему последний ответ сессии не дошёл. askEdits:
+// спрашивать ли разрешения на инструменты. Живёт здесь, а не в чате:
+// действие запускают и с другого экрана, а ответ идёт и в закрытой вкладке.
 export const chatStore = createStore<{
-  session: string | null;
-  live: ChatEntry[] | null;
-  problem: { session: string; code: ChatProblem } | null;
-  open: string | null;
+  runs: Record<string, LiveRun>;
+  problems: Record<string, ChatProblem>;
   askEdits: boolean;
 }>({
-  session: null,
-  live: null,
-  problem: null,
-  open: null,
+  runs: {},
+  problems: {},
   askEdits: true,
 });
 
-// Сессия, открытая в чате. null: ни одной не выбрано.
-export const sessionStore = createStore<string | null>(null);
+// Вкладки окна: у каждого проекта свой набор открытых сессий.
+export const tabsStore = createStore<Tabs>(NO_TABS);
+
+// Недописанное сообщение каждой сессии: вкладка переключается или
+// закрывается, а черновик ждёт её до закрытия окна.
+export const draftStore = createStore<Record<string, string>>({});
 
 // Открыт ли поиск сессии: его открывают ⌘K и кнопка в левой панели.
 export const searchStore = createStore(false);

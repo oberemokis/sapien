@@ -115,6 +115,10 @@ export const ICONS = {
     viewBox: "0 0 20 20",
     body: <path d="M10 7.91667V11.6667M10 13.7417V13.75M10 2.5L1.875 16.25H18.125L10 2.5Z" stroke="currentColor" strokeLinecap="square" />,
   },
+  "xmark-small": {
+    viewBox: "0 0 16 16",
+    body: <path d="M4.25 11.75L11.75 4.25M11.75 11.75L4.25 4.25" stroke="currentColor" />,
+  },
 } satisfies Record<string, { viewBox: string; body: ReactNode }>;
 
 export type IconName = keyof typeof ICONS;

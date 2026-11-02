@@ -8,8 +8,8 @@ import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { Icon } from "@/core/ui/icon";
 import { hasModKey } from "@/core/ui/keys";
-import { closeSearch, openSearch, selectSession, useProjects, useSearchOpen, useSessions } from "../interactions/sessions";
-import { searchSessions } from "../model/sessions";
+import { closeSearch, openSearch, openSession, useProjects, useSearchOpen, useSessions } from "../interactions/sessions";
+import { searchSessions, type FoundSession } from "../model/sessions";
 
 // ⌘K открывает поиск, где бы ни стоял фокус. Код клавиши, а не символ:
 // в русской раскладке та же клавиша печатает «л».
@@ -83,13 +83,13 @@ function SearchDialog() {
     closeSearch();
   }
 
-  function choose(id: string | undefined) {
-    if (id === undefined) {
+  function choose(session: FoundSession | undefined) {
+    if (session === undefined) {
       return;
     }
 
     close();
-    selectSession(id);
+    openSession(session);
     void navigate({ to: "/" });
   }
 
@@ -106,7 +106,7 @@ function SearchDialog() {
 
     if (event.key === "Enter") {
       event.preventDefault();
-      choose(found[active]?.id);
+      choose(found[active]);
     }
   }
 
@@ -169,7 +169,7 @@ function SearchDialog() {
               aria-selected={index === active}
               className={OPTION}
               onMouseMove={() => setActive(index)}
-              onClick={() => choose(session.id)}
+              onClick={() => choose(session)}
             >
               <Icon icon="bubble-5" className="shrink-0" />
               <span className="min-w-0 shrink truncate font-medium">{session.title || t("agent.sessions.untitled")}</span>

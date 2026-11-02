@@ -33,7 +33,7 @@ export function agentHistory(session: string) {
 }
 
 // Ответ идёт событиями через канал, а обещание кончается вместе с ответом.
-// Ответ в приложении один на все сессии.
+// Ответы разных сессий идут параллельно, в одной сессии по одному.
 export function agentSend(
   session: string,
   model: string,
@@ -44,23 +44,24 @@ export function agentSend(
   return invoke<null>("agent_send", { session, model, text, oversight, onEvent: new Channel<ChatEvent>(onEvent) });
 }
 
-// Сессия, чей ответ идёт сейчас, или null.
+// Сессии, чьи ответы идут сейчас.
 export function agentRunning() {
-  return invoke<string | null>("agent_running");
+  return invoke<string[]>("agent_running");
 }
 
-// Окно открылось заново: события идущего ответа приходят сюда, открытый
-// вопрос приходит снова. Кончается вместе с ответом, true, если он шёл.
-export function agentAttach(onEvent: (event: ChatEvent) => void) {
-  return invoke<boolean>("agent_attach", { onEvent: new Channel<ChatEvent>(onEvent) });
+// Окно открылось заново: события идущего ответа сессии приходят сюда,
+// открытый вопрос приходит снова. Кончается вместе с ответом, true, если
+// он шёл.
+export function agentAttach(session: string, onEvent: (event: ChatEvent) => void) {
+  return invoke<boolean>("agent_attach", { session, onEvent: new Channel<ChatEvent>(onEvent) });
 }
 
-export function agentAnswer(id: string, answer: Answer) {
-  return invoke<null>("agent_answer", { id, answer });
+export function agentAnswer(session: string, id: string, answer: Answer) {
+  return invoke<null>("agent_answer", { session, id, answer });
 }
 
-export function agentStop() {
-  return invoke<null>("agent_stop");
+export function agentStop(session: string) {
+  return invoke<null>("agent_stop", { session });
 }
 
 // Есть ли Claude Code на устройстве, его версия и вход.

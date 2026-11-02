@@ -10,10 +10,9 @@ import {
 import { readRuns, writeRun } from "../infrastructure/agent.device";
 import { actionsOf, dueActions, hotkeyOf, isRunnable, taskAt, type Action } from "../model/actions";
 import { homeProject } from "../model/sessions";
-import { chatStore } from "../store/chat.store";
 import { modelStore } from "../store/model.store";
 import { reportProblem, useOnline, useSend } from "./chat";
-import { selectSession, SESSIONS_KEY, useProjects, useSelectedSession, useSessions } from "./sessions";
+import { openSession, SESSIONS_KEY, useActiveSession, useProjects, useSessions } from "./sessions";
 
 const ACTIONS_KEY = ["agent", "actions"] as const;
 
@@ -90,10 +89,10 @@ function useFreshSession() {
   const queryClient = useQueryClient();
   const projects = useProjects().data;
   const sessions = useSessions().data;
-  const selected = useSelectedSession();
+  const active = useActiveSession();
 
   return useCallback(async () => {
-    const project = homeProject(projects ?? [], sessions ?? [], selected);
+    const project = homeProject(projects ?? [], sessions ?? [], active?.id ?? null);
 
     if (project === null) {
       return null;
@@ -103,36 +102,36 @@ function useFreshSession() {
 
     await queryClient.invalidateQueries({ queryKey: SESSIONS_KEY });
 
-    return session?.id ?? null;
-  }, [projects, sessions, selected, queryClient]);
+    return session;
+  }, [projects, sessions, active, queryClient]);
 }
 
-// Запуск по клавише или кнопке: в открытой сессии, а без неё в новой.
-// Сессия открывается, onRun показывает чат. Без сети сессия открывается,
-// а задание не уходит: причину покажет чат.
+// Запуск по клавише или кнопке: в активной вкладке, а без неё в новой
+// сессии. Сессия открывается, onRun показывает чат. Без сети сессия
+// открывается, а задание не уходит: причину покажет чат.
 export function useLaunchAction(onRun: () => void) {
   const start = useStart();
   const fresh = useFreshSession();
   const online = useOnline();
-  const selected = useSelectedSession();
+  const active = useActiveSession();
 
   return useCallback(
     async (action: Action) => {
-      const session = selected ?? (await fresh());
+      const session = active ?? (await fresh());
 
       if (session === null) {
         onRun();
         return;
       }
 
-      selectSession(session);
+      openSession(session);
       onRun();
 
       if (online) {
-        await start(action, session);
+        await start(action, session.id);
       }
     },
-    [selected, fresh, online, onRun, start],
+    [active, fresh, online, onRun, start],
   );
 }
 
@@ -145,8 +144,8 @@ type Options = {
 // Действие по расписанию идёт в новой сессии, чтобы не вмешиваться
 // в разговор человека, и экран за ним не переключается. Срок, пропущенный
 // без сети или без проекта, ждёт их, и окно говорит, что действие
-// отложено. Ответ в приложении один, поэтому за проверку уходит одно
-// действие.
+// отложено. Ответы сессий идут параллельно, поэтому все действия, чей
+// срок пришёл, уходят сразу, каждое в своей сессии.
 export function useActionTriggers({ onRun }: Options) {
   const start = useStart();
   const online = useOnline();
@@ -179,22 +178,22 @@ export function useActionTriggers({ onRun }: Options) {
       for (const action of dueActions(actions, runs, now)) {
         if (!online) {
           waiting.push(action.name);
-        } else if (chatStore.get().live === null) {
-          // oxlint-disable-next-line no-await-in-loop -- за проверку уходит одно действие
-          const session = await freshSession();
-
-          if (stopped) {
-            return;
-          }
-
-          if (session === null) {
-            waiting.push(action.name);
-            continue;
-          }
-
-          void start(action, session, true);
-          break;
+          continue;
         }
+
+        // oxlint-disable-next-line no-await-in-loop -- сессии заводятся по одной: остановка эффекта обрывает цикл между ними
+        const session = await freshSession();
+
+        if (stopped) {
+          return;
+        }
+
+        if (session === null) {
+          waiting.push(action.name);
+          continue;
+        }
+
+        void start(action, session.id, true);
       }
 
       setDeferred(waiting);

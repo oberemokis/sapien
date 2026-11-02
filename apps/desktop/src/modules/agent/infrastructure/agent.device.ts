@@ -1,8 +1,9 @@
 import type { Run } from "../model/actions";
 import type { AgentModel } from "../model/chat";
+import type { Tabs } from "../model/tabs";
 
 const STORAGE_KEY = "sapien.agent.model";
-const SESSION_KEY = "sapien.agent.session";
+const TABS_KEY = "sapien.agent.tabs";
 const RUNS_KEY = "sapien.actions.runs";
 
 // Когда действия по расписанию последний раз запускались, по путям
@@ -42,23 +43,20 @@ export function writeAgentModel(model: AgentModel) {
   }
 }
 
-// Открытая сессия: после перезапуска окно открывает её же.
-export function readSession(): string | null {
+// Открытые вкладки: после перезапуска окно открывает их же. null: вкладок
+// ещё не было или хранилище закрыто.
+export function readTabs(): Tabs | null {
   try {
-    return localStorage.getItem(SESSION_KEY);
+    return JSON.parse(localStorage.getItem(TABS_KEY) ?? "null");
   } catch {
     return null;
   }
 }
 
-export function writeSession(session: string | null) {
+export function writeTabs(tabs: Tabs) {
   try {
-    if (session === null) {
-      localStorage.removeItem(SESSION_KEY);
-    } else {
-      localStorage.setItem(SESSION_KEY, session);
-    }
+    localStorage.setItem(TABS_KEY, JSON.stringify(tabs));
   } catch {
-    // Как с моделью: выбор действует до закрытия окна.
+    // Как с моделью: вкладки живут до закрытия окна.
   }
 }

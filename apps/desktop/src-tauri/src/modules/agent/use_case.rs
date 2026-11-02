@@ -48,10 +48,10 @@ pub fn new_session(
 /// ответ записал бы её заново.
 pub fn delete_session(
     store: &impl Sessions,
-    running: Option<&str>,
+    running: impl Fn(&str) -> bool,
     id: &str,
 ) -> Result<(), AppError> {
-    if running == Some(id) {
+    if running(id) {
         return Err(AppError::conflict("agent_busy"));
     }
 
@@ -59,10 +59,10 @@ pub fn delete_session(
 }
 
 /// Удаляет сессии проекта, который убирают из списка. Идёт ответ
-/// по одной из них, и не удаляется ни одна.
+/// хоть по одной из них, и не удаляется ни одна.
 pub fn forget_project(
     store: &impl Sessions,
-    running: Option<&str>,
+    running: impl Fn(&str) -> bool,
     project: &str,
 ) -> Result<(), AppError> {
     let doomed: Vec<SessionInfo> = store
@@ -71,10 +71,7 @@ pub fn forget_project(
         .filter(|session| session.project == project)
         .collect();
 
-    if doomed
-        .iter()
-        .any(|session| Some(session.id.as_str()) == running)
-    {
+    if doomed.iter().any(|session| running(&session.id)) {
         return Err(AppError::conflict("agent_busy"));
     }
 
@@ -872,16 +869,23 @@ mod tests {
         }
 
         let busy = Err(AppError::conflict("agent_busy"));
+        // Ответы идут в двух сессиях сразу.
+        let running = |id: &str| ["b", "c"].contains(&id);
 
-        assert_eq!(delete_session(&store, Some("a"), "a"), busy);
-        assert_eq!(forget_project(&store, Some("b"), "p1"), busy);
+        assert_eq!(delete_session(&store, running, "b"), busy);
+        assert_eq!(delete_session(&store, running, "c"), busy);
+        assert_eq!(forget_project(&store, running, "p1"), busy);
         assert_eq!(store.ids(), ["a", "b", "c"]);
 
-        // Ответ идёт в другом проекте: этот убирается целиком.
-        forget_project(&store, Some("c"), "p1").unwrap();
+        // Свободная сессия рядом с занятыми удаляется.
+        delete_session(&store, running, "a").unwrap();
+        assert_eq!(store.ids(), ["b", "c"]);
+
+        // Ответ идёт только в другом проекте: этот убирается целиком.
+        forget_project(&store, |id| id == "c", "p1").unwrap();
         assert_eq!(store.ids(), ["c"]);
 
-        delete_session(&store, Some("a"), "c").unwrap();
+        delete_session(&store, |id| id == "a", "c").unwrap();
         assert!(store.ids().is_empty());
         assert_eq!(
             history(&store, "c"),

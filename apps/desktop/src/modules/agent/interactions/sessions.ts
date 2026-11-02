@@ -8,13 +8,15 @@ import {
   projectsList,
   projectsRemove,
 } from "../infrastructure/agent.api";
-import { readSession, writeSession } from "../infrastructure/agent.device";
-import { searchStore, sessionStore } from "../store/chat.store";
+import { readTabs, writeTabs } from "../infrastructure/agent.device";
+import type { SessionInfo } from "../model/sessions";
+import { closeTab, NO_TABS, openTab, visibleTabs, type Tabs } from "../model/tabs";
+import { searchStore, tabsStore } from "../store/chat.store";
 
 export const PROJECTS_KEY = ["agent", "projects"] as const;
 export const SESSIONS_KEY = ["agent", "sessions"] as const;
 
-sessionStore.setState(() => readSession());
+tabsStore.setState(() => readTabs() ?? NO_TABS);
 
 export function useProjects() {
   return useQuery({ queryKey: PROJECTS_KEY, queryFn: projectsList });
@@ -24,21 +26,36 @@ export function useSessions() {
   return useQuery({ queryKey: SESSIONS_KEY, queryFn: agentSessions });
 }
 
-// Открытая сессия. Сессию, которой больше нет, окно не показывает.
-export function useSelectedSession() {
-  const selected = useSelector(sessionStore);
+// Открытый проект и его вкладки. Сессий, которых больше нет, вкладки не
+// показывают.
+export function useTabs() {
+  const tabs = useSelector(tabsStore);
   const sessions = useSessions();
 
-  if (sessions.data !== undefined && !sessions.data.some((session) => session.id === selected)) {
-    return null;
-  }
-
-  return selected;
+  return { project: tabs.project, ...visibleTabs(tabs, sessions.data ?? []) };
 }
 
-export function selectSession(session: string | null) {
-  sessionStore.setState(() => session);
-  writeSession(session);
+// Сессия активной вкладки. null: вкладок нет.
+export function useActiveSession() {
+  const { active } = useTabs();
+  const sessions = useSessions();
+
+  return sessions.data?.find((session) => session.id === active) ?? null;
+}
+
+function changeTabs(change: (tabs: Tabs) => Tabs) {
+  tabsStore.setState(change);
+  writeTabs(tabsStore.get());
+}
+
+// Сессия открывается вкладкой своего проекта, а окно переходит к вкладкам
+// этого проекта.
+export function openSession(session: Pick<SessionInfo, "id" | "project">) {
+  changeTabs((tabs) => openTab(tabs, session.project, session.id));
+}
+
+export function closeSession(session: Pick<SessionInfo, "id" | "project">) {
+  changeTabs((tabs) => closeTab(tabs, session.project, session.id));
 }
 
 export function useSearchOpen() {
@@ -53,7 +70,7 @@ export function closeSearch() {
   searchStore.setState(() => false);
 }
 
-// Новая сессия в проекте сразу открывается.
+// Новая сессия в проекте сразу открывается новой вкладкой.
 export function useNewSession() {
   const queryClient = useQueryClient();
 
@@ -61,7 +78,7 @@ export function useNewSession() {
     mutationFn: agentSessionNew,
     onSuccess: async (session) => {
       await queryClient.invalidateQueries({ queryKey: SESSIONS_KEY });
-      selectSession(session.id);
+      openSession(session);
     },
   });
 }
@@ -96,11 +113,13 @@ export function useRemoveProject() {
   });
 }
 
+// Удалённая сессия закрывает и свою вкладку.
 export function useDeleteSession() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: agentSessionDelete,
+    mutationFn: (session: SessionInfo) => agentSessionDelete(session.id),
+    onSuccess: (_, session) => closeSession(session),
     onSettled: () => queryClient.invalidateQueries({ queryKey: SESSIONS_KEY }),
   });
 }

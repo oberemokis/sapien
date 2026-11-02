@@ -5,6 +5,7 @@ use serde_json::{Value, json};
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::process::{Output, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, UNIX_EPOCH};
 use tokio::io::AsyncWriteExt;
 use tokio::process::{Child, Command};
@@ -183,8 +184,13 @@ impl Claude for ClaudeCode {
     /// хода. Через него идут вопросы агента и разрешения на вызовы. Сессия
     /// сохраняется: её продолжают следующим сообщением и в терминале.
     async fn converse(&self, run: &Run<'_>) -> Result<Talk, AppError> {
+        // Ходы разных сессий идут параллельно, поэтому сокет у каждого свой.
+        // Имя короткое: путь сокета unix не длиннее 104 байт.
+        static TURNS: AtomicU64 = AtomicU64::new(0);
+
         let failed = |_| AppError::unavailable("claude_failed");
-        let socket = self.data.join("claude.sock");
+        let turn = TURNS.fetch_add(1, Ordering::Relaxed);
+        let socket = self.data.join(format!("claude-{turn}.sock"));
         let listener = talk::listen(&socket)?;
         let bridge = std::env::current_exe().map_err(failed)?;
         let config = json!({
@@ -566,6 +572,15 @@ mod tests {
         fs::read_to_string(dir.path().join("home/.local/bin").join(name)).unwrap()
     }
 
+    /// Сокеты ходов в папке данных.
+    fn sockets(dir: &TempDir) -> Vec<PathBuf> {
+        fs::read_dir(dir.path().join("data"))
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .filter(|path| path.extension() == Some("sock".as_ref()))
+            .collect()
+    }
+
     fn real(path: &Path) -> String {
         path.canonicalize().unwrap().to_string_lossy().into_owned()
     }
@@ -684,15 +699,18 @@ echo '{"type":"result","subtype":"success","is_error":false}'"#;
             .lock()
             .unwrap_or_else(|error| error.into_inner());
         let (dir, claude) = fake(TALKING);
-        let socket = dir.path().join("data/claude.sock");
         let bin = dir.path().join("home/.local/bin");
         let project = dir.path().join("проект");
 
-        block_on(async {
+        let socket = block_on(async {
             let mut talk = claude
                 .converse(&run(&project, Oversight::Ask, Some("s0")))
                 .await
                 .unwrap();
+            let [socket] = &sockets(&dir)[..] else {
+                panic!("у хода нет своего сокета");
+            };
+            let socket = socket.clone();
 
             assert_eq!(
                 fs::metadata(&socket).unwrap().permissions().mode() & 0o777,
@@ -756,6 +774,8 @@ echo '{"type":"result","subtype":"success","is_error":false}'"#;
             );
             assert_eq!(talk.next().await, None);
             assert_eq!(talk.errors(), "журнал\n");
+
+            socket
         });
 
         // Сокет живёт только пока идёт ход.
@@ -817,6 +837,45 @@ echo '{"type":"result","subtype":"success","is_error":false}'"#;
 
         assert!(env.contains("CLAUDE_CODE_MCP_AUTO_BACKGROUND_MS=0"));
         assert!(!env.contains("ANTHROPIC_API_KEY"));
+    }
+
+    #[test]
+    fn параллельные_ходы_не_отнимают_друг_у_друга_сокет() {
+        use std::os::unix::net::UnixStream;
+
+        let _one = ONE_AT_A_TIME
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let (dir, claude) = fake(
+            r#"cat > /dev/null
+while true; do sleep 0.02; done"#,
+        );
+        let project = dir.path().join("проект");
+
+        block_on(async {
+            let first = claude
+                .converse(&run(&project, Oversight::Ask, None))
+                .await
+                .unwrap();
+            let second = claude
+                .converse(&run(&project, Oversight::Ask, None))
+                .await
+                .unwrap();
+
+            assert_eq!(sockets(&dir).len(), 2);
+
+            // Второй ход кончился, первый слушает свой сокет дальше.
+            drop(second);
+
+            let [socket] = &sockets(&dir)[..] else {
+                panic!("сокет первого хода пропал");
+            };
+
+            UnixStream::connect(socket).unwrap();
+            drop(first);
+        });
+
+        assert!(sockets(&dir).is_empty());
     }
 
     #[test]
