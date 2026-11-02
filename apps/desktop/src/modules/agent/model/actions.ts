@@ -1,5 +1,5 @@
 import { frontmatterValue, splitFrontmatter } from "@/core/markdown/frontmatter";
-import { hasModKey, isMac } from "@/core/ui/keys";
+import { hasModKey } from "@/core/ui/keys";
 
 // Действие это файл .md в папке действий приложения, общий для всех
 // проектов: имя файла это название, текст под шапкой это задание агенту,
@@ -56,7 +56,7 @@ const RESERVED = new Set([
 ]);
 
 // Сочетание из шапки в общем виде: «mod+shift+y» даёт «Mod+Shift+Y».
-// Без Mod (⌘ на macOS, Ctrl на остальных) сочетание мешало бы набору.
+// Без Mod (⌘) сочетание мешало бы набору.
 export function parseHotkey(raw: string) {
   const parts = raw.split("+").map((part) => part.trim());
   const key = (parts.pop() ?? "").toUpperCase();
@@ -84,18 +84,11 @@ export function hotkeyOf(event: Keys) {
   return ["Mod", event.altKey && "Alt", event.shiftKey && "Shift", key].filter(Boolean).join("+");
 }
 
-// Подпись сочетания: «⌥⇧⌘Y» на macOS, «Ctrl+Alt+Shift+Y» на остальных.
+// Подпись сочетания: «⌥⇧⌘Y».
 export function hotkeyLabel(hotkey: string) {
   const parts = hotkey.split("+");
-  const key = parts.at(-1);
-  const alt = parts.includes("Alt");
-  const shift = parts.includes("Shift");
 
-  if (isMac) {
-    return [alt && "⌥", shift && "⇧", "⌘", key].filter(Boolean).join("");
-  }
-
-  return ["Ctrl", alt && "Alt", shift && "Shift", key].filter(Boolean).join("+");
+  return [parts.includes("Alt") && "⌥", parts.includes("Shift") && "⇧", "⌘", parts.at(-1)].filter(Boolean).join("");
 }
 
 const DAYS = [

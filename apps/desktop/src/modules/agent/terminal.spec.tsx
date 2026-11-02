@@ -27,8 +27,7 @@ const SAPIEN: Project = { id: "p1", name: "sapien", path: "/Users/me/sapien", mi
 
 const DAY = 24 * 60 * 60 * 1000;
 
-// happy-dom представляется Linux, но тест не должен от этого зависеть.
-const MOD = /Mac/.test(navigator.userAgent) ? { metaKey: true } : { ctrlKey: true };
+const MOD = { metaKey: true };
 
 type File = { path: string; text: string };
 

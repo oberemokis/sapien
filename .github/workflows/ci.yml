@@ -1,4 +1,4 @@
-# Проверки пул-реквеста и ветки main. Сборка под системы и выпуск идут
+# Проверки пул-реквеста и ветки main. Сборка и выпуск идут
 # по тегу версии в release.yml.
 #
 # Работа одна, а не по работе на проверку: дорогая часть у всех трёх общая,
@@ -19,17 +19,12 @@ concurrency:
 jobs:
   checks:
     name: проверки
-    runs-on: ubuntu-latest
+    # Приложение только для macOS, и код под #[cfg(target_os = "macos")]
+    # проверяется только там.
+    runs-on: macos-latest
 
     steps:
       - uses: actions/checkout@v7
-
-      # cargo check собирает tauri, а он на Linux связывается с WebKitGTK.
-      # Список из https://tauri.app/start/prerequisites/
-      - run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev \
-            libssl-dev libayatana-appindicator3-dev librsvg2-dev
 
       - uses: dtolnay/rust-toolchain@stable
         with:
