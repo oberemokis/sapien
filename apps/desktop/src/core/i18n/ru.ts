@@ -489,10 +489,11 @@ export const ru = {
       youtrack_not_connected: "YouTrack не подключён. Подключите его в настройках, раздел «Интеграции».",
       youtrack_project_missing: "В YouTrack нет проекта с таким коротким именем, или у токена нет к нему доступа.",
       youtrack_issue_invalid: "Номер задачи не похож на номер YouTrack, например SAP-12.",
-      youtrack_rejected: "YouTrack не принял задачу. Проверьте название и описание.",
+      youtrack_rejected: "YouTrack отклонил запрос.",
       youtrack_missing: "В YouTrack нет такой задачи: её удалили, или у токена нет к ней доступа.",
       failed: "Не получилось, попробуйте ещё раз.",
     },
+    answer: "Ответ YouTrack: «{{detail}}».",
     draft: {
       title: "Задача YouTrack",
       draft: "Черновик задачи",

@@ -1,8 +1,8 @@
 use super::domain::{
-    ApiError, Checked, Draft, EpicChanges, FeedEvent, GraphNode, IssueDetail, IssueFacts,
+    ApiError, Checked, Draft, EpicChanges, FeedEvent, Field, GraphNode, IssueDetail, IssueFacts,
     IssueState, Person, Published, Sent, Similar, TaskGraph, YoutrackStatus, date_ms,
     epic_changes as domain_epic_changes, feed_events, field_command, graph_edges, link_command,
-    missing_fields, parse_host, parse_issue_id, project_assignees, search_words,
+    missing_fields, parse_host, parse_issue_id, project_assignees, required_values, search_words,
 };
 use super::ports::{HostPlace, Ledger, YoutrackApi};
 use crate::error::AppError;
@@ -141,6 +141,25 @@ async fn command(api: &impl YoutrackApi, host: &str, token: &str, id: &str, quer
         .is_ok()
 }
 
+/// Поля проекта: обязательность, значения по умолчанию и тип.
+async fn project_fields(
+    api: &impl YoutrackApi,
+    host: &str,
+    token: &str,
+    project: &str,
+) -> Result<Value, AppError> {
+    let query = [
+        (
+            "fields",
+            "field(name,fieldType(id)),canBeEmpty,defaultValues(name)",
+        ),
+        ("$top", "200"),
+    ];
+    let path = format!("/api/admin/projects/{project}/customFields");
+
+    json_of(&api.get(host, token, &path, &query).await?)
+}
+
 /// Обязательные поля проекта, которых нет в черновике.
 async fn missing_in(
     api: &impl YoutrackApi,
@@ -149,36 +168,36 @@ async fn missing_in(
     project: &str,
     draft: &Draft,
 ) -> Result<Vec<String>, AppError> {
-    let query = [
-        ("fields", "field(name),canBeEmpty,defaultValues(name)"),
-        ("$top", "200"),
-    ];
-    let path = format!("/api/admin/projects/{project}/customFields");
-    let fields = json_of(&api.get(host, token, &path, &query).await?)?;
+    let fields = project_fields(api, host, token, project).await?;
 
     Ok(missing_fields(&fields, draft))
 }
 
 /// Новая задача: проект по короткому имени, обязательные поля проекта,
-/// потом сама задача с названием и описанием. Номер новой задачи или
-/// обязательные поля, которых не хватило.
+/// потом сама задача с названием, описанием и обязательными полями:
+/// без них YouTrack её не создаёт. Номер новой задачи и поля черновика,
+/// поставленные при создании, или обязательные поля, которых не хватило.
 async fn create(
     api: &impl YoutrackApi,
     host: &str,
     token: &str,
     draft: &Draft,
-) -> Result<Result<String, Published>, AppError> {
+) -> Result<Result<(String, Vec<Field>), Published>, AppError> {
     let project = project_id(api, host, token, &draft.project).await?;
-    let missing = missing_in(api, host, token, &project, draft).await?;
+    let fields = project_fields(api, host, token, &project).await?;
+    let missing = missing_fields(&fields, draft);
 
     if !missing.is_empty() {
         return Ok(Err(Published::Missing { fields: missing }));
     }
 
+    let (preset, values): (Vec<Field>, Vec<Value>) =
+        required_values(&fields, draft).into_iter().unzip();
     let body = json!({
         "project": { "id": project },
         "summary": draft.summary,
         "description": draft.description,
+        "customFields": values,
     });
     let created = json_of(
         &api.post(
@@ -193,7 +212,7 @@ async fn create(
 
     created["idReadable"]
         .as_str()
-        .map(|id| Ok(id.to_owned()))
+        .map(|id| Ok((id.to_owned(), preset)))
         .ok_or(AppError::invalid("youtrack_not_youtrack"))
 }
 
@@ -246,6 +265,7 @@ async fn update(
 /// номер нужен заметке, чтобы повтор не создал вторую. Поле, которое
 /// не менялось с прошлой публикации, не отправляется: так правка
 /// исполнителя в YouTrack не перетирается старым значением из заметки.
+/// Обязательное поле, ушедшее при создании, тоже.
 pub async fn publish(
     api: &impl YoutrackApi,
     place: &impl HostPlace,
@@ -265,6 +285,7 @@ pub async fn publish(
         return Err(AppError::invalid("youtrack_issue_invalid"));
     }
 
+    let mut preset = vec![];
     let id = match id {
         Some(id) => {
             let id = parse_issue_id(id).ok_or(AppError::invalid("youtrack_issue_invalid"))?;
@@ -279,7 +300,10 @@ pub async fn publish(
             id.to_owned()
         }
         None => match create(api, &host, &token, draft).await? {
-            Ok(id) => id,
+            Ok((id, fields)) => {
+                preset = fields;
+                id
+            }
             Err(missing) => return Ok(missing),
         },
     };
@@ -288,11 +312,12 @@ pub async fn publish(
     let mut failed = vec![];
 
     for field in &draft.fields {
-        let unchanged = last
-            .as_ref()
-            .is_some_and(|sent| sent.fields.contains(field));
+        let already = preset.contains(field)
+            || last
+                .as_ref()
+                .is_some_and(|sent| sent.fields.contains(field));
 
-        if unchanged || command(api, &host, &token, &id, &field_command(field)).await {
+        if already || command(api, &host, &token, &id, &field_command(field)).await {
             applied.push(field.clone());
         } else {
             failed.push(field_command(field));
@@ -856,7 +881,7 @@ mod tests {
 
     impl YoutrackApi for FakeApi {
         async fn me(&self, _host: &str, token: &str) -> Result<String, ApiError> {
-            self.answer?;
+            self.answer.clone()?;
 
             if token != self.token {
                 return Err(ApiError::TokenRejected);
@@ -944,7 +969,11 @@ mod tests {
                 "/api/users/me" => json!({ "login": "ilya" }),
                 "/api/admin/projects/0-1/customFields" => json!([
                     { "field": { "name": "Priority" }, "canBeEmpty": false, "defaultValues": [{ "name": "Normal" }] },
-                    { "field": { "name": "Subsystem" }, "canBeEmpty": false, "defaultValues": [] },
+                    {
+                        "field": { "name": "Subsystem", "fieldType": { "id": "ownedField[1]" } },
+                        "canBeEmpty": false,
+                        "defaultValues": [],
+                    },
                     { "field": { "name": "Fix versions" }, "canBeEmpty": true },
                     {
                         "field": { "name": "Assignee" },
@@ -992,7 +1021,7 @@ mod tests {
                 let query = text("query");
 
                 if self.rejected.contains(&query.as_str()) {
-                    return Err(ApiError::Rejected);
+                    return Err(ApiError::Rejected(None));
                 }
 
                 self.commands.lock().unwrap().push(query);
@@ -1002,6 +1031,22 @@ mod tests {
             let mut issues = self.issues.lock().unwrap();
 
             if path == "/api/issues" {
+                // Как YouTrack: обязательное поле без значения по умолчанию
+                // проверяется при создании, до любых команд.
+                let subsystem =
+                    body["customFields"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .any(|field| {
+                            field["name"] == "Subsystem"
+                                && field["$type"] == "SingleOwnedIssueCustomField"
+                        });
+
+                if !subsystem {
+                    return Err(ApiError::Rejected(Some("Subsystem is required".into())));
+                }
+
                 let id = format!("SAP-{}", issues.len() + 1);
 
                 issues.insert(id.clone(), (text("summary"), text("description")));
@@ -1282,14 +1327,10 @@ mod tests {
                 "Письмо со ссылкой вместо пароля.".into()
             ))
         );
+        // Subsystem ушёл при создании: без него YouTrack задачу не создаёт.
         assert_eq!(
             board.commands(),
-            [
-                "Subsystem Backend",
-                "Priority Major",
-                "subtask of SAP-90",
-                "depends on SAP-91"
-            ]
+            ["Priority Major", "subtask of SAP-90", "depends on SAP-91"]
         );
     }
 

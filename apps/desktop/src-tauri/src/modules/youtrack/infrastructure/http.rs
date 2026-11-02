@@ -26,6 +26,23 @@ impl Default for Http {
     }
 }
 
+/// Знаков в объяснении отказа не больше этого: чужой ответ идёт в окно
+/// одной строкой.
+const REJECTION_LIMIT: usize = 300;
+
+/// Объяснение отказа из ответа YouTrack: `error_description`, а без него
+/// `error`. Ответ не JSON или без объяснения: объяснения нет.
+fn rejection(body: &str) -> Option<String> {
+    let body: Value = serde_json::from_str(body).ok()?;
+
+    ["error_description", "error"]
+        .into_iter()
+        .filter_map(|key| body[key].as_str())
+        .map(str::trim)
+        .find(|text| !text.is_empty())
+        .map(|text| text.chars().take(REJECTION_LIMIT).collect())
+}
+
 #[derive(Deserialize)]
 struct Me {
     login: String,
@@ -78,7 +95,9 @@ impl Http {
         }
 
         if status == StatusCode::BAD_REQUEST {
-            return Err(ApiError::Rejected);
+            let body = response.text().await.unwrap_or_default();
+
+            return Err(ApiError::Rejected(rejection(&body)));
         }
 
         if status == StatusCode::NOT_FOUND {
@@ -112,7 +131,7 @@ impl YoutrackApi for Http {
             .await
             // Неверный путь или отказ по адресу: API YouTrack там нет.
             .map_err(|error| match error {
-                ApiError::Rejected | ApiError::Missing => ApiError::NotYoutrack,
+                ApiError::Rejected(_) | ApiError::Missing => ApiError::NotYoutrack,
                 other => other,
             })?;
         let me: Me = serde_json::from_str(&body).map_err(|_| ApiError::NotYoutrack)?;
@@ -305,10 +324,40 @@ mod tests {
         );
 
         let (host, _) = serve("400 Bad Request", "application/json", "{}");
-        assert_eq!(post(&host), Err(ApiError::Rejected));
+        assert_eq!(post(&host), Err(ApiError::Rejected(None)));
 
         let (host, _) = serve("404 Not Found", "application/json", "{}");
         assert_eq!(post(&host), Err(ApiError::Missing));
+    }
+
+    #[test]
+    fn отказ_несёт_объяснение_youtrack() {
+        let post = |body: &str| {
+            let (host, _) = serve("400 Bad Request", "application/json", body);
+
+            block_on(Http::default().post(
+                &host,
+                "perm:токен",
+                "/api/issues",
+                &[],
+                &serde_json::json!({}),
+            ))
+        };
+        let long = format!(r#"{{"error_description":"{}"}}"#, "я".repeat(1000));
+
+        assert_eq!(
+            post(r#"{"error":"bad_request","error_description":" Type is required "}"#),
+            Err(ApiError::Rejected(Some("Type is required".into())))
+        );
+        assert_eq!(
+            post(r#"{"error":"Unknown value"}"#),
+            Err(ApiError::Rejected(Some("Unknown value".into())))
+        );
+        assert_eq!(post("<html></html>"), Err(ApiError::Rejected(None)));
+        assert_eq!(
+            post(&long),
+            Err(ApiError::Rejected(Some("я".repeat(REJECTION_LIMIT))))
+        );
     }
 
     #[test]

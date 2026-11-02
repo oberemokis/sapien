@@ -43,7 +43,12 @@ const DETAIL: IssueDetail = {
   comments: [{ author: "Пётр", text: "@ilya глянь макет", created: START - 3_600_000 }],
 };
 
-type Server = { status: "connected" | "broken" | "none"; events: FeedEvent[] };
+// refusal это отказ ленты, как AppError из error.rs.
+type Server = {
+  status: "connected" | "broken" | "none";
+  events: FeedEvent[];
+  refusal?: { kind: "invalid"; code: string; detail: string };
+};
 type Asked = { query: string; ids: string[]; since: number };
 
 // YouTrack за командами Rust: события ленты отдаёт те, что лежат в server
@@ -66,6 +71,10 @@ function fakeRust(server: Server) {
         return { kind: "none" };
       case "youtrack_feed":
         asked.push(args as Asked);
+
+        if (server.refusal !== undefined) {
+          throw server.refusal;
+        }
 
         return server.events;
       case "youtrack_issue_detail":
@@ -229,6 +238,20 @@ describe("входящие", () => {
       "/settings/integrations",
     );
     expect(asked).toEqual([]);
+  });
+
+  it("запрос, который YouTrack не понял, лента называет его объяснением", async () => {
+    fakeRust({
+      status: "connected",
+      events: [],
+      refusal: { kind: "invalid", code: "youtrack_rejected", detail: "Can't parse search query" },
+    });
+
+    launch();
+    const list = await openInbox();
+    const alert = await within(list).findByRole("alert");
+
+    expect(alert.textContent).toContain("YouTrack отклонил запрос. Ответ YouTrack: «Can't parse search query».");
   });
 
   it("без подключения пункта «Входящие» нет", async () => {

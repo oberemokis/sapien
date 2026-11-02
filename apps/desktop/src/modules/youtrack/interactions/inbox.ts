@@ -5,7 +5,7 @@ import { useOnline } from "@/core/network/online";
 import { readInbox, readTracked, writeInbox, writeTracked } from "../infrastructure/inbox.device";
 import { youtrackFeed, youtrackIssueDetail } from "../infrastructure/youtrack.api";
 import { DEFAULT_TRACKED, draftIds, FIRST_LOOK, keepRead, mergeEvents, unreadCount, type Inbox } from "../model/inbox";
-import { youtrackProblemOf } from "../model/youtrack";
+import { youtrackFailureOf } from "../model/youtrack";
 import { inboxStore, trackedStore } from "../store/inbox.store";
 import { useYoutrack } from "./connection";
 
@@ -93,9 +93,9 @@ export function useInbox(notes: { text: string }[]) {
   let problem = null;
 
   if (status?.kind === "broken") {
-    problem = youtrackProblemOf(status.code);
+    problem = youtrackFailureOf(status.code);
   } else if (feed.error !== null) {
-    problem = youtrackProblemOf(feed.error);
+    problem = youtrackFailureOf(feed.error);
   }
 
   return {

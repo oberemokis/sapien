@@ -6,6 +6,11 @@ use serde::Serialize;
 pub struct AppError {
     pub kind: ErrorKind,
     pub code: &'static str,
+    /// Объяснение отказа от чужого сервера, как он его дал. Перевести его
+    /// нельзя, а без него причину не найти: окно показывает его рядом
+    /// с текстом по коду.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
 }
 
 #[derive(Debug, PartialEq, Serialize)]
@@ -22,31 +27,27 @@ pub enum ErrorKind {
 }
 
 impl AppError {
-    pub fn invalid(code: &'static str) -> Self {
+    fn new(kind: ErrorKind, code: &'static str) -> Self {
         Self {
-            kind: ErrorKind::Invalid,
+            kind,
             code,
+            detail: None,
         }
+    }
+
+    pub fn invalid(code: &'static str) -> Self {
+        Self::new(ErrorKind::Invalid, code)
     }
 
     pub fn conflict(code: &'static str) -> Self {
-        Self {
-            kind: ErrorKind::Conflict,
-            code,
-        }
+        Self::new(ErrorKind::Conflict, code)
     }
 
     pub fn not_found(code: &'static str) -> Self {
-        Self {
-            kind: ErrorKind::NotFound,
-            code,
-        }
+        Self::new(ErrorKind::NotFound, code)
     }
 
     pub fn unavailable(code: &'static str) -> Self {
-        Self {
-            kind: ErrorKind::Unavailable,
-            code,
-        }
+        Self::new(ErrorKind::Unavailable, code)
     }
 }

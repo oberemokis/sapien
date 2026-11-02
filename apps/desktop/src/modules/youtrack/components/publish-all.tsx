@@ -13,8 +13,9 @@ import {
   type LinkedNote,
   type TaskDraft,
 } from "../model/draft";
-import { youtrackProblemOf } from "../model/youtrack";
+import { youtrackFailureOf } from "../model/youtrack";
 import { Alert, AlertAction } from "./alert";
+import { failureText } from "./failure-text";
 
 type Props = {
   path: string;
@@ -131,7 +132,7 @@ export function PublishAll({ path, draft, text, notes, ready, onWrite, onOpen }:
           failed.push(t("youtrack.draft.failed", { id: published.id, commands: published.failed.join("; ") }));
         }
       } catch (error) {
-        halt(t("youtrack.publishAll.problem", { title, problem: t(`youtrack.problems.${youtrackProblemOf(error)}`) }));
+        halt(t("youtrack.publishAll.problem", { title, problem: failureText(t, youtrackFailureOf(error)) }));
         return;
       }
     }
