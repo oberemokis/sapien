@@ -11,7 +11,7 @@ import type { MenuItem } from "@/core/ui/context-menu";
 import { Icon } from "@/core/ui/icon";
 import { MenuButton } from "@/core/ui/menu-button";
 import { useActionList, useRunAction } from "../interactions/actions";
-import { useChat, useOnline } from "../interactions/chat";
+import { draftOf, useChat, useOnline, writeDraft } from "../interactions/chat";
 import { useClaudeStatus } from "../interactions/claude";
 import { setAgentModel, useAgentModel } from "../interactions/model";
 import { hotkeyLabel, type Action } from "../model/actions";
@@ -224,7 +224,7 @@ export function AgentChat({ session, project }: Props) {
   const actions = useActionList();
   const runAction = useRunAction();
   const online = useOnline();
-  const [draft, setDraft] = useState("");
+  const [draft, keepDraft] = useState(() => draftOf(session.id));
   const [picked, setPicked] = useState(0);
   const fieldRef = useRef<HTMLTextAreaElement>(null);
   const logRef = useRef<HTMLDivElement>(null);
@@ -272,7 +272,7 @@ export function AgentChat({ session, project }: Props) {
 
   // Пока агент ждёт ответа, написанное уходит ответом на его вопрос.
   const answering = chat.open !== null;
-  const free = !chat.running && !chat.busy && blocked === null;
+  const free = !chat.running && blocked === null;
   const canSend = online && draft.trim() !== "" && (answering || free);
   const canRun = online && free;
   const slash = /^\/[^\n]*$/.test(draft);
@@ -284,6 +284,11 @@ export function AgentChat({ session, project }: Props) {
   }
 
   const active = Math.min(picked, Math.max(matches.length - 1, 0));
+
+  function setDraft(text: string) {
+    keepDraft(text);
+    writeDraft(session.id, text);
+  }
 
   function send() {
     if (!canSend) {
@@ -388,7 +393,6 @@ export function AgentChat({ session, project }: Props) {
       <div className="px-4">
         {!online && <Notice tone="warning">{t("agent.chat.offline")}</Notice>}
         {online && blocked}
-        {online && blocked === null && chat.busy && <Notice tone="warning">{t("agent.chat.busy")}</Notice>}
         {online && chat.problem !== null && (
           <Notice
             action={

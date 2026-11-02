@@ -1,76 +1,108 @@
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
-import { useState, type MouseEvent } from "react";
+import { useEffect, useState, type MouseEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/core/ui/button";
 import { ContextMenu, type MenuItem } from "@/core/ui/context-menu";
 import { Icon } from "@/core/ui/icon";
 import { IconButton } from "@/core/ui/icon-button";
 import { shortcutLabel } from "@/core/ui/keys";
-import { useRunningSession } from "../interactions/chat";
+import { useRunning } from "../interactions/chat";
 import {
   openSearch,
-  selectSession,
+  openSession,
   useAddProject,
   useDeleteSession,
   useNewSession,
   useProjects,
   useRemoveProject,
-  useSelectedSession,
   useSessions,
+  useTabs,
 } from "../interactions/sessions";
-import { sessionsOf, type Project } from "../model/sessions";
+import { agoOf, sessionsOf, type Project, type SessionInfo } from "../model/sessions";
 
-// Строка панели как строка дерева: 28 px, бледная, выбранная на заливке.
-const ROW =
-  "flex h-7 w-full min-w-0 items-center gap-2 rounded-md px-2 text-[13px]/4 text-text-muted outline-none transition-colors duration-120 hover:bg-overlay-hover hover:text-text-base focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-border-focus aria-[current=page]:bg-overlay-pressed aria-[current=page]:text-text-base [&_svg]:text-icon-muted";
+// Строка панели как строка дерева: 28 px, выбранная на заливке.
+const ROW_SHAPE =
+  "flex h-7 w-full min-w-0 items-center gap-2 rounded-md px-2 text-[13px]/4 outline-none transition-colors duration-120 hover:bg-overlay-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-border-focus aria-[current=page]:bg-overlay-pressed [&_svg]:text-icon-muted";
+
+// Разделы панели бледные, сессии ярче имени своего проекта.
+const ROW = `${ROW_SHAPE} text-text-muted hover:text-text-base aria-[current=page]:text-text-base`;
+const SESSION_ROW = `${ROW_SHAPE} text-text-base`;
 
 type Menu = { x: number; y: number; items: MenuItem[] };
 
 type ProjectProps = {
   project: Project;
+  // Текущее время: от него считается давность последней сессии.
+  now: number;
   onMenu: (event: MouseEvent, items: MenuItem[]) => void;
 };
 
-// Проект и его сессии, свежие сверху. «+» начинает новую сессию, правая
-// кнопка открывает меню проекта или сессии.
-function ProjectSessions({ project, onMenu }: ProjectProps) {
+// Текущее время раз в минуту: давность в списке не застывает, пока окно
+// открыто.
+function useMinuteClock() {
+  const [now, setNow] = useState(Date.now);
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 60_000);
+
+    return () => clearInterval(timer);
+  }, []);
+
+  return now;
+}
+
+// Проект и его сессии, свежие сверху. Над сессиями мелкая шапка: буква
+// и имя проекта, справа давность последней сессии. Сессия открывается
+// вкладкой своего проекта. Правая кнопка открывает меню проекта или сессии.
+function ProjectSessions({ project, now, onMenu }: ProjectProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const sessions = useSessions();
-  const selected = useSelectedSession();
-  const running = useRunningSession();
+  const tabs = useTabs();
+  const running = useRunning();
   const newSession = useNewSession();
   const remove = useRemoveProject();
   const deleteSession = useDeleteSession();
   const onChat = useRouterState({ select: (state) => state.location.pathname === "/" });
   const [removing, setRemoving] = useState(false);
   const list = sessionsOf(sessions.data ?? [], project.id);
+  const latest = list[0];
 
-  function create() {
-    newSession.mutate(project.id, { onSuccess: () => void navigate({ to: "/" }) });
-  }
-
-  function open(id: string) {
-    selectSession(id);
+  function open(session: SessionInfo) {
+    openSession(session);
     void navigate({ to: "/" });
   }
 
   const projectMenu: MenuItem[] = [
-    { label: t("agent.sessions.new"), disabled: project.missing, onSelect: create },
+    {
+      label: t("agent.sessions.new"),
+      disabled: project.missing,
+      onSelect: () => newSession.mutate(project.id, { onSuccess: () => void navigate({ to: "/" }) }),
+    },
     { label: t("agent.projects.remove"), separated: true, onSelect: () => setRemoving(true) },
   ];
 
+  let ago: string | null = null;
+
+  if (latest !== undefined) {
+    const { unit, count } = agoOf(latest.updated, now);
+
+    ago = t(`agent.projects.ago.${unit}`, { count });
+  }
+
   return (
     <li className="flex flex-col">
-      <div className="group flex h-7 items-center gap-1 pr-0.5" onContextMenu={(event) => onMenu(event, projectMenu)}>
-        <p title={project.path} className="flex min-w-0 flex-1 items-center gap-2 px-2 text-[13px]/4 font-medium">
-          <Icon icon="folder" className="shrink-0 text-icon-muted" />
-          <span className="truncate">{project.name}</span>
-          {project.missing && <span className="shrink-0 text-[12px] font-normal text-text-faint">{t("agent.projects.missing")}</span>}
-        </p>
-        {!project.missing && (
-          <IconButton icon="plus" label={t("agent.sessions.newIn", { project: project.name })} onClick={create} />
-        )}
+      <div
+        title={project.path}
+        className="flex h-6 items-center gap-2 px-2 text-[12px]/4 text-text-faint"
+        onContextMenu={(event) => onMenu(event, projectMenu)}
+      >
+        <span aria-hidden className="grid size-4 shrink-0 place-items-center rounded-[4px] bg-overlay-pressed text-[10px] font-medium text-text-muted uppercase">
+          {project.name.slice(0, 1)}
+        </span>
+        <span className="min-w-0 flex-1 truncate">{project.name}</span>
+        {project.missing && <span className="shrink-0">{t("agent.projects.missing")}</span>}
+        {ago !== null && <span className="shrink-0 tabular-nums">{ago}</span>}
       </div>
       {removing && (
         <div role="alert" className="mx-1 my-1 flex flex-col gap-2 rounded-md bg-bg-layer-01 p-2 text-[13px]/5 shadow-[inset_0_0_0_0.5px_var(--border-border-muted)]">
@@ -92,15 +124,15 @@ function ProjectSessions({ project, onMenu }: ProjectProps) {
           <li key={session.id}>
             <button
               type="button"
-              aria-current={(onChat && session.id === selected && "page") || undefined}
-              className={`${ROW} pl-7`}
-              onClick={() => open(session.id)}
+              aria-current={(onChat && session.project === tabs.project && session.id === tabs.active && "page") || undefined}
+              className={SESSION_ROW}
+              onClick={() => open(session)}
               onContextMenu={(event) =>
-                onMenu(event, [{ label: t("agent.sessions.delete"), onSelect: () => deleteSession.mutate(session.id) }])
+                onMenu(event, [{ label: t("agent.sessions.delete"), onSelect: () => deleteSession.mutate(session) }])
               }
             >
               <span className="min-w-0 flex-1 truncate text-left">{session.title || t("agent.sessions.untitled")}</span>
-              {session.id === running && (
+              {running(session.id) && (
                 <>
                   <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-bg-accent motion-safe:animate-pulse" />
                   <span className="sr-only">{t("agent.sessions.running")}</span>
@@ -122,6 +154,7 @@ export function SessionList({ deferred }: { deferred: string[] }) {
   const navigate = useNavigate();
   const projects = useProjects();
   const add = useAddProject();
+  const now = useMinuteClock();
   const [menu, setMenu] = useState<Menu | null>(null);
 
   function addProject() {
@@ -163,7 +196,7 @@ export function SessionList({ deferred }: { deferred: string[] }) {
         {projects.data?.length === 0 && <p className="p-2 text-[13px]/5 text-text-muted">{t("agent.projects.empty")}</p>}
         <ul className="flex flex-col gap-3">
           {projects.data?.map((project) => (
-            <ProjectSessions key={project.id} project={project} onMenu={openMenu} />
+            <ProjectSessions key={project.id} project={project} now={now} onMenu={openMenu} />
           ))}
         </ul>
       </nav>

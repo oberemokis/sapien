@@ -8,6 +8,7 @@ use super::ports::{Claude, Human};
 use super::use_case::{self, Turn};
 use crate::durable;
 use crate::error::AppError;
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use tauri::ipc::Channel;
@@ -112,39 +113,43 @@ impl Human for Live {
     }
 }
 
-/// Идущий ответ агента. Он один на приложение: Claude Code по подписке
-/// отвечает по одному, а «Стоп» и вопрос в окне относятся к одному ответу.
+/// Идущие ответы агента, не больше одного на сессию. Сессии в разных
+/// вкладках отвечают параллельно, а «Стоп» и вопрос в окне относятся
+/// к ответу своей сессии.
 #[derive(Default)]
-pub struct Running(Mutex<Option<Arc<Live>>>);
-
-/// Сессия, по которой идёт ответ.
-fn running_session(slot: &Option<Arc<Live>>) -> Option<&str> {
-    slot.as_ref().map(|live| live.session.as_str())
-}
+pub struct Running(Mutex<BTreeMap<String, Arc<Live>>>);
 
 impl Running {
-    fn slot(&self) -> MutexGuard<'_, Option<Arc<Live>>> {
+    fn lives(&self) -> MutexGuard<'_, BTreeMap<String, Arc<Live>>> {
         lock(&self.0)
     }
 
-    /// Занимает место, пока жив `Busy`. Занято, значит, `agent_busy`.
-    fn claim(&self, live: Arc<Live>) -> Result<Busy<'_>, AppError> {
-        let mut slot = self.slot();
+    /// Сессии, по которым идёт ответ, по порядку.
+    fn sessions(&self) -> Vec<String> {
+        self.lives().keys().cloned().collect()
+    }
 
-        if slot.is_some() {
+    /// Занимает сессию ответа, пока жив `Busy`. По ней уже идёт ответ,
+    /// значит, `agent_busy`.
+    fn claim(&self, live: Arc<Live>) -> Result<Busy<'_>, AppError> {
+        let mut lives = self.lives();
+
+        if lives.contains_key(&live.session) {
             return Err(AppError::conflict("agent_busy"));
         }
 
-        *slot = Some(live);
-        Ok(Busy(self))
+        let session = live.session.clone();
+
+        lives.insert(session.clone(), live);
+        Ok(Busy(self, session))
     }
 
-    /// Окно открылось заново: события идущего ответа теперь идут в `sink`,
-    /// открытый вопрос показывается снова. Ответа нет, значит, `None`,
-    /// а иначе то, чем дождаться его конца.
-    fn attach(&self, sink: Sink) -> Option<watch::Receiver<bool>> {
-        let slot = self.slot();
-        let live = slot.as_ref()?;
+    /// Окно открылось заново: события ответа сессии `session` теперь идут
+    /// в `sink`, открытый вопрос показывается снова. Ответа нет, значит,
+    /// `None`, а иначе то, чем дождаться его конца.
+    fn attach(&self, session: &str, sink: Sink) -> Option<watch::Receiver<bool>> {
+        let lives = self.lives();
+        let live = lives.get(session)?;
 
         if let Some(open) = &*lock(&live.open) {
             sink(Event::Asked {
@@ -156,12 +161,13 @@ impl Running {
         Some(live.ended.subscribe())
     }
 
-    /// Ответ человека на открытый вопрос `id`. Вопрос уже закрыт ответом,
-    /// сроком или «Стопом», значит, `agent_question_closed`.
-    fn answer(&self, id: &str, answer: Answer) -> Result<(), AppError> {
+    /// Ответ человека на открытый вопрос `id` в сессии `session`. Вопрос
+    /// уже закрыт ответом, сроком или «Стопом», значит,
+    /// `agent_question_closed`.
+    fn answer(&self, session: &str, id: &str, answer: Answer) -> Result<(), AppError> {
         let open = self
-            .slot()
-            .as_ref()
+            .lives()
+            .get(session)
             .and_then(|live| lock(&live.open).take_if(|open| open.question.id() == id))
             .ok_or(AppError::conflict("agent_question_closed"))?;
 
@@ -169,15 +175,21 @@ impl Running {
         let _ = open.reply.send(answer);
         Ok(())
     }
+
+    fn stop(&self, session: &str) {
+        if let Some(live) = self.lives().get(session) {
+            live.stop.notify_one();
+        }
+    }
 }
 
-/// Освобождает место ответа, как бы он ни кончился, и отпускает окна,
+/// Освобождает сессию ответа, как бы он ни кончился, и отпускает окна,
 /// которые ждут его конца.
-struct Busy<'a>(&'a Running);
+struct Busy<'a>(&'a Running, String);
 
 impl Drop for Busy<'_> {
     fn drop(&mut self) {
-        if let Some(live) = self.0.slot().take() {
+        if let Some(live) = self.0.lives().remove(&self.1) {
             live.ended.send_replace(true);
         }
     }
@@ -200,27 +212,31 @@ pub fn agent_session_new(app: AppHandle, project: String) -> Result<SessionInfo,
     )
 }
 
-/// Пока сессия стирается, место ответа держится: ответ по ней не начнётся
-/// посреди удаления и не запишет её заново.
+/// Пока сессия стирается, новые ответы не начинаются: ответ по ней
+/// не начнётся посреди удаления и не запишет её заново.
 #[tauri::command]
 pub fn agent_session_delete(
     app: AppHandle,
     running: State<'_, Running>,
     id: String,
 ) -> Result<(), AppError> {
-    let slot = running.slot();
+    let lives = running.lives();
 
-    use_case::delete_session(&sessions(&app)?, running_session(&slot), &id)
+    use_case::delete_session(&sessions(&app)?, |session| lives.contains_key(session), &id)
 }
 
 /// Дверь для модуля projects: стирает сессии проекта, который убирают
-/// из списка. По одной из них идёт ответ, значит, `agent_busy`, и не
-/// стирается ни одна.
+/// из списка. Хоть по одной из них идёт ответ, значит, `agent_busy`,
+/// и не стирается ни одна.
 pub fn forget_project<R: Runtime>(app: &AppHandle<R>, project: &str) -> Result<(), AppError> {
     let running = app.state::<Running>();
-    let slot = running.slot();
+    let lives = running.lives();
 
-    use_case::forget_project(&sessions(app)?, running_session(&slot), project)
+    use_case::forget_project(
+        &sessions(app)?,
+        |session| lives.contains_key(session),
+        project,
+    )
 }
 
 #[tauri::command]
@@ -246,7 +262,7 @@ pub async fn agent_send(
     }
 
     let live = Arc::new(Live::new(session.clone(), sink(on_event)));
-    // Место занимается до чтения сессии: удаление сессии или проекта,
+    // Сессия занимается до чтения: удаление сессии или проекта,
     // которое уже идёт, ответ дожидается, и удалённая сессия остаётся
     // удалённой.
     let _busy = running.claim(live.clone())?;
@@ -271,37 +287,41 @@ pub async fn agent_send(
     .await
 }
 
-/// Сессия, по которой сейчас идёт ответ. Ответа нет, значит, `None`.
+/// Сессии, по которым сейчас идёт ответ, по порядку.
 #[tauri::command]
-pub fn agent_running(running: State<'_, Running>) -> Option<String> {
-    running_session(&running.slot()).map(str::to_owned)
+pub fn agent_running(running: State<'_, Running>) -> Vec<String> {
+    running.sessions()
 }
 
-/// Окно открылось заново, например после перезагрузки: события идущего
-/// ответа идут в новый канал, открытый вопрос виден снова. Кончается вместе
-/// с ответом. `true`, если ответ шёл и окну пора перечитать историю.
+/// Окно открылось заново, например после перезагрузки: события ответа
+/// сессии `session` идут в новый канал, открытый вопрос виден снова.
+/// Кончается вместе с ответом. `true`, если ответ шёл и окну пора
+/// перечитать историю.
 #[tauri::command]
 pub async fn agent_attach(
     running: State<'_, Running>,
+    session: String,
     on_event: Channel<Event>,
 ) -> Result<bool, AppError> {
-    let Some(mut ended) = running.attach(sink(on_event)) else {
+    let Some(mut ended) = running.attach(&session, sink(on_event)) else {
         return Ok(false);
     };
 
-    // Ошибка значит, что ответ уже кончился и место освободили.
+    // Ошибка значит, что ответ уже кончился и сессию освободили.
     let _ = ended.wait_for(|ended| *ended).await;
     Ok(true)
 }
 
-/// Ответ человека на вопрос агента или на просьбу разрешить вызов.
+/// Ответ человека на вопрос агента или на просьбу разрешить вызов
+/// в сессии `session`.
 #[tauri::command]
 pub fn agent_answer(
     running: State<'_, Running>,
+    session: String,
     id: String,
     answer: Answer,
 ) -> Result<(), AppError> {
-    running.answer(&id, answer)
+    running.answer(&session, &id, answer)
 }
 
 /// Есть ли Claude Code, какой версии и как выполнен вход.
@@ -314,11 +334,10 @@ pub async fn agent_claude_status(app: AppHandle) -> Result<ClaudeStatus, AppErro
     Ok(claude(&app)?.status().await)
 }
 
+/// Останавливает ответ сессии `session`, ответы других сессий идут дальше.
 #[tauri::command]
-pub fn agent_stop(running: State<'_, Running>) {
-    if let Some(live) = &*running.slot() {
-        live.stop.notify_one();
-    }
+pub fn agent_stop(running: State<'_, Running>, session: String) {
+    running.stop(&session);
 }
 
 #[cfg(test)]
@@ -341,27 +360,32 @@ mod tests {
     }
 
     #[test]
-    fn окно_открытое_заново_видит_вопрос_ответ_и_конец_ответа() {
+    fn ответы_двух_сессий_идут_параллельно_и_не_мешают_друг_другу() {
         let running = Running::default();
+        let closed = Err(AppError::conflict("agent_question_closed"));
         let (old, first) = window();
-        let live = Arc::new(Live::new("s1".into(), first));
-        let busy = running.claim(live.clone()).unwrap();
+        let one = Arc::new(Live::new("s1".into(), first));
+        let (beside, second) = window();
+        let two = Arc::new(Live::new("s2".into(), second));
+        let busy_one = running.claim(one.clone()).unwrap();
+        let busy_two = running.claim(two.clone()).unwrap();
         let question = Question::Permission {
             id: "toolu_1".into(),
             tool: "Bash".into(),
             target: "cargo test".into(),
         };
 
-        assert_eq!(running_session(&running.slot()), Some("s1"));
+        assert_eq!(running.sessions(), ["s1", "s2"]);
+        // Второй ответ в той же сессии не начинается.
         assert_eq!(
             running
-                .claim(Arc::new(Live::new("s2".into(), window().1)))
+                .claim(Arc::new(Live::new("s1".into(), window().1)))
                 .err(),
             Some(AppError::conflict("agent_busy"))
         );
 
         let (answer, new, mut ended) = block_on(async {
-            let mut asked = pin!(live.ask(&question));
+            let mut asked = pin!(one.ask(&question));
 
             // Вопрос открылся: агент ждёт ответа.
             std::future::poll_fn(|context| {
@@ -370,31 +394,47 @@ mod tests {
             })
             .await;
 
-            let (new, second) = window();
-            let ended = running.attach(second).unwrap();
+            // Окно s1 открылось заново.
+            let (new, again) = window();
+            let ended = running.attach("s1", again).unwrap();
 
-            assert_eq!(
-                running.answer("toolu_2", Answer::Allow),
-                Err(AppError::conflict("agent_question_closed"))
-            );
-            running.answer("toolu_1", Answer::Allow).unwrap();
+            // Вопрос открыт в s1, а не в s2.
+            assert_eq!(running.answer("s2", "toolu_1", Answer::Allow), closed);
+            assert_eq!(running.answer("s1", "toolu_2", Answer::Allow), closed);
+            running.answer("s1", "toolu_1", Answer::Allow).unwrap();
 
             (asked.await, new, ended)
         });
 
         assert_eq!(answer, Some(Answer::Allow));
-        assert_eq!(
-            running.answer("toolu_1", Answer::Deny),
-            Err(AppError::conflict("agent_question_closed"))
-        );
+        assert_eq!(running.answer("s1", "toolu_1", Answer::Deny), closed);
 
-        live.emit(text("дальше"));
+        one.emit(text("дальше"));
+        two.emit(text("рядом"));
         assert!(lock(&old).is_empty());
         assert_eq!(*lock(&new), [Event::Asked { question }, text("дальше")]);
+        assert_eq!(*lock(&beside), [text("рядом")]);
 
-        drop(busy);
+        // «Стоп» в s2 не трогает ответ s1.
+        running.stop("s2");
+
+        let mut one_stopped = pin!(one.stop.notified());
+        let mut two_stopped = pin!(two.stop.notified());
+
+        block_on(std::future::poll_fn(|context| {
+            assert!(one_stopped.as_mut().poll(context).is_pending());
+            assert!(two_stopped.as_mut().poll(context).is_ready());
+            Poll::Ready(())
+        }));
+
+        // Ответ s1 кончился, ответ s2 идёт дальше.
+        drop(busy_one);
         assert!(*ended.borrow_and_update());
-        assert!(running.attach(window().1).is_none());
-        assert_eq!(running_session(&running.slot()), None);
+        assert!(running.attach("s1", window().1).is_none());
+        assert_eq!(running.sessions(), ["s2"]);
+        assert!(!*two.ended.borrow());
+
+        drop(busy_two);
+        assert!(running.sessions().is_empty());
     }
 }

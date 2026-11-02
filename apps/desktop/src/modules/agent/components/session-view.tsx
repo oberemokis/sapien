@@ -1,19 +1,21 @@
 import { useTranslation } from "react-i18next";
 import { Button } from "@/core/ui/button";
 import { Icon } from "@/core/ui/icon";
-import { useAddProject, useNewSession, useProjects, useSelectedSession, useSessions } from "../interactions/sessions";
+import { useActiveSession, useAddProject, useNewSession, useProjects, useSessions, useTabs } from "../interactions/sessions";
 import { homeProject } from "../model/sessions";
 import { AgentChat } from "./agent-chat";
 
-// Без открытой сессии: первый шаг, добавить папку проекта, или новая
-// сессия в последнем проекте.
+// Без открытых вкладок: первый шаг, добавить папку проекта, или новая
+// сессия в открытом проекте, а без него в последнем.
 function Welcome() {
   const { t } = useTranslation();
   const projects = useProjects();
   const sessions = useSessions();
+  const tabs = useTabs();
   const add = useAddProject();
   const newSession = useNewSession();
-  const project = homeProject(projects.data ?? [], sessions.data ?? [], null);
+  const current = projects.data?.find((project) => project.id === tabs.project && !project.missing);
+  const project = current?.id ?? homeProject(projects.data ?? [], sessions.data ?? [], null);
 
   if (projects.data === undefined) {
     return null;
@@ -50,15 +52,13 @@ function Welcome() {
   );
 }
 
-// Середина главного экрана: чат открытой сессии. Свой чат у каждой
+// Середина главного экрана: чат активной вкладки. Свой чат у каждой
 // сессии: недописанное сообщение не переезжает в другую.
 export function SessionView() {
-  const selected = useSelectedSession();
-  const sessions = useSessions();
+  const session = useActiveSession();
   const projects = useProjects();
-  const session = sessions.data?.find((candidate) => candidate.id === selected);
 
-  if (session === undefined) {
+  if (session === null) {
     return <Welcome />;
   }
 

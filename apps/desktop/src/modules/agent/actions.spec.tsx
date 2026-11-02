@@ -15,7 +15,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ActionsView, SessionList, SessionView, useActionTriggers } from "@/modules/agent";
 import type { Oversight } from "./model/chat";
 import type { Project, SessionInfo } from "./model/sessions";
-import { chatStore, sessionStore } from "./store/chat.store";
+import { NO_TABS } from "./model/tabs";
+import { chatStore, draftStore, tabsStore } from "./store/chat.store";
 
 type Sent = { session: string; model: string; text: string; oversight: Oversight };
 type File = { path: string; text: string };
@@ -217,8 +218,9 @@ afterEach(() => {
   cleanup();
   clearMocks();
   vi.restoreAllMocks();
-  chatStore.setState(() => ({ session: null, live: null, problem: null, open: null, askEdits: true }));
-  sessionStore.setState(() => null);
+  chatStore.setState(() => ({ runs: {}, problems: {}, askEdits: true }));
+  tabsStore.setState(() => NO_TABS);
+  draftStore.setState(() => ({}));
 });
 
 describe("действия в чате", () => {
@@ -346,11 +348,11 @@ describe("действия по расписанию", () => {
       oversight: "away",
     });
     // Экран за действием не переключается.
-    expect(screen.getByRole("heading", { name: "Выберите сессию" })).toBeDefined();
+    expect(screen.getByRole("heading", { name: "Нет открытых вкладок" })).toBeDefined();
 
     cleanup();
     open();
-    await screen.findByRole("heading", { name: "Выберите сессию" });
+    await screen.findByRole("heading", { name: "Нет открытых вкладок" });
     await settle();
     expect(rust.sent).toHaveLength(1);
   });
