@@ -100,7 +100,7 @@ describe("блокировка окна", () => {
     idle(60 * 60_000);
 
     expect(lockScreen()).toBeNull();
-    expect(screen.getByRole("checkbox", { name: "Блокировать окно" })).toHaveProperty("checked", false);
+    expect(screen.getByRole("switch", { name: "Блокировать окно" })).toHaveProperty("checked", false);
   });
 
   it("включается только после проверки системы и переживает перезапуск", async () => {
@@ -108,7 +108,7 @@ describe("блокировка окна", () => {
 
     onSystem("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)");
     launch();
-    const toggle = await screen.findByRole("checkbox", { name: "Блокировать окно" });
+    const toggle = await screen.findByRole("switch", { name: "Блокировать окно" });
 
     fireEvent.click(toggle);
     await waitFor(() => expect(rust.checks).toBe(1));
@@ -125,7 +125,7 @@ describe("блокировка окна", () => {
 
     onSystem("Mozilla/5.0 (X11; Linux x86_64)");
     launch();
-    const toggle = await screen.findByRole("checkbox", { name: "Блокировать окно" });
+    const toggle = await screen.findByRole("switch", { name: "Блокировать окно" });
 
     fireEvent.click(toggle);
     expect(await screen.findByText("Проверка не прошла, блокировка не включена.")).toBeTruthy();
@@ -140,8 +140,8 @@ describe("блокировка окна", () => {
     fakeRust(["verified"]);
     storeLock(false, 5);
     launch();
-    fireEvent.click(await screen.findByRole("checkbox", { name: "Блокировать окно" }));
-    await waitFor(() => expect(screen.getByRole("checkbox", { name: "Блокировать окно" })).toHaveProperty("checked", true));
+    fireEvent.click(await screen.findByRole("switch", { name: "Блокировать окно" }));
+    await waitFor(() => expect(screen.getByRole("switch", { name: "Блокировать окно" })).toHaveProperty("checked", true));
 
     idle(4 * 60_000);
     fireEvent.pointerMove(window);
@@ -155,8 +155,8 @@ describe("блокировка окна", () => {
   it("таймеры свёрнутого окна стояли: первый щелчок после перерыва закрывает окно и до страницы не доходит", async () => {
     fakeRust(["verified"]);
     launch();
-    fireEvent.click(await screen.findByRole("checkbox", { name: "Блокировать окно" }));
-    await waitFor(() => expect(screen.getByRole("checkbox", { name: "Блокировать окно" })).toHaveProperty("checked", true));
+    fireEvent.click(await screen.findByRole("switch", { name: "Блокировать окно" }));
+    await waitFor(() => expect(screen.getByRole("switch", { name: "Блокировать окно" })).toHaveProperty("checked", true));
     const page = vi.fn();
     document.body.addEventListener("pointerdown", page);
 

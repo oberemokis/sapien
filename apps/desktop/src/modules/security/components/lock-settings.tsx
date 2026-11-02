@@ -1,6 +1,5 @@
 import { useTranslation } from "react-i18next";
-import { Segmented } from "@/core/ui/segmented";
-import { SettingsGroup, SettingsRow, SettingsSection } from "@/core/ui/settings";
+import { SettingsGroup, SettingsRow, SettingsSection, SettingsSelect, SWITCH } from "@/core/ui/settings";
 import { setLockMinutes, useLockSettings, useLockToggle } from "../interactions/lock";
 import { LOCK_MINUTES, systemOf } from "../model/lock";
 
@@ -27,15 +26,17 @@ export function LockSettings() {
         <SettingsRow title={t("security.lock.enabled.title")} description={description}>
           <input
             type="checkbox"
+            role="switch"
+            aria-checked={settings.enabled}
             aria-label={t("security.lock.enabled.title")}
-            className="accent-bg-accent"
+            className={SWITCH}
             checked={settings.enabled}
             disabled={checking}
             onChange={(event) => toggle(event.target.checked)}
           />
         </SettingsRow>
         <SettingsRow title={t("security.lock.minutes.title")} description={t("security.lock.minutes.description")}>
-          <Segmented
+          <SettingsSelect
             label={t("security.lock.minutes.title")}
             value={String(settings.minutes)}
             options={LOCK_MINUTES.map((minutes) => ({

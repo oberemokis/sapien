@@ -1,7 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { Button } from "@/core/ui/button";
-import { Segmented } from "@/core/ui/segmented";
-import { SettingsGroup, SettingsRow, SettingsSection } from "@/core/ui/settings";
+import { SettingsGroup, SettingsRow, SettingsSection, SettingsSelect } from "@/core/ui/settings";
 import { useClaudeStatus } from "../interactions/claude";
 import { setAgentModel, useAgentModel } from "../interactions/model";
 import { AGENT_MODELS, MODEL_NAMES } from "../model/chat";
@@ -36,7 +35,7 @@ export function AgentSettings() {
           </Button>
         </SettingsRow>
         <SettingsRow title={t("agent.settings.model")} description={t("agent.settings.modelHint")}>
-          <Segmented
+          <SettingsSelect
             label={t("agent.settings.model")}
             value={model}
             options={AGENT_MODELS.map((value) => ({ value, label: MODEL_NAMES[value] }))}

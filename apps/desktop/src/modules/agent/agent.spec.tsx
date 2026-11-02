@@ -33,8 +33,12 @@ function open() {
   );
 }
 
-function radio(name: string) {
-  return screen.getByRole<HTMLInputElement>("radio", { name });
+function model(name: string) {
+  return screen.getByRole<HTMLOptionElement>("option", { name });
+}
+
+function chooseModel(name: string) {
+  fireEvent.change(screen.getByRole("combobox", { name: "Модель" }), { target: { value: model(name).value } });
 }
 
 afterEach(() => {
@@ -74,13 +78,13 @@ describe("раздел «Агент»", () => {
     fakeRust(READY);
     const view = open();
     await screen.findByText(/Вход по подписке/);
-    expect(radio("Sonnet 5.5").checked).toBe(true);
+    expect(model("Sonnet 5.5").selected).toBe(true);
 
-    fireEvent.click(radio("Opus 5.5"));
+    chooseModel("Opus 5.5");
     view.unmount();
     open();
 
-    expect(radio("Opus 5.5").checked).toBe(true);
-    expect(radio("Sonnet 5.5").checked).toBe(false);
+    expect(model("Opus 5.5").selected).toBe(true);
+    expect(model("Sonnet 5.5").selected).toBe(false);
   });
 });

@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider, createMemoryHistory, createRouter } from "@tanstack/react-router";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { restoreTheme, useThemeSync } from "@/modules/appearance";
 import { restoreLayout } from "@/modules/layout";
@@ -41,6 +41,12 @@ function isLight() {
   return document.documentElement.classList.contains("theme-light");
 }
 
+function sections() {
+  return within(screen.getByRole("navigation", { name: "Разделы настроек" }))
+    .queryAllByRole("link")
+    .map((link) => link.textContent);
+}
+
 describe("настройки", () => {
   beforeEach(() => {
     // Проектов и сессий нет: эти тесты не про них.
@@ -62,8 +68,8 @@ describe("настройки", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Скрыть боковую панель" }));
 
     fireEvent.keyDown(window, { key: "б", code: "Comma", ...mod });
-    expect(await screen.findByRole("heading", { name: "Внешний вид" })).toBeDefined();
-    expect(screen.getByText("Настройки").closest("[data-title-bar]")).not.toBeNull();
+    expect(await screen.findByRole("heading", { name: "Агент" })).toBeDefined();
+    expect(screen.queryByRole("button", { name: "Показать боковую панель" })).toBeNull();
 
     fireEvent.keyDown(window, { key: "Escape" });
     expect(await screen.findByRole("button", { name: "Показать боковую панель" })).toBeDefined();
@@ -72,12 +78,13 @@ describe("настройки", () => {
   it("тема меняется сразу, без сохранения, и переживает перезапуск", async () => {
     const { unmount } = launch("/");
     fireEvent.click(await screen.findByRole("button", { name: "Настройки" }));
+    fireEvent.click(await screen.findByRole("link", { name: "Внешний вид" }));
 
     fireEvent.click(await screen.findByRole("radio", { name: "Светлая" }));
     expect(isLight()).toBe(true);
 
     unmount();
-    relaunch("/settings");
+    relaunch("/settings/appearance");
     expect(isLight()).toBe(true);
     expect((await screen.findByRole<HTMLInputElement>("radio", { name: "Светлая" })).checked).toBe(true);
   });
@@ -90,17 +97,23 @@ describe("настройки", () => {
     expect(await screen.findByRole("button", { name: "Настройки" })).toBeDefined();
   });
 
-  it("Escape при выехавшем списке разделов прячет список и оставляет настройки", async () => {
+  it("поиск оставляет разделы со словом, Escape сначала стирает запрос и оставляет настройки", async () => {
     launch("/settings");
-    fireEvent.click(await screen.findByRole("button", { name: "Скрыть боковую панель" }));
-    fireEvent.pointerMove(document.body, { clientX: 2, clientY: 300 });
-    expect(screen.getByRole("link", { name: "Внешний вид" }).closest("[inert]")).toBeNull();
+    const search = await screen.findByRole<HTMLInputElement>("searchbox", { name: "Поиск" });
 
-    fireEvent.keyDown(document.body, { key: "Escape" });
+    fireEvent.change(search, { target: { value: "тема" } });
+    expect(sections()).toEqual(["Внешний вид"]);
+
+    fireEvent.change(search, { target: { value: "погода" } });
+    expect(sections()).toEqual([]);
+    expect(screen.getByText("Ничего не нашлось")).toBeDefined();
+
+    fireEvent.keyDown(search, { key: "Escape" });
     // Переход роутера асинхронный: без паузы ушедший экран ещё на месте.
     await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
 
-    expect(screen.getByRole("link", { name: "Внешний вид" }).closest("[inert]")).not.toBeNull();
-    expect(screen.getByRole("heading", { name: "Внешний вид" })).toBeDefined();
+    expect(search.value).toBe("");
+    expect(sections()).toEqual(["Агент", "Интеграции", "Внешний вид", "Безопасность"]);
+    expect(screen.getByRole("heading", { name: "Агент" })).toBeDefined();
   });
 });

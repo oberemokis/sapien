@@ -44,6 +44,21 @@ function ForgeGroup({ forge, status }: { forge: Forge; status: ForgeStatus | und
 
   return (
     <SettingsGroup title={name} description={t(`forge.${forge}.description`)}>
+      {/* Адрес своей строкой: в строке подключения два поля сжимали
+          пояснение в узкий столбик. */}
+      {forge === "gitlab" && status?.kind !== "connected" && (
+        <SettingsRow title={t("forge.host")} description={t("forge.hostHint")}>
+          <input
+            aria-label={t("forge.host")}
+            placeholder="gitlab.com"
+            value={host}
+            autoComplete="off"
+            spellCheck={false}
+            className={`${FIELD} w-56`}
+            onChange={(event) => setHost(event.target.value)}
+          />
+        </SettingsRow>
+      )}
       <SettingsRow title={t("forge.connection")} description={description}>
         {status?.kind === "connected" ? (
           <Button
@@ -57,17 +72,6 @@ function ForgeGroup({ forge, status }: { forge: Forge; status: ForgeStatus | und
           </Button>
         ) : (
           <>
-            {forge === "gitlab" && (
-              <input
-                aria-label={t("forge.host")}
-                placeholder="gitlab.com"
-                value={host}
-                autoComplete="off"
-                spellCheck={false}
-                className={`${FIELD} w-40`}
-                onChange={(event) => setHost(event.target.value)}
-              />
-            )}
             <input
               type="password"
               aria-label={t("forge.token", { name })}
