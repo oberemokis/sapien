@@ -6,8 +6,11 @@ export const GUTTER = 8;
 // Край карточки рисует тень-кольцо, места она не занимает.
 export const FRAME_WIDTH = 2 * GUTTER;
 
-// Место под кнопки окна macOS в верхней полосе, как у MonoCode.
-export const WINDOW_BUTTONS_WIDTH = 78;
+// Место под кнопки окна macOS в верхней полосе. trafficLightPosition
+// в tauri.conf.json ставит кружки (12px, через 8px) на середину полосы
+// высотой 40px: сверху, слева и справа от них по 14px. Кнопка в рамке
+// 14×16 стоит на x + 1 по горизонтали и на y + 2 серединой по вертикали.
+export const WINDOW_BUTTONS_WIDTH = 80;
 
 export const EDITOR_MIN_WIDTH = 360;
 
