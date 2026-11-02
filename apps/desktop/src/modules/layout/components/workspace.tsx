@@ -136,8 +136,16 @@ export function Workspace({ files, main, chat, title, actions, footer }: Props) 
           )}
         </div>
       </div>
-      {/* Кнопки полосы стоят на одной линии со строками боковой панели. */}
-      {footer !== undefined && <footer className="flex h-8 shrink-0 select-none items-center px-3">{footer}</footer>}
+      {/* Нижняя полоса начинается под карточкой, как вкладки над ней:
+          боковая панель над полосой своё место оставляет пустым. */}
+      {footer !== undefined && (
+        <footer
+          className="flex h-8 shrink-0 select-none items-center"
+          style={{ paddingLeft: GUTTER + (layout.files.visible ? layout.files.width : 0) }}
+        >
+          <div className="flex min-w-0 flex-1 items-center px-1.5">{footer}</div>
+        </footer>
+      )}
       {!layout.files.visible && <FilesPeek width={layout.files.width}>{files}</FilesPeek>}
     </div>
   );
