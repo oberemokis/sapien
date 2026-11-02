@@ -4,13 +4,15 @@ export type Project = { id: string; name: string; path: string; missing: boolean
 
 // Сессия это разговор с агентом в папке проекта, как SessionInfo в Rust.
 // title пустой, пока человек ничего не написал. updated в миллисекундах.
-// answering: агент сейчас отвечает в ней.
+// answering: агент сейчас отвечает в ней. stalled: действие по расписанию
+// запустило Claude Code, а задание не ушло, он ждёт человека.
 export type SessionInfo = {
   id: string;
   project: string;
   title: string;
   updated: number;
   answering: boolean;
+  stalled: boolean;
 };
 
 // Сессии проекта, свежие сверху.

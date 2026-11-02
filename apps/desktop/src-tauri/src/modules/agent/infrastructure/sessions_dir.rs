@@ -57,6 +57,19 @@ impl Sessions for SessionsDir {
             .collect())
     }
 
+    fn load(&self, id: &str) -> Result<Session, AppError> {
+        let missing = AppError::not_found("session_missing");
+        let bytes = match fs::read(self.file(id).ok_or(missing)?) {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == ErrorKind::NotFound => {
+                return Err(AppError::not_found("session_missing"));
+            }
+            Err(_) => return Err(AppError::unavailable("session_unreadable")),
+        };
+
+        serde_json::from_slice(&bytes).map_err(|_| AppError::unavailable("session_unreadable"))
+    }
+
     fn save(&self, session: &Session) -> Result<(), AppError> {
         let unwritable = |_| AppError::unavailable("session_unwritable");
         let file = self

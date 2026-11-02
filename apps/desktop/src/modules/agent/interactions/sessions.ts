@@ -1,17 +1,22 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSelector } from "@tanstack/react-store";
+import { useEffect } from "react";
 import {
   agentSessionDelete,
   agentSessionNew,
   agentSessions,
+  onSessionsChanged,
+  onTerminalExited,
+  onTerminalMoved,
   projectsAdd,
   projectsList,
   projectsRemove,
 } from "../infrastructure/agent.api";
 import { readTabs, writeTabs } from "../infrastructure/agent.device";
 import type { SessionInfo } from "../model/sessions";
-import { closeTab, NO_TABS, openTab, visibleTabs, type Tabs } from "../model/tabs";
+import { closeTab, NO_TABS, openTab, replaceTab, visibleTabs, type Tabs } from "../model/tabs";
 import { searchStore, tabsStore } from "../store/sessions.store";
+import { closeTerminal, moveTerminal, terminalExited } from "./terminal";
 
 export const PROJECTS_KEY = ["agent", "projects"] as const;
 export const SESSIONS_KEY = ["agent", "sessions"] as const;
@@ -54,8 +59,36 @@ export function openSession(session: Pick<SessionInfo, "id" | "project">) {
   changeTabs((tabs) => openTab(tabs, session.project, session.id));
 }
 
+// Закрытая вкладка закрывает и терминал сессии.
 export function closeSession(session: Pick<SessionInfo, "id" | "project">) {
   changeTabs((tabs) => closeTab(tabs, session.project, session.id));
+  closeTerminal(session.id);
+}
+
+// События Rust о сессиях и терминалах, пока смонтирована оболочка окна.
+export function useAgentEvents() {
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    const refresh = () => queryClient.invalidateQueries({ queryKey: SESSIONS_KEY });
+    const listeners = [
+      onSessionsChanged(() => void refresh()),
+      onTerminalMoved((from, to) => {
+        moveTerminal(from, to);
+        // Вкладка переходит, когда сессия to уже в списке: без неё вкладку
+        // не видно, и на миг активной стала бы соседняя, а с ней
+        // запустился бы и её Claude Code.
+        void refresh().then(() => changeTabs((tabs) => replaceTab(tabs, from, to)));
+      }),
+      onTerminalExited(terminalExited),
+    ];
+
+    return () => {
+      for (const listener of listeners) {
+        void listener.then((stop) => stop());
+      }
+    };
+  }, [queryClient]);
 }
 
 export function useSearchOpen() {

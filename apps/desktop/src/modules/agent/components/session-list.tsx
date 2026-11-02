@@ -137,6 +137,12 @@ function ProjectSessions({ project, onMenu }: ProjectProps) {
                   <span className="sr-only">{t("agent.sessions.running")}</span>
                 </>
               )}
+              {session.stalled && (
+                <>
+                  <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-state-fg-warning" />
+                  <span className="sr-only">{t("agent.sessions.stalled")}</span>
+                </>
+              )}
             </button>
           </li>
         ))}
@@ -146,8 +152,9 @@ function ProjectSessions({ project, onMenu }: ProjectProps) {
 }
 
 // Левая панель: поиск, действия и входящие всегда наверху, ниже проекты
-// с их сессиями.
-export function SessionList() {
+// с их сессиями. deferred это действия по расписанию, которые ждут сети
+// или проекта.
+export function SessionList({ deferred }: { deferred: string[] }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const projects = useProjects();
@@ -197,6 +204,11 @@ export function SessionList() {
           ))}
         </ul>
       </nav>
+      {deferred.length > 0 && (
+        <output className="m-1 block rounded-md bg-state-bg-warning px-2 py-1.5 text-[12px]/[18px] shadow-[inset_0_0_0_0.5px_var(--state-border-warning)]">
+          {t("agent.actions.deferred", { names: deferred.join(", ") })}
+        </output>
+      )}
       {menu !== null && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
     </div>
   );

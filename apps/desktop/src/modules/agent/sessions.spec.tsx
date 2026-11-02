@@ -25,9 +25,9 @@ const SITE: Project = { id: "p2", name: "сайт", path: "/Users/me/O'Brien/с�
 const DOCS: Project = { id: "p3", name: "документы", path: "/Users/me/документы", missing: false };
 
 const SESSIONS: SessionInfo[] = [
-  { id: "s1", project: "p1", title: "Рефакторинг парсера", updated: 3000, answering: false },
-  { id: "s2", project: "p1", title: "Тесты окна", updated: 5000, answering: false },
-  { id: "s3", project: "p2", title: "Лендинг", updated: 4000, answering: false },
+  { id: "s1", project: "p1", title: "Рефакторинг парсера", updated: 3000, answering: false, stalled: false },
+  { id: "s2", project: "p1", title: "Тесты окна", updated: 5000, answering: false, stalled: false },
+  { id: "s3", project: "p2", title: "Лендинг", updated: 4000, answering: false, stalled: false },
 ];
 
 // happy-dom представляется Linux, но тест не должен от этого зависеть.
@@ -95,6 +95,7 @@ function fakeRust({
           title: "",
           updated: 10_000,
           answering: false,
+          stalled: false,
         };
 
         rust.created.push(session);
@@ -103,6 +104,13 @@ function fakeRust({
       }
       case "agent_claude_status":
         return claude;
+      // Терминал открытой вкладки: его проверяет terminal.spec.tsx.
+      case "terminal_open":
+        return "started";
+      case "terminal_write":
+      case "terminal_resize":
+      case "terminal_close":
+        return null;
       default:
         throw new Error(`нет команды ${command}`);
     }
@@ -120,7 +128,7 @@ function Shell() {
         <SessionTabs />
       </header>
       <aside>
-        <SessionList />
+        <SessionList deferred={[]} />
       </aside>
       <main>
         <Outlet />

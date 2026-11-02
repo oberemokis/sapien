@@ -1,14 +1,22 @@
+import { useNavigate } from "@tanstack/react-router";
 import { useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/core/ui/button";
 import { FIELD as INPUT, SettingsGroup, SettingsRow, SettingsSection } from "@/core/ui/settings";
-import { useActionFiles, useCreateAction, useDeleteAction, useWriteAction } from "../interactions/actions";
+import {
+  useActionFiles,
+  useCreateAction,
+  useDeleteAction,
+  useLaunchAction,
+  useWriteAction,
+} from "../interactions/actions";
 import {
   actionsOf,
   actionText,
   hotkeyLabel,
   hotkeyOf,
   hotkeyProblem,
+  isRunnable,
   nameProblem,
   nameProblemOf,
   parseHotkey,
@@ -186,9 +194,10 @@ function ActionForm({ action, actions, onDone }: FormProps) {
 type RowProps = {
   action: Action;
   onEdit: () => void;
+  onRun: (() => void) | null;
 };
 
-function Row({ action, onEdit }: RowProps) {
+function Row({ action, onEdit, onRun }: RowProps) {
   const { t } = useTranslation();
   const remove = useDeleteAction();
   const [removing, setRemoving] = useState(false);
@@ -223,6 +232,7 @@ function Row({ action, onEdit }: RowProps) {
 
   return (
     <SettingsRow title={action.name} description={parts.join(" · ") || t("agent.actions.plain")}>
+      {onRun !== null && <Button onClick={onRun}>{t("agent.actions.run")}</Button>}
       <Button onClick={onEdit}>{t("agent.actions.edit")}</Button>
       <Button onClick={() => setRemoving(true)}>{t("agent.actions.delete")}</Button>
     </SettingsRow>
@@ -230,10 +240,12 @@ function Row({ action, onEdit }: RowProps) {
 }
 
 // Экран «Действия»: новое действие формой и список созданных. Действия
-// общие для всех проектов.
+// общие для всех проектов. «Запустить» открывает новую сессию с заданием.
 export function ActionsView() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const files = useActionFiles();
+  const launch = useLaunchAction(() => void navigate({ to: "/" }));
   const actions = useMemo(() => actionsOf(files.data ?? []), [files.data]);
   const [editing, setEditing] = useState<string | null>(null);
   // Каждая сохранённая форма сменяется новой, пустой: у формы нового
@@ -257,7 +269,12 @@ export function ActionsView() {
           {files.isError && <p className="py-5 text-[13px] text-state-fg-danger">{t("agent.actions.loadFailed")}</p>}
           {files.isPending && <div className="h-[52px]" />}
           {actions.map((action) => (
-            <Row key={action.path} action={action} onEdit={() => setEditing(action.path)} />
+            <Row
+              key={action.path}
+              action={action}
+              onEdit={() => setEditing(action.path)}
+              onRun={isRunnable(action) ? () => void launch(action) : null}
+            />
           ))}
         </SettingsGroup>
       </SettingsSection>

@@ -1,6 +1,6 @@
 use crate::error::AppError;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Value, json};
 
 /// Номер запроса `initialize`, которым sapien спрашивает Claude Code.
 pub const INIT_REQUEST: &str = "sapien-init";
@@ -149,7 +149,10 @@ pub struct Session {
 }
 
 /// Сессия в списке окна. Список читает её прямо из файла сессии.
-/// `answering`: по ней сейчас отвечает агент, в файле этого нет.
+/// `answering`: в ней сейчас отвечает агент. `stalled`: действие
+/// по расписанию запустило Claude Code, а задание не ушло, например он
+/// ждёт ответа о доверии к папке. Этих двух в файле нет. `claude` окну
+/// не нужен и не уходит в него.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionInfo {
@@ -159,6 +162,10 @@ pub struct SessionInfo {
     pub updated: u64,
     #[serde(skip_deserializing)]
     pub answering: bool,
+    #[serde(skip_deserializing)]
+    pub stalled: bool,
+    #[serde(default, skip_serializing)]
+    pub claude: Option<String>,
 }
 
 impl Session {
@@ -181,14 +188,286 @@ impl Session {
             title: self.title.clone(),
             updated: self.updated,
             answering: false,
+            stalled: false,
+            claude: self.claude.clone(),
         }
     }
+}
+
+/// Сколько знаков заголовка сессии берётся из первого сообщения.
+const TITLE_LIMIT: usize = 60;
+
+/// Заголовок сессии по первому сообщению человека: его первая строка.
+pub fn title(text: &str) -> String {
+    let line = text.trim().lines().next().unwrap_or_default().trim();
+
+    line.chars().take(TITLE_LIMIT).collect()
+}
+
+/// id разговора Claude Code годится в аргумент: uuid, без флага и чужих
+/// знаков.
+pub fn valid_claude(id: &str) -> bool {
+    !id.is_empty()
+        && !id.starts_with('-')
+        && id
+            .chars()
+            .all(|char| char.is_ascii_hexdigit() || char == '-')
+}
+
+/// Событие хука Claude Code, которое передаёт подкоманда `sapien hook`.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Hook {
+    /// Разговор начался: запуск, `/clear`, `/resume` или сжатие (`compact`).
+    Start { claude: String, compact: bool },
+    /// Человек отправил сообщение.
+    Prompt { text: String },
+    /// Ответ кончился, в том числе отказом.
+    Stop,
+    /// Claude Code ждёт человека: разрешения или, `idle`, следующего
+    /// сообщения.
+    Notification { idle: bool },
+}
+
+impl Hook {
+    /// Событие из JSON хука. Незнакомое или без нужного поля даёт `None`.
+    pub fn of(event: &Value) -> Option<Self> {
+        match event["hook_event_name"].as_str()? {
+            "SessionStart" => Some(Self::Start {
+                claude: event["session_id"]
+                    .as_str()
+                    .filter(|id| valid_claude(id))?
+                    .to_owned(),
+                compact: event["source"] == "compact",
+            }),
+            "UserPromptSubmit" => Some(Self::Prompt {
+                text: event["prompt"].as_str().unwrap_or_default().to_owned(),
+            }),
+            "Stop" | "StopFailure" => Some(Self::Stop),
+            "Notification" => Some(Self::Notification {
+                idle: event["notification_type"] == "idle_prompt",
+            }),
+            _ => None,
+        }
+    }
+}
+
+/// Что sapien знает о Claude Code, запущенном в терминале.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Tracked {
+    /// Сессия sapien, в которой он говорит сейчас: после `/clear` другая.
+    pub session: String,
+    pub answering: bool,
+    /// Вкладка сессии открыта в окне.
+    pub open: bool,
+    /// Запущен действием по расписанию, без вкладки.
+    pub background: bool,
+    /// Хоть одно сообщение или задание уже ушло.
+    pub prompted: bool,
+    /// Первый `SessionStart` этого процесса уже пришёл.
+    pub started: bool,
+    /// Запущен по расписанию, а задание так и не ушло.
+    pub stalled: bool,
+}
+
+impl Tracked {
+    /// Claude Code сессии `session`: во вкладке или, без неё, по расписанию.
+    pub fn new(session: String, open: bool) -> Self {
+        Self {
+            session,
+            answering: false,
+            open,
+            background: !open,
+            prompted: false,
+            started: false,
+            stalled: false,
+        }
+    }
+}
+
+/// Что делать после события хука.
+#[derive(Debug, PartialEq)]
+pub enum Effect {
+    /// Окну перечитать сессии.
+    Changed,
+    /// Разговор в терминале сменился: вкладка переходит к сессии `to`.
+    Moved { from: String, to: String },
+    /// Процесс больше не нужен: вкладку закрыли, а ответ кончился.
+    Stop,
+}
+
+/// События Claude Code, о которых узнаёт sapien.
+const HOOKED: [&str; 5] = [
+    "SessionStart",
+    "UserPromptSubmit",
+    "Stop",
+    "StopFailure",
+    "Notification",
+];
+
+/// Сколько секунд Claude Code ждёт хук sapien. Хук только передаёт
+/// событие и ответа не ждёт.
+const HOOK_TIMEOUT: u64 = 5;
+
+/// Строка в одинарных кавычках для sh: команду хука Claude Code запускает
+/// оболочкой, а в пути к приложению бывают пробелы и кавычки.
+pub fn quoted(text: &str) -> String {
+    format!("'{}'", text.replace('\'', r"'\''"))
+}
+
+/// `--settings` терминала: хуки sapien, их Claude Code складывает с хуками
+/// человека и проекта. Действие по расписанию идёт без человека, и Claude
+/// Code не спрашивает, согласен ли он на режим без разрешений.
+pub fn settings(exe: &str, background: bool) -> String {
+    let hook = json!([{
+        "hooks": [{
+            "type": "command",
+            "command": format!("{} hook", quoted(exe)),
+            "timeout": HOOK_TIMEOUT,
+        }],
+    }]);
+    let hooks: serde_json::Map<String, Value> = HOOKED
+        .iter()
+        .map(|event| ((*event).to_owned(), hook.clone()))
+        .collect();
+    let mut settings = json!({ "hooks": hooks });
+
+    if background {
+        settings["skipDangerousModePermissionPrompt"] = true.into();
+    }
+
+    settings.to_string()
+}
+
+/// Аргументы `claude` терминала. Разговор `claude` уже есть у Claude Code,
+/// значит, `--resume`, иначе он начинается с этим же id. Действие
+/// по расписанию идёт без разрешений: человека рядом нет. Задание стоит
+/// после `--` и флагом не станет.
+pub fn launch(
+    claude: &str,
+    resume: bool,
+    settings: String,
+    task: Option<&str>,
+    background: bool,
+) -> Vec<String> {
+    let mut args = vec![
+        if resume { "--resume" } else { "--session-id" }.to_owned(),
+        claude.to_owned(),
+        "--settings".to_owned(),
+        settings,
+    ];
+
+    if background {
+        args.extend([
+            "--permission-mode".to_owned(),
+            "bypassPermissions".to_owned(),
+        ]);
+    }
+
+    if let Some(task) = task {
+        args.extend(["--".to_owned(), task.to_owned()]);
+    }
+
+    args
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
+
+    #[test]
+    fn хук_разбирается_по_имени_события() {
+        let hook = |event: Value| Hook::of(&event);
+
+        assert_eq!(
+            hook(
+                json!({ "hook_event_name": "SessionStart", "session_id": "4f1c-9a", "source": "clear" })
+            ),
+            Some(Hook::Start {
+                claude: "4f1c-9a".into(),
+                compact: false
+            })
+        );
+        assert_eq!(
+            hook(
+                json!({ "hook_event_name": "SessionStart", "session_id": "4f1c", "source": "compact" })
+            ),
+            Some(Hook::Start {
+                claude: "4f1c".into(),
+                compact: true
+            })
+        );
+        // id, который стал бы флагом, не годится.
+        assert_eq!(
+            hook(json!({ "hook_event_name": "SessionStart", "session_id": "--help" })),
+            None
+        );
+        assert_eq!(
+            hook(json!({ "hook_event_name": "UserPromptSubmit", "prompt": "Почини" })),
+            Some(Hook::Prompt {
+                text: "Почини".into()
+            })
+        );
+        assert_eq!(hook(json!({ "hook_event_name": "Stop" })), Some(Hook::Stop));
+        assert_eq!(
+            hook(json!({ "hook_event_name": "StopFailure", "error": "rate_limit" })),
+            Some(Hook::Stop)
+        );
+        assert_eq!(
+            hook(json!({ "hook_event_name": "Notification", "notification_type": "idle_prompt" })),
+            Some(Hook::Notification { idle: true })
+        );
+        assert_eq!(
+            hook(
+                json!({ "hook_event_name": "Notification", "notification_type": "permission_prompt" })
+            ),
+            Some(Hook::Notification { idle: false })
+        );
+        assert_eq!(hook(json!({ "hook_event_name": "SessionEnd" })), None);
+        assert_eq!(hook(json!("не событие")), None);
+    }
+
+    #[test]
+    fn claude_запускается_с_хуками_sapien_а_задание_не_становится_флагом() {
+        let exe = "/Applications/O'Brien sapien.app/Contents/MacOS/sapien";
+        let tab: Value = serde_json::from_str(&settings(exe, false)).unwrap();
+        let command = &tab["hooks"]["Stop"][0]["hooks"][0];
+
+        assert_eq!(
+            command["command"],
+            r"'/Applications/O'\''Brien sapien.app/Contents/MacOS/sapien' hook"
+        );
+        assert_eq!(command["timeout"], 5);
+        assert_eq!(tab["hooks"].as_object().unwrap().len(), HOOKED.len());
+        assert_eq!(tab.get("skipDangerousModePermissionPrompt"), None);
+
+        let background: Value = serde_json::from_str(&settings(exe, true)).unwrap();
+
+        assert_eq!(background["skipDangerousModePermissionPrompt"], true);
+
+        assert_eq!(
+            launch("4f1c", true, "{}".into(), None, false),
+            ["--resume", "4f1c", "--settings", "{}"]
+        );
+        assert_eq!(
+            launch("4f1c", false, "{}".into(), Some("--help"), true),
+            [
+                "--session-id",
+                "4f1c",
+                "--settings",
+                "{}",
+                "--permission-mode",
+                "bypassPermissions",
+                "--",
+                "--help"
+            ]
+        );
+    }
+
+    #[test]
+    fn заголовок_сессии_это_первая_строка_первого_сообщения() {
+        assert_eq!(title("\n  Почини сборку\nпадает на CI"), "Почини сборку");
+        assert_eq!(title(&"я".repeat(80)).chars().count(), TITLE_LIMIT);
+    }
 
     #[test]
     fn claude_code_годится_с_новой_версией_и_входом_по_подписке() {

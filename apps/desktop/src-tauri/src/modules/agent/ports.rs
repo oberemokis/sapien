@@ -12,6 +12,8 @@ pub trait Projects: Sync {
 /// Где лежат сессии: заголовок, время и сессия Claude Code.
 pub trait Sessions: Sync {
     fn list(&self) -> Result<Vec<SessionInfo>, AppError>;
+    /// Нет сессии, значит, `session_missing`.
+    fn load(&self, id: &str) -> Result<Session, AppError>;
     fn save(&self, session: &Session) -> Result<(), AppError>;
     /// Сессии уже нет: удалять нечего.
     fn delete(&self, id: &str) -> Result<(), AppError>;
