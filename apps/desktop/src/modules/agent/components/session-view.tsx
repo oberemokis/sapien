@@ -1,9 +1,28 @@
+import { Link } from "@tanstack/react-router";
+import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/core/ui/button";
 import { Icon } from "@/core/ui/icon";
+import { useClaudeStatus } from "../interactions/claude";
 import { useActiveSession, useAddProject, useNewSession, useProjects, useSessions, useTabs } from "../interactions/sessions";
 import { homeProject } from "../model/sessions";
-import { AgentChat } from "./agent-chat";
+
+// Действие внутри плашки, как link-action дизайн-системы.
+const LINK =
+  "shrink-0 text-[13px] font-medium underline decoration-text-base/40 underline-offset-2 hover:decoration-text-base";
+
+// Плашка, как Banner дизайн-системы: агенту нечем или негде работать.
+function Notice({ children, action }: { children: string; action?: ReactNode }) {
+  return (
+    <div
+      role="alert"
+      className="mx-auto mt-4 flex w-full max-w-200 items-center gap-3 rounded-md bg-state-bg-danger px-3 py-2 text-[13px]/5 shadow-[inset_0_0_0_0.5px_var(--state-border-danger)]"
+    >
+      <p className="flex-1">{children}</p>
+      {action}
+    </div>
+  );
+}
 
 // Без открытых вкладок: первый шаг, добавить папку проекта, или новая
 // сессия в открытом проекте, а без него в последнем.
@@ -52,21 +71,40 @@ function Welcome() {
   );
 }
 
-// Середина главного экрана: чат активной вкладки. Свой чат у каждой
-// сессии: недописанное сообщение не переезжает в другую.
+// Середина главного экрана: сессия активной вкладки. Агенту нечем или
+// негде работать, Claude Code не готов или папки проекта больше нет:
+// плашка говорит, что не так.
 export function SessionView() {
+  const { t } = useTranslation();
   const session = useActiveSession();
   const projects = useProjects();
+  const claude = useClaudeStatus();
 
   if (session === null) {
     return <Welcome />;
   }
 
-  return (
-    <AgentChat
-      key={session.id}
-      session={session}
-      project={projects.data?.find((project) => project.id === session.project)}
-    />
-  );
+  const project = projects.data?.find((candidate) => candidate.id === session.project);
+  const claudeState = claude.status?.state;
+  let notice: ReactNode = null;
+
+  if (claudeState !== undefined && claudeState !== "ready") {
+    notice = (
+      <Notice
+        action={
+          <Link to="/settings/agent" className={LINK}>
+            {t("agent.session.setUpClaude")}
+          </Link>
+        }
+      >
+        {t(`agent.settings.claude.${claudeState}`)}
+      </Notice>
+    );
+  }
+
+  if (projects.data !== undefined && (project === undefined || project.missing)) {
+    notice = <Notice>{t("agent.session.projectMissing", { path: project?.path ?? "" })}</Notice>;
+  }
+
+  return <div className="flex min-h-0 flex-1 flex-col px-4">{notice}</div>;
 }

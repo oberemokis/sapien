@@ -7,10 +7,7 @@ const session = (id: string, project: string): SessionInfo => ({
   project,
   title: id,
   updated: 1,
-  provider: "claude",
-  model: null,
-  effort: null,
-  started: false,
+  answering: false,
 });
 
 const SESSIONS = [session("a", "p1"), session("b", "p1"), session("c", "p1"), session("x", "p2")];

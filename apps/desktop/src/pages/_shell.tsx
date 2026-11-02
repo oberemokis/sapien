@@ -1,25 +1,17 @@
-import { Outlet, createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useCallback } from "react";
-import { ClaudeUsage, SessionList, SessionSearch, SessionTabs, useActionTriggers, useAttach } from "@/modules/agent";
+import { Outlet, createFileRoute } from "@tanstack/react-router";
+import { ClaudeUsage, SessionList, SessionSearch, SessionTabs } from "@/modules/agent";
 import { Workspace } from "@/modules/layout";
 import { SettingsButton } from "@/modules/settings";
 
 export const Route = createFileRoute("/_shell")({ component: Shell });
 
 // Главный экран: слева поиск, действия, входящие и проекты с сессиями,
-// сверху вкладки открытого проекта, посередине выбранное. Клавиши
-// и расписание действий работают, пока открыт любой из его экранов.
+// сверху вкладки открытого проекта, посередине выбранное.
 function Shell() {
-  const navigate = useNavigate();
-  const showChat = useCallback(() => void navigate({ to: "/" }), [navigate]);
-  const { deferred } = useActionTriggers({ onRun: showChat });
-
-  useAttach();
-
   return (
     <>
       <Workspace
-        files={<SessionList deferred={deferred} />}
+        files={<SessionList />}
         main={<Outlet />}
         title={<SessionTabs />}
         actions={<SettingsButton />}

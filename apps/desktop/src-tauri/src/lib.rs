@@ -13,25 +13,6 @@ mod updates;
 use modules::{actions, agent, forge, projects};
 use tauri::Manager;
 
-/// `sapien mcp <сокет>`: так Claude Code запускает сервер MCP sapien.
-/// Процесс без окна только перекачивает stdio в сокет открытого
-/// приложения, вопросы и разрешения разбирает оно. Код выхода для `exit`.
-pub fn mcp(socket: Option<String>) -> i32 {
-    #[cfg(unix)]
-    if let Some(socket) = socket {
-        let done = agent::bridge(
-            std::path::Path::new(&socket),
-            std::io::stdin(),
-            std::io::stdout(),
-        );
-
-        return i32::from(done.is_err());
-    }
-
-    let _ = socket;
-    1
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default();
@@ -59,7 +40,6 @@ pub fn run() {
         .manage(updates::Pending::default())
         .manage(secrets::Secrets::default())
         .manage(forge::Http::default())
-        .manage(agent::Running::default())
         .setup(|app| {
             // До окна: никто не должен прочитать файлы приложения
             // в прежнем формате. Отказ не держит запуск, шаг повторится
@@ -82,15 +62,7 @@ pub fn run() {
             agent::transport::agent_sessions,
             agent::transport::agent_session_new,
             agent::transport::agent_session_delete,
-            agent::transport::agent_history,
-            agent::transport::agent_send,
-            agent::transport::agent_running,
-            agent::transport::agent_attach,
-            agent::transport::agent_answer,
-            agent::transport::agent_stop,
             agent::transport::agent_claude_status,
-            agent::transport::agent_providers,
-            agent::transport::agent_commands,
             agent::transport::agent_usage,
             actions::transport::actions_list,
             actions::transport::actions_create,
