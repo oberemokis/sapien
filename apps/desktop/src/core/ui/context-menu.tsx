@@ -117,7 +117,9 @@ export function ContextMenu({ x, y, items, onClose, above = false, anchor = null
       ref={menuRef}
       role="menu"
       tabIndex={-1}
-      className="fixed z-30 min-w-40 rounded-md bg-bg-layer-01 p-0.5 shadow-floating"
+      // Ширина по содержимому, а не по месту до края окна: у края меню иначе
+      // сжимается до того, как его сдвинут влево.
+      className="fixed z-30 w-max max-w-[calc(100vw-8px)] min-w-40 rounded-md bg-bg-layer-01 p-0.5 shadow-floating"
       style={{ left: x, top: y }}
       onKeyDown={onKeyDown}
       onContextMenu={(event) => event.preventDefault()}
