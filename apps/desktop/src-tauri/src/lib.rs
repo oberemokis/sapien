@@ -11,7 +11,19 @@ mod unlock;
 mod updates;
 
 use modules::{actions, agent, forge, projects};
-use tauri::Manager;
+use tauri::{Manager, RunEvent};
+
+/// `sapien hook`: так Claude Code терминала сообщает приложению о своих
+/// событиях. Процесс без окна только пересылает событие из stdin в сокет
+/// открытого приложения.
+pub fn hook() {
+    #[cfg(unix)]
+    agent::forward_hook(
+        std::io::stdin(),
+        std::env::var_os("SAPIEN_HOOKS"),
+        std::env::var("SAPIEN_TERMINAL").ok(),
+    );
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -40,6 +52,7 @@ pub fn run() {
         .manage(updates::Pending::default())
         .manage(secrets::Secrets::default())
         .manage(forge::Http::default())
+        .manage(agent::Terminals::default())
         .setup(|app| {
             // До окна: никто не должен прочитать файлы приложения
             // в прежнем формате. Отказ не держит запуск, шаг повторится
@@ -47,6 +60,7 @@ pub fn run() {
             if let Err(error) = data_format::migrate(&app.path().app_data_dir()?) {
                 log::error!("перенос данных приложения не закончен: {error}");
             }
+            agent::start_terminals(app.handle());
             links::main_window(app)?;
             Ok(())
         })
@@ -64,6 +78,11 @@ pub fn run() {
             agent::transport::agent_session_delete,
             agent::transport::agent_claude_status,
             agent::transport::agent_usage,
+            agent::transport::terminal_open,
+            agent::transport::terminal_run,
+            agent::transport::terminal_write,
+            agent::transport::terminal_resize,
+            agent::transport::terminal_close,
             actions::transport::actions_list,
             actions::transport::actions_create,
             actions::transport::actions_write,
@@ -72,6 +91,12 @@ pub fn run() {
             forge::transport::forge_connect,
             forge::transport::forge_disconnect,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while running tauri application")
+        .run(|app, event| {
+            // Claude Code терминалов без приложения никто не увидит.
+            if let RunEvent::Exit = event {
+                app.state::<agent::Terminals>().stop_all();
+            }
+        });
 }

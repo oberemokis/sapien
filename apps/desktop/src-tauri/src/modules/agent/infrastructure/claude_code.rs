@@ -3,6 +3,7 @@ use crate::modules::agent::domain::{
     ClaudeState, ClaudeStatus, INIT_REQUEST, USAGE_REQUEST, Usage, usage_reply,
 };
 use serde_json::{Value, json};
+use std::ffi::OsString;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::process::{Output, Stdio};
@@ -78,32 +79,50 @@ impl ClaudeCode {
         }
     }
 
+    /// Где лежит `claude`. Не нашёлся, значит, `claude_missing`.
+    pub fn program(&self) -> Result<&Path, AppError> {
+        self.program
+            .as_deref()
+            .ok_or(AppError::not_found("claude_missing"))
+    }
+
+    /// Окружение Claude Code только из разрешённого списка, оно же
+    /// у терминала.
+    pub fn environment(&self) -> Vec<(OsString, OsString)> {
+        let fixed = [("HOME", self.home.as_os_str()), ("PATH", PATH.as_ref())]
+            .into_iter()
+            .chain(ISOLATION.map(|(name, value)| (name, value.as_ref())))
+            .map(|(name, value)| (name.into(), value.to_owned()));
+        let passed = PASSED
+            .iter()
+            .filter_map(|name| Some(((*name).into(), std::env::var_os(name)?)));
+
+        fixed.chain(passed).collect()
+    }
+
+    /// Помнит ли Claude Code разговор `id`, начатый в папке `dir`.
+    /// Содержимое разговора sapien не читает.
+    pub fn remembers(&self, dir: &Path, id: &str) -> bool {
+        let config = std::env::var_os("CLAUDE_CONFIG_DIR")
+            .map_or_else(|| self.home.join(".claude"), PathBuf::from);
+
+        transcript(&config, dir, id).is_file()
+    }
+
     /// Запуск Claude Code в папке данных, с окружением только из
     /// разрешённого списка. Ввод и оба вывода через трубы.
     fn spawn(&self, args: &[&str]) -> Result<Child, AppError> {
-        let program = self
-            .program
-            .as_deref()
-            .ok_or(AppError::not_found("claude_missing"))?;
-        let mut command = Command::new(program);
+        let mut command = Command::new(self.program()?);
 
         command
             .env_clear()
-            .env("HOME", &self.home)
-            .env("PATH", PATH)
-            .envs(ISOLATION)
+            .envs(self.environment())
             .args(args)
             .current_dir(&self.data)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
-
-        for name in PASSED {
-            if let Some(value) = std::env::var_os(name) {
-                command.env(name, value);
-            }
-        }
 
         command.spawn().map_err(|error| match error.kind() {
             ErrorKind::NotFound => AppError::not_found("claude_missing"),
@@ -195,6 +214,30 @@ impl ClaudeCode {
 
         timeout(INIT_WAIT, answer).await.map_err(|_| failed())?
     }
+}
+
+/// Файл разговора `id` из папки `dir` в настройках Claude Code `config`:
+/// `projects/<папка>/<id>.jsonl`, где в пути папки всё, кроме латиницы
+/// и цифр, заменено на «-».
+fn transcript(config: &Path, dir: &Path, id: &str) -> PathBuf {
+    // Claude Code видит папку без ссылок, как её отдаёт система.
+    let dir = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_owned());
+    let project: String = dir
+        .to_string_lossy()
+        .chars()
+        .map(|char| {
+            if char.is_ascii_alphanumeric() {
+                char
+            } else {
+                '-'
+            }
+        })
+        .collect();
+
+    config
+        .join("projects")
+        .join(project)
+        .join(format!("{id}.jsonl"))
 }
 
 #[cfg(all(test, unix))]
@@ -407,5 +450,28 @@ echo '{"type":"control_response","response":{"subtype":"error","request_id":"sap
         // Вывод кончился без ответа.
         let (_dir, silent) = fake("read -r first\necho '{\"type\":\"system\"}'");
         assert_eq!(block_on(silent.usage()).err(), failed);
+    }
+
+    #[test]
+    fn разговор_ищется_по_папке_без_ссылок_с_дефисами_вместо_прочего() {
+        let dir = tempfile::tempdir().unwrap();
+        let project = dir.path().join("мой.проект_1");
+        let link = dir.path().join("ссылка");
+
+        fs::create_dir(&project).unwrap();
+        std::os::unix::fs::symlink(&project, &link).unwrap();
+
+        // «/мой.проект_1»: двенадцать знаков не латиницей и цифра.
+        let mangled = format!(
+            "{}------------1",
+            real(dir.path()).replace(|char: char| !char.is_ascii_alphanumeric(), "-")
+        );
+
+        assert_eq!(
+            transcript(Path::new("/config"), &link, "4f1c"),
+            Path::new("/config/projects")
+                .join(mangled)
+                .join("4f1c.jsonl")
+        );
     }
 }

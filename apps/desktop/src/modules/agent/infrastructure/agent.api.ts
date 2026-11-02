@@ -1,4 +1,5 @@
-import { invoke } from "@tauri-apps/api/core";
+import { Channel, invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import type { ClaudeStatus } from "../model/claude";
 import type { Project, SessionInfo } from "../model/sessions";
 import type { Usage } from "../model/usage";
@@ -27,6 +28,59 @@ export function agentSessionNew(project: string) {
 
 export function agentSessionDelete(id: string) {
   return invoke<null>("agent_session_delete", { id });
+}
+
+// Как открылся терминал, как Opened в Rust: подключился к идущему Claude
+// Code, начал разговор, продолжил прежний или начал заново, потому что
+// Claude Code прежнего не помнит.
+export type Opened = "attached" | "started" | "resumed" | "lost";
+
+// Терминал сессии: Claude Code в её папке, вывод байтами в onData. task
+// уходит первым сообщением, если Claude Code ещё не идёт.
+export function terminalOpen(
+  session: string,
+  cols: number,
+  rows: number,
+  task: string | null,
+  onData: (bytes: Uint8Array) => void,
+) {
+  const channel = new Channel<ArrayBuffer>((data) => onData(new Uint8Array(data)));
+
+  return invoke<Opened>("terminal_open", { session, cols, rows, task, onData: channel });
+}
+
+// Действие по расписанию: Claude Code с заданием без вкладки.
+export function terminalRun(session: string, task: string) {
+  return invoke<null>("terminal_run", { session, task });
+}
+
+export function terminalWrite(session: string, data: string) {
+  return invoke<null>("terminal_write", { session, data });
+}
+
+export function terminalResize(session: string, cols: number, rows: number) {
+  return invoke<null>("terminal_resize", { session, cols, rows });
+}
+
+// Вкладку закрыли: Claude Code доживает до конца ответа.
+export function terminalClose(session: string) {
+  return invoke<null>("terminal_close", { session });
+}
+
+// Сессии поменялись без команды окна: агент начал или кончил отвечать,
+// у сессии появилось название.
+export function onSessionsChanged(handler: () => void) {
+  return listen("agent-sessions", () => handler());
+}
+
+// Разговор терминала перешёл в другую сессию, например после /clear.
+export function onTerminalMoved(handler: (from: string, to: string) => void) {
+  return listen<{ from: string; to: string }>("terminal-moved", ({ payload }) => handler(payload.from, payload.to));
+}
+
+// Claude Code сессии кончился.
+export function onTerminalExited(handler: (session: string) => void) {
+  return listen<{ session: string }>("terminal-exited", ({ payload }) => handler(payload.session));
 }
 
 // Лимиты подписки Claude. Их спрашивает Claude Code своим входом.
