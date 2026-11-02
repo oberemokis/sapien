@@ -16,6 +16,15 @@ export type SessionInfo = {
   effort: string | null;
 };
 
+// Название новой сессии по первому сообщению, как title в domain.rs:
+// первая строка текста без пробелов по краям, до 60 знаков. Окно ставит
+// его сразу, Rust запишет такое же.
+export function titleOf(text: string) {
+  const line = text.trim().split("\n")[0]?.trim() ?? "";
+
+  return [...line].slice(0, 60).join("");
+}
+
 // Сессии проекта, свежие сверху.
 export function sessionsOf(sessions: SessionInfo[], project: string) {
   return sessions.filter((session) => session.project === project).toSorted((a, b) => b.updated - a.updated);

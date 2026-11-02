@@ -20,13 +20,15 @@ import {
   type Oversight,
 } from "../model/chat";
 import type { Choice } from "../model/agents";
-import type { SessionInfo } from "../model/sessions";
+import { titleOf, type SessionInfo } from "../model/sessions";
 import { chatStore, draftStore } from "../store/chat.store";
 import { SESSIONS_KEY } from "./sessions";
 
 // История у каждой сессии своя. Rust пишет её и посреди ответа, поэтому
 // окно читает историю до ответа и после него, но не во время: прочитанная
 // посреди, она повторила бы строки, которые чат уже показывает из ответа.
+// Кеш её не забывает: чат смонтирован только у активной вкладки, и история
+// фоновой вкладки иначе ушла бы из кеша и перечиталась посреди ответа.
 const HISTORY_KEY = ["agent", "history"] as const;
 
 function historyKey(session: string) {
@@ -34,7 +36,12 @@ function historyKey(session: string) {
 }
 
 function historyQuery(session: string) {
-  return { queryKey: historyKey(session), queryFn: () => agentHistory(session), staleTime: Infinity };
+  return {
+    queryKey: historyKey(session),
+    queryFn: () => agentHistory(session),
+    staleTime: Infinity,
+    gcTime: Infinity,
+  };
 }
 
 function without<Value>(record: Record<string, Value>, key: string) {
@@ -65,10 +72,12 @@ function receive(session: string, event: ChatEvent) {
 }
 
 // Ответ кончился: история сессии читается заново из Rust, там уже всё,
-// что дошло. Список сессий тоже: у сессии новое название и время.
+// что дошло. И у фоновой вкладки, которую сейчас никто не показывает:
+// по этой истории решается, записан ли отказ. Список сессий тоже: у сессии
+// новое название и время.
 async function finish(queryClient: QueryClient, session: string) {
   await Promise.all([
-    queryClient.invalidateQueries({ queryKey: historyKey(session) }),
+    queryClient.invalidateQueries({ queryKey: historyKey(session), refetchType: "all" }),
     queryClient.invalidateQueries({ queryKey: SESSIONS_KEY }),
   ]);
   chatStore.setState((state) => ({ ...state, runs: without(state.runs, session) }));
@@ -134,7 +143,7 @@ export function useSend() {
           let title = item.title;
 
           if (title === "") {
-            title = text.split("\n")[0]?.slice(0, 60) ?? "";
+            title = titleOf(text);
           }
 
           return { ...item, ...choice, title };
