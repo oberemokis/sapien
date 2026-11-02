@@ -60,23 +60,25 @@ export function BreakdownForm({ text, notes, readOnly, onCreate, onOpen }: Props
   return (
     <section
       aria-label={t("youtrack.breakdown.title", { title: noteTitle(epic) })}
-      className="mx-4 mb-2 flex shrink-0 flex-col gap-2 rounded-md border border-stroke px-3 py-2 text-[13px]"
+      className="mx-4 mb-2 flex shrink-0 flex-col gap-2 rounded-lg bg-bg-layer-01 p-3 text-[13px] shadow-[inset_0_0_0_0.5px_var(--border-border-muted)]"
     >
       <div className="flex flex-wrap items-center gap-2">
         <h2 className="font-medium">{t("youtrack.breakdown.title", { title: noteTitle(epic) })}</h2>
-        <span className="text-content/60">
+        <span className="text-text-muted">
           {t("youtrack.breakdown.count", { tasks: tasks.length, existing: plan?.existing ?? 0 })}
         </span>
         <div className="ml-auto flex gap-2">
           <Button disabled={epicNote === undefined} onClick={() => onOpen(epic)}>
             {t("youtrack.check.open", { title: noteTitle(epic) })}
           </Button>
-          <Button disabled={readOnly || plan === null || problems.length > 0 || count === 0 || creating} onClick={() => void create()}>
+          <Button
+            variant="submit"
+            disabled={readOnly || plan === null || problems.length > 0 || count === 0 || creating} onClick={() => void create()}>
             {t("youtrack.breakdown.create", { number: count })}
           </Button>
         </div>
       </div>
-      <p className="text-content/60">{t("youtrack.breakdown.hint")}</p>
+      <p className="text-text-muted">{t("youtrack.breakdown.hint")}</p>
       {plan === null && <Alert>{t("youtrack.breakdown.noEpic", { epic })}</Alert>}
       {problems.length > 0 && (
         <Alert>
@@ -91,7 +93,7 @@ export function BreakdownForm({ text, notes, readOnly, onCreate, onOpen }: Props
       )}
       {failed && <Alert>{t("youtrack.breakdown.failed")}</Alert>}
       {created !== null && (
-        <output className="text-content/60">
+        <output className="text-state-fg-success">
           {t("youtrack.breakdown.created", { number: created, title: noteTitle(epic) })}
         </output>
       )}

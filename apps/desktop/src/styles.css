@@ -9,9 +9,6 @@
  * общие для тем, смысловые токены (фон, текст, иконка, рамка, состояние)
  * каждая тема назначает из шкал по-своему. Разметка пишет цвет только
  * смысловым токеном: `bg-bg-base`, `text-text-muted`, `border-border-base`.
- *
- * Имена MonoCode (`content`, `selection`, `shell`, `card`) пока указывают
- * на новые значения: экраны переходят на имена системы своими задачами.
  */
 @import "tailwindcss";
 
@@ -83,29 +80,6 @@
   --shadow-input: var(--elevation-input);
   --shadow-button-neutral: var(--elevation-button-neutral);
   --shadow-button-contrast: var(--elevation-button-contrast);
-
-  /* Имена MonoCode. */
-  --color-background-base: var(--background-bg-base);
-  --color-content: var(--text-text-base);
-  --color-stroke: var(--border-border-base);
-  --color-hairline: var(--border-border-muted);
-  --color-selection-subtle: color-mix(in srgb, var(--color-content) var(--selection-subtle-strength), transparent);
-  --color-selection: color-mix(in srgb, var(--color-content) var(--selection-strength), transparent);
-  --color-selection-strong: color-mix(in srgb, var(--color-content) var(--selection-strong-strength), transparent);
-  --color-selection-hover: color-mix(in srgb, var(--color-content) var(--selection-hover-strength), transparent);
-  --color-selection-emphasis: color-mix(
-    in srgb,
-    var(--color-content) var(--selection-emphasis-strength),
-    transparent
-  );
-  --color-shell: var(--background-bg-deep);
-  --color-card: var(--background-bg-base);
-  --color-scrim: var(--overlay-scrim);
-  --shadow-float: var(--elevation-floating);
-  --color-accent: var(--background-bg-accent);
-  --color-link: var(--text-text-accent);
-  --color-markdown-heading: var(--text-text-base);
-  --color-mention: var(--text-text-accent);
 
   /* Дифф. Цвет не единственный признак: рядом всегда знак + или −. */
   --color-diff-add: var(--green-600);
@@ -240,13 +214,6 @@
   --elevation-button-neutral: 0 1px 2px #00000066, 0 0 0 0.5px #ffffff33, 0 -0.5px 0 #ffffff1a;
   --elevation-button-contrast: 0 1px 2px #00000066, 0 0 0 0.5px #ffffff66, 0 -0.5px 0 #ffffff4d;
 
-  /* Доли текста для выделений: строка под мышью светлее выбранной. */
-  --selection-subtle-strength: 6%;
-  --selection-strength: 8%;
-  --selection-strong-strength: 10%;
-  --selection-hover-strength: 12%;
-  --selection-emphasis-strength: 16%;
-
   color-scheme: dark;
 }
 
@@ -306,12 +273,6 @@ html.theme-light {
   --elevation-button-contrast:
     0 1px 1.5px #00000033, 0 0 0 0.5px #3a3a3a, inset 0 1px 2px #ffffff24, inset 0 -1px 2px #0000000f;
 
-  --selection-subtle-strength: 4%;
-  --selection-strength: 6%;
-  --selection-strong-strength: 8%;
-  --selection-hover-strength: 10%;
-  --selection-emphasis-strength: 14%;
-
   color-scheme: light;
 }
 
@@ -320,8 +281,8 @@ body,
 #app {
   height: 100%;
   margin: 0;
-  background: var(--color-background-base);
-  color: var(--color-content);
+  background: var(--background-bg-base);
+  color: var(--text-text-base);
   font-family: var(--font-sans);
   font-weight: 440;
   -webkit-font-smoothing: antialiased;

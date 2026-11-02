@@ -143,26 +143,26 @@ export function PublishAll({ path, draft, text, notes, ready, onWrite, onOpen }:
   }
 
   return (
-    <section aria-label={t("youtrack.publishAll.title")} className="flex flex-col gap-1.5 border-t border-hairline pt-2">
+    <section aria-label={t("youtrack.publishAll.title")} className="flex flex-col gap-1.5 border-t border-border-muted pt-2">
       <div className="flex flex-wrap items-center gap-2">
         <h3 className="font-medium">{t("youtrack.publishAll.title")}</h3>
-        <span className="text-content/60">{t("youtrack.publishAll.count", { total: family.length, left })}</span>
+        <span className="text-text-muted">{t("youtrack.publishAll.count", { total: family.length, left })}</span>
         <div className="ml-auto flex gap-2">
           <Button disabled={!ready || left === 0 || progress !== null} onClick={() => void run()}>
             {t("youtrack.publishAll.run")}
           </Button>
         </div>
       </div>
-      <ol className="flex flex-wrap gap-x-3 gap-y-0.5 text-content/60">
+      <ol className="flex flex-wrap gap-x-3 gap-y-0.5 text-text-muted">
         {family.map((member, index) => (
           <li key={member.path}>
             {index + 1}. {noteTitle(member.path)}: {member.draft.id ?? t("youtrack.publishAll.draft")}
           </li>
         ))}
       </ol>
-      <p className="text-content/60">{t("youtrack.publishAll.hint")}</p>
+      <p className="text-text-muted">{t("youtrack.publishAll.hint")}</p>
       {progress !== null && <output>{t("youtrack.publishAll.progress", progress)}</output>}
-      {done !== null && <output className="text-content/60">{t("youtrack.publishAll.done", { number: done })}</output>}
+      {done !== null && <output className="text-state-fg-success">{t("youtrack.publishAll.done", { number: done })}</output>}
       {stop !== null && (
         <Alert
           action={

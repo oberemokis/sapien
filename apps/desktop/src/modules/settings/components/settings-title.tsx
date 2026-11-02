@@ -11,11 +11,11 @@ export function SettingsTitle() {
   );
 
   return (
-    <p className="flex min-w-0 items-center gap-1.5 truncate text-sm">
-      <span className="text-content/60">{t("settings.title")}</span>
+    <p className="flex min-w-0 items-center gap-1.5 truncate text-[13px]">
+      <span className="text-text-muted">{t("settings.title")}</span>
       {current !== undefined && (
         <>
-          <span aria-hidden className="text-content/30">
+          <span aria-hidden className="text-text-faint">
             /
           </span>
           <span>{t(current.label)}</span>

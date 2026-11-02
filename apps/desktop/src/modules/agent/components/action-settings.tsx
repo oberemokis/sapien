@@ -1,7 +1,7 @@
 import { useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/core/ui/button";
-import { SettingsGroup, SettingsRow, SettingsSection } from "@/core/ui/settings";
+import { FIELD as INPUT, SettingsGroup, SettingsRow, SettingsSection } from "@/core/ui/settings";
 import {
   ACTIONS_FOLDER,
   actionsOf,
@@ -18,7 +18,7 @@ import {
   type Integration,
 } from "../model/actions";
 
-const FIELD = "h-8 w-56 rounded-md border border-stroke bg-transparent px-2 text-[13px] outline-none focus:border-accent";
+const FIELD = `${INPUT} w-56`;
 
 const NAMES: Record<Integration, string> = { youtrack: "YouTrack" };
 
@@ -144,8 +144,8 @@ export function ActionSettings({ notes, create, open }: Props) {
             }}
           />
         </SettingsRow>
-        <div className="flex flex-col gap-2 px-4 py-3.5">
-          <label htmlFor={taskId} className="text-sm font-medium">
+        <div className="flex flex-col gap-2 py-5">
+          <label htmlFor={taskId} className="text-[13px]/4 font-medium">
             {t("agent.actions.task")}
           </label>
           <textarea
@@ -153,7 +153,7 @@ export function ActionSettings({ notes, create, open }: Props) {
             placeholder={t("agent.actions.taskPlaceholder")}
             value={task}
             rows={4}
-            className="w-full resize-y rounded-md border border-stroke bg-transparent px-2 py-1.5 text-[13px] outline-none focus:border-accent"
+            className={`${INPUT} h-auto w-full resize-y py-1.5 leading-5`}
             onChange={(event) => setTask(event.target.value)}
           />
         </div>
@@ -163,7 +163,7 @@ export function ActionSettings({ notes, create, open }: Props) {
               <label key={integration} className="flex items-center gap-2 text-[13px]">
                 <input
                   type="checkbox"
-                  className="accent-accent"
+                  className="accent-bg-accent"
                   checked={integrations.includes(integration)}
                   onChange={(event) =>
                     setIntegrations((list) =>
@@ -205,9 +205,9 @@ export function ActionSettings({ notes, create, open }: Props) {
             }}
           />
         </SettingsRow>
-        <div className="flex items-center justify-end gap-3 px-4 py-3">
-          {failed && <p className="flex-1 text-[13px] text-diff-del-fg">{t("agent.actions.failed")}</p>}
-          <Button disabled={!ready || keyProblem !== null} onClick={save}>
+        <div className="flex items-center justify-end gap-3 py-3">
+          {failed && <p className="flex-1 text-[13px] text-state-fg-danger">{t("agent.actions.failed")}</p>}
+          <Button variant="submit" disabled={!ready || keyProblem !== null} onClick={save}>
             {t("agent.actions.create")}
           </Button>
         </div>
@@ -224,7 +224,7 @@ export function ActionSettings({ notes, create, open }: Props) {
       </SettingsGroup>
       <SettingsGroup title={t("agent.actions.list")}>
         {notes !== undefined && actions.length === 0 && (
-          <p className="px-4 py-3.5 text-[13px] text-content/50">{t("agent.actions.empty")}</p>
+          <p className="py-5 text-[13px] text-text-muted">{t("agent.actions.empty")}</p>
         )}
         {notes === undefined && <div className="h-[52px]" />}
         {actions.map((action) => (

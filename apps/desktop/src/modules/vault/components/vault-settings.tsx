@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/core/ui/button";
-import { SettingsGroup, SettingsRow, SettingsSection } from "@/core/ui/settings";
+import { FIELD, SettingsGroup, SettingsRow, SettingsSection } from "@/core/ui/settings";
 import { changeTemplateSettings, useTemplateSettings } from "../interactions/templates";
 import { useChooseVault, useVaultStatus } from "../interactions/vault";
 import { formatDate, type TemplateSettings } from "../model/templates";
@@ -18,7 +18,7 @@ function TextSetting({ name, label }: { name: keyof TemplateSettings; label: str
       aria-label={label}
       value={draft}
       spellCheck={false}
-      className="h-8 w-48 rounded-md border border-stroke bg-transparent px-2 text-[13px] outline-none focus:border-accent"
+      className={`${FIELD} w-48`}
       onChange={(event) => {
         setDraft(event.target.value);
 

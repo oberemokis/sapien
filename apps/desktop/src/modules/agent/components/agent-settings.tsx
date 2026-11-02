@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/core/ui/button";
 import { Segmented } from "@/core/ui/segmented";
-import { SettingsGroup, SettingsRow, SettingsSection } from "@/core/ui/settings";
+import { FIELD, SettingsGroup, SettingsRow, SettingsSection } from "@/core/ui/settings";
 import { setAgentMethod, useAgentMethod, useClaudeStatus } from "../interactions/method";
 import { setAgentModel, useAgentModel } from "../interactions/model";
 import { useModelKey } from "../interactions/model-key";
@@ -107,7 +107,7 @@ export function AgentSettings() {
               value={draft}
               autoComplete="off"
               spellCheck={false}
-              className="h-8 w-56 rounded-md border border-stroke bg-transparent px-2 text-[13px] outline-none focus:border-accent"
+              className={`${FIELD} w-56`}
               onChange={(event) => setDraft(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === "Enter") {

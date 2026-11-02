@@ -51,6 +51,11 @@ export const ru = {
       recent: "Недавние",
       nothing: "Ничего не найдено",
       create: "Создать файл «{{name}}»",
+      keys: {
+        open: "открыть",
+        newTab: "в новой вкладке",
+        close: "закрыть",
+      },
     },
     tags: {
       title: "Теги",

@@ -27,7 +27,7 @@ export function LockSettings({ system }: { system: System }) {
         <input
           type="checkbox"
           aria-label={t("security.lock.enabled.title")}
-          className="accent-accent"
+          className="accent-bg-accent"
           checked={settings.enabled}
           disabled={checking}
           onChange={(event) => toggle(event.target.checked)}

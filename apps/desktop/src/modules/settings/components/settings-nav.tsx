@@ -5,7 +5,9 @@ import { Icon } from "@/core/ui/icon";
 import { useCloseSettings } from "./navigation";
 import { SETTINGS_GROUPS } from "./sections";
 
-const ROW = "flex h-8 items-center gap-2 rounded-md px-2.5 text-sm transition-colors duration-120";
+// Строка раздела как строка дерева: 28 px, бледная, выбранная на заливке.
+const ROW =
+  "flex h-7 items-center gap-2 rounded-md px-2 text-[13px]/4 text-text-muted outline-none transition-colors duration-120 hover:bg-overlay-hover hover:text-text-base focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-border-focus [&_svg]:text-icon-muted";
 
 // Список разделов слева, внизу «Назад». Раздел сменяет предыдущий в истории,
 // а не встаёт поверх: тогда «Назад» уводит с настроек за один шаг.
@@ -18,13 +20,13 @@ export function SettingsNav() {
       <nav aria-label={t("settings.sections")} className="flex flex-1 flex-col gap-4 overflow-y-auto pt-2">
         {SETTINGS_GROUPS.map((group) => (
           <div key={group.label} className="flex flex-col gap-0.5">
-            <p className="px-2.5 pb-1 text-xs text-content/50">{t(group.label)}</p>
+            <p className="flex h-7 items-center px-2 text-[11px] font-medium text-text-faint">{t(group.label)}</p>
             {group.sections.map((section) => (
               <Link
                 key={section.to}
                 to={section.to}
                 replace
-                className={`${ROW} text-content/70 hover:bg-selection-hover hover:text-content aria-[current=page]:bg-selection aria-[current=page]:text-content`}
+                className={`${ROW} aria-[current=page]:bg-overlay-pressed aria-[current=page]:text-text-base aria-[current=page]:[&_svg]:text-icon-base`}
               >
                 <Icon icon={section.icon} />
                 {t(section.label)}
@@ -33,7 +35,7 @@ export function SettingsNav() {
           </div>
         ))}
       </nav>
-      <button type="button" className={`${ROW} text-content/70 hover:bg-selection-hover hover:text-content`} onClick={close}>
+      <button type="button" className={ROW} onClick={close}>
         <Icon icon={ArrowLeft01Icon} />
         {t("settings.back")}
       </button>
