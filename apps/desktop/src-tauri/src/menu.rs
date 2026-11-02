@@ -1,5 +1,7 @@
-use tauri::menu::{AboutMetadata, Menu, MenuBuilder, SubmenuBuilder};
-use tauri::{AppHandle, Runtime};
+use tauri::menu::{AboutMetadata, Menu, MenuBuilder, MenuEvent, MenuItemBuilder, SubmenuBuilder};
+use tauri::{AppHandle, Emitter, Runtime};
+
+const SETTINGS: &str = "settings";
 
 // Меню macOS по образцу меню Tauri по умолчанию, но без «Закрыть окно»:
 // окно одно, и случайный ⌘W закрыл бы приложение посреди ответа агента.
@@ -11,9 +13,14 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         version: Some(info.version.to_string()),
         ..Default::default()
     };
+    let settings = MenuItemBuilder::with_id(SETTINGS, "Настройки…")
+        .accelerator("Cmd+,")
+        .build(app)?;
 
     let app_menu = SubmenuBuilder::new(app, &info.name)
         .about_with_text(format!("О программе {}", info.name), Some(about))
+        .separator()
+        .item(&settings)
         .separator()
         .services_with_text("Службы")
         .separator()
@@ -43,4 +50,11 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     MenuBuilder::new(app)
         .items(&[&app_menu, &edit, &window])
         .build()
+}
+
+/// Настройки открывает окно: Rust только передаёт ему выбор пункта.
+pub fn handle<R: Runtime>(app: &AppHandle<R>, event: MenuEvent) {
+    if event.id().as_ref() == SETTINGS {
+        let _ = app.emit("menu-settings", ());
+    }
 }

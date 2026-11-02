@@ -166,7 +166,6 @@ export const ru = {
     settings: "Открыть интеграции",
   },
   settings: {
-    open: "Настройки",
     title: "Настройки",
     back: "Назад",
     sections: "Разделы настроек",

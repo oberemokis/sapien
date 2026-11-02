@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider, createMemoryHistory, createRouter } from "@tanstack/react-router";
+import { emit } from "@tauri-apps/api/event";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -68,9 +69,20 @@ describe("настройки", () => {
     expect(await screen.findByRole("button", { name: "Показать боковую панель" })).toBeDefined();
   });
 
+  it("«Настройки…» в меню macOS открывает настройки, кнопки в окне для них нет", async () => {
+    launch("/");
+    await screen.findByRole("button", { name: /^Поиск/ });
+    expect(screen.queryByRole("button", { name: "Настройки" })).toBeNull();
+
+    await act(() => emit("menu-settings"));
+
+    expect(await screen.findByRole("heading", { name: "Внешний вид" })).toBeDefined();
+  });
+
   it("тема меняется сразу, без сохранения, и переживает перезапуск", async () => {
     const { unmount } = launch("/");
-    fireEvent.click(await screen.findByRole("button", { name: "Настройки" }));
+    await screen.findByRole("button", { name: /^Поиск/ });
+    fireEvent.keyDown(window, { key: "б", code: "Comma", ...mod });
 
     fireEvent.click(await screen.findByRole("radio", { name: "Светлая" }));
     expect(isLight()).toBe(true);
@@ -86,7 +98,7 @@ describe("настройки", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Назад" }));
 
-    expect(await screen.findByRole("button", { name: "Настройки" })).toBeDefined();
+    expect(await screen.findByRole("button", { name: /^Поиск/ })).toBeDefined();
   });
 
   it("Escape при выехавшем списке разделов прячет список и оставляет настройки", async () => {

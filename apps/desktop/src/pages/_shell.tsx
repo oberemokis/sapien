@@ -8,7 +8,6 @@ import {
   useAgentEvents,
 } from "@/modules/agent";
 import { Workspace } from "@/modules/layout";
-import { SettingsButton } from "@/modules/settings";
 
 export const Route = createFileRoute("/_shell")({ component: Shell });
 
@@ -28,7 +27,6 @@ function Shell() {
         files={<SessionList deferred={deferred} />}
         main={<Outlet />}
         title={<SessionTabs />}
-        actions={<SettingsButton />}
       />
       <SessionSearch />
     </>

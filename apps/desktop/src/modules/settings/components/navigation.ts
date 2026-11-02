@@ -1,6 +1,7 @@
 import { useCanGoBack, useRouter } from "@tanstack/react-router";
 import { useCallback, useEffect } from "react";
 import { hasModKey } from "@/core/ui/keys";
+import { useSettingsMenu } from "../interactions/menu";
 
 // Из самих настроек не делает ничего: второй вход в истории увёл бы «Назад»
 // снова в настройки.
@@ -29,9 +30,13 @@ export function useCloseSettings() {
   }, [router, canGoBack]);
 }
 
-// ⌘, открывает настройки с любого экрана, как принято на macOS.
+// Настройки открываются с любого экрана, как принято на macOS: пунктом
+// «Настройки…» в меню приложения и ⌘,. В окне Tauri сочетание забирает
+// меню, а в браузере без меню его ловит страница.
 export function useSettingsShortcut() {
   const open = useOpenSettings();
+
+  useSettingsMenu(open);
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {

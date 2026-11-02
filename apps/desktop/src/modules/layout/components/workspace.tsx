@@ -47,13 +47,11 @@ type Props = {
   chat?: ReactNode;
   // Середина верхней полосы: вкладки или путь по экрану.
   title?: ReactNode;
-  // Кнопки у правого края верхней полосы.
-  actions?: ReactNode;
 };
 
 // Слева дерево файлов, посередине редактор, справа чат. Что в каждой панели,
 // решает страница: модуль даёт только места под них.
-export function Workspace({ files, main, chat, title, actions }: Props) {
+export function Workspace({ files, main, chat, title }: Props) {
   const { t } = useTranslation();
   const withChat = chat !== undefined;
   const layout = useFittedLayout(withChat);
@@ -85,7 +83,6 @@ export function Workspace({ files, main, chat, title, actions }: Props) {
         </div>
         <div className="flex min-w-0 flex-1 items-center px-1.5">{title}</div>
         <div className="flex shrink-0 items-center gap-1 pr-1.5">
-          {actions}
           {withChat && (
             <IconButton
               icon="layout-right"
