@@ -1,6 +1,6 @@
 import { clearMocks, mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import i18next from "i18next";
+import { changeLanguage } from "i18next";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   AppearanceSettings,
@@ -192,7 +192,7 @@ describe("язык", () => {
   afterEach(async () => {
     clearMocks();
     Reflect.deleteProperty(globalThis, "isTauri");
-    await i18next.changeLanguage("ru");
+    await changeLanguage("ru");
   });
 
   it("без выбора окно и меню на английском", () => {
@@ -217,7 +217,7 @@ describe("язык", () => {
     expect(await screen.findByRole("heading", { name: "Внешний вид" })).toBeDefined();
     expect(languages).toEqual(["en", "ru"]);
 
-    await act(() => i18next.changeLanguage("en"));
+    await act(() => changeLanguage("en"));
     restoreLanguage();
 
     expect(await screen.findByRole("heading", { name: "Внешний вид" })).toBeDefined();
