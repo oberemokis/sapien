@@ -1,4 +1,5 @@
 import { Outlet, createFileRoute } from "@tanstack/react-router";
+import { ClaudeUsage } from "@/modules/agent";
 import { Workspace } from "@/modules/layout";
 import { SettingsNav, SettingsTitle, useCloseOnEscape } from "@/modules/settings";
 
@@ -18,6 +19,7 @@ function Settings() {
         </div>
       }
       title={<SettingsTitle />}
+      footer={<ClaudeUsage />}
     />
   );
 }

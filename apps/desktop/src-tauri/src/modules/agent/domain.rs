@@ -146,12 +146,15 @@ fn parsed<T>(list: &Value, of: fn(&Value) -> Option<T>) -> Vec<T> {
 /// Номер запроса `initialize`, которым sapien спрашивает Claude Code.
 pub const INIT_REQUEST: &str = "sapien-init";
 
-/// Ответ на `initialize` из строки Claude Code, если это он. Остальные
-/// строки дают `None`.
-pub fn init_reply(line: &Value) -> Option<Result<Init, AppError>> {
+/// Номер запроса `get_usage`.
+pub const USAGE_REQUEST: &str = "sapien-usage";
+
+/// Ответ Claude Code на управляющий запрос `id`, если строка это он.
+/// Остальные строки дают `None`.
+fn control_reply<'a>(line: &'a Value, id: &str) -> Option<Result<&'a Value, AppError>> {
     let response = &line["response"];
 
-    if line["type"] != "control_response" || response["request_id"] != INIT_REQUEST {
+    if line["type"] != "control_response" || response["request_id"] != id {
         return None;
     }
 
@@ -159,14 +162,61 @@ pub fn init_reply(line: &Value) -> Option<Result<Init, AppError>> {
         return Some(Err(AppError::unavailable("claude_failed")));
     }
 
-    let init = &response["response"];
+    Some(Ok(&response["response"]))
+}
 
-    Some(Ok(Init {
+/// Ответ на `initialize` из строки Claude Code, если это он.
+pub fn init_reply(line: &Value) -> Option<Result<Init, AppError>> {
+    Some(control_reply(line, INIT_REQUEST)?.map(|init| Init {
         models: parsed(&init["models"], AgentModel::of),
         commands: Commands {
             commands: parsed(&init["commands"], AgentCommand::of),
             agents: parsed(&init["agents"], Subagent::of),
         },
+    }))
+}
+
+/// Окно лимита подписки: сколько процентов израсходовано и когда оно
+/// сбросится, время ISO 8601 как у claude.ai.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Limit {
+    pub used: f64,
+    pub resets: Option<String>,
+}
+
+impl Limit {
+    /// Окно без процента неизвестно, его нет.
+    fn of(info: &Value) -> Option<Self> {
+        Some(Self {
+            used: info["utilization"].as_f64()?,
+            resets: info["resets_at"].as_str().map(str::to_owned),
+        })
+    }
+}
+
+/// Лимиты подписки Claude за пять часов и за неделю. `available` ложно,
+/// когда вход не по подписке и лимитов подписки у него нет.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Usage {
+    pub available: bool,
+    pub five_hour: Option<Limit>,
+    pub seven_day: Option<Limit>,
+}
+
+/// Ответ на `get_usage` из строки Claude Code, если это он. Из ответа
+/// берутся только окна лимитов: расход сессии и разбор по скилам
+/// sapien не нужны.
+pub fn usage_reply(line: &Value) -> Option<Result<Usage, AppError>> {
+    Some(control_reply(line, USAGE_REQUEST)?.map(|usage| {
+        let limits = &usage["rate_limits"];
+
+        Usage {
+            available: usage["rate_limits_available"] == true,
+            five_hour: Limit::of(&limits["five_hour"]),
+            seven_day: Limit::of(&limits["seven_day"]),
+        }
     }))
 }
 
