@@ -3,14 +3,6 @@
 // мышь только дублирует их. Родной datalist не показывает клавишу действия
 // и пометку «нет сети».
 /* oxlint-disable jsx-a11y/prefer-tag-over-role, jsx-a11y/click-events-have-key-events */
-import Alert02Icon from "@hugeicons/core-free-icons/Alert02Icon";
-import ArrowUp02Icon from "@hugeicons/core-free-icons/ArrowUp02Icon";
-import ComputerTerminal01Icon from "@hugeicons/core-free-icons/ComputerTerminal01Icon";
-import PlusSignIcon from "@hugeicons/core-free-icons/PlusSignIcon";
-import Shield01Icon from "@hugeicons/core-free-icons/Shield01Icon";
-import SparklesIcon from "@hugeicons/core-free-icons/SparklesIcon";
-import SquareUnlock01Icon from "@hugeicons/core-free-icons/SquareUnlock01Icon";
-import StopIcon from "@hugeicons/core-free-icons/StopIcon";
 import { Link } from "@tanstack/react-router";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
@@ -112,7 +104,7 @@ function Asked({ entry, waiting, answer }: AskedProps) {
     return (
       <div role="group" aria-label={t("agent.chat.permissionLabel")} className={`${DOCK} rounded-dock`}>
         <div className="flex items-start gap-2 text-[14px]/[21px] font-[500] break-words">
-          <Icon icon={Shield01Icon} size={16} className="mt-0.5 shrink-0 text-state-fg-warning" />
+          <Icon icon="shield" size={16} className="mt-0.5 shrink-0 text-state-fg-warning" />
           <p className="min-w-0">
             {t("agent.chat.permission", { tool: entry.tool })}
             {entry.target !== "" && (
@@ -181,7 +173,7 @@ function Noticed({ entry, retry }: { entry: NoticeEntry; retry: (() => void) | n
   // читаемым.
   return (
     <div className="flex items-start gap-2 text-[13px]/5">
-      <Icon icon={Alert02Icon} size={16} className="mt-0.5 shrink-0 text-state-fg-danger" />
+      <Icon icon="warning" size={16} className="mt-0.5 shrink-0 text-state-fg-danger" />
       <p className="flex-1">
         <span>{reason}</span>
         {retry !== null && (
@@ -532,17 +524,17 @@ export function AgentChat({ session, project }: Props) {
                 fieldRef.current?.focus();
               }}
             >
-              <Icon icon={PlusSignIcon} size={14} />
+              <Icon icon="plus" size={14} />
             </button>
             <MenuButton
-              icon={SparklesIcon}
+              icon="models"
               label={t("agent.chat.model")}
               value={MODEL_NAMES[model]}
               items={models}
               disabled={chat.running}
             />
             <MenuButton
-              icon={chat.askEdits ? Shield01Icon : SquareUnlock01Icon}
+              icon={chat.askEdits ? "shield" : "warning"}
               tint={chat.askEdits ? undefined : "text-state-fg-warning"}
               label={t("agent.chat.access")}
               value={chat.askEdits ? t("agent.chat.accessAsk") : t("agent.chat.accessFull")}
@@ -551,7 +543,7 @@ export function AgentChat({ session, project }: Props) {
             />
             {claudeSession !== null && !chat.running && (
               <IconButton
-                icon={ComputerTerminal01Icon}
+                icon="terminal"
                 label={t("agent.chat.terminal")}
                 onClick={() => toTerminal(claudeSession)}
               />
@@ -566,7 +558,7 @@ export function AgentChat({ session, project }: Props) {
                 className={SEND}
                 onClick={send}
               >
-                <Icon icon={ArrowUp02Icon} size={15} />
+                <Icon icon="arrow-up" size={15} />
               </button>
             )}
             {chat.running && (
@@ -577,7 +569,7 @@ export function AgentChat({ session, project }: Props) {
                 className={SEND}
                 onClick={() => void chat.stop()}
               >
-                <Icon icon={StopIcon} size={14} />
+                <Icon icon="stop" size={14} />
               </button>
             )}
             {!chat.running && (
@@ -589,7 +581,7 @@ export function AgentChat({ session, project }: Props) {
                 className={SEND}
                 onClick={send}
               >
-                <Icon icon={ArrowUp02Icon} size={15} />
+                <Icon icon="arrow-up" size={15} />
               </button>
             )}
           </div>

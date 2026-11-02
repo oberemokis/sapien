@@ -1,11 +1,10 @@
-import ArrowDown01Icon from "@hugeicons/core-free-icons/ArrowDown01Icon";
-import type { IconSvgElement } from "@hugeicons/react";
 import { useState } from "react";
 import { ContextMenu, type MenuItem } from "./context-menu";
 import { Icon } from "./icon";
+import type { IconName } from "./icons";
 
 type Props = {
-  icon: IconSvgElement;
+  icon: IconName;
   // Что выбрано сейчас: видно на кнопке.
   value: string;
   // Что выбирают: вместе со значением даёт имя кнопки для чтения с экрана.
@@ -47,7 +46,7 @@ export function MenuButton({ icon, value, label, items, disabled = false, tint, 
       >
         <Icon icon={icon} size={14} className={tint} />
         <span className={`truncate ${shown}`}>{value}</span>
-        <Icon icon={ArrowDown01Icon} size={12} className="shrink-0 text-icon-muted" />
+        <Icon icon="chevron-down" size={12} className="shrink-0 text-icon-muted" />
       </button>
       {at !== null && (
         <ContextMenu x={at.x} y={at.y} above anchor={at.button} items={items} onClose={() => setAt(null)} />

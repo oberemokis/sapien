@@ -1,4 +1,3 @@
-import ArrowDown01Icon from "@hugeicons/core-free-icons/ArrowDown01Icon";
 import type { ReactNode } from "react";
 import { Icon } from "./icon";
 
@@ -112,7 +111,7 @@ export function SettingsSelect<Value extends string>({ label, value, options, on
           </option>
         ))}
       </select>
-      <Icon icon={ArrowDown01Icon} size={14} className="pointer-events-none absolute right-2 text-icon-muted" />
+      <Icon icon="chevron-down" size={14} className="pointer-events-none absolute right-2 text-icon-muted" />
     </span>
   );
 }

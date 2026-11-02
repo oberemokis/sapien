@@ -1,25 +1,19 @@
-import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
-
-// Толщина линии иконок MonoCode.
-const STROKE_WIDTH = 1.75;
+import { ICONS, type IconName } from "./icons";
 
 type Props = {
-  // Иконка берётся глубоким путём, `@hugeicons/core-free-icons/Settings01Icon`:
-  // корень пакета тащит в сборку весь каталог, его запрещает oxlint.
-  icon: IconSvgElement;
+  icon: IconName;
   size?: number;
   className?: string;
 };
 
-// Цвет иконка берёт у текста вокруг, поэтому красится теми же токенами.
+// Иконка opencode 2.0 по имени. Цвет она берёт у текста вокруг
+// (currentColor), поэтому красится теми же токенами.
 export function Icon({ icon, size = 16, className }: Props) {
+  const { viewBox, body } = ICONS[icon];
+
   return (
-    <HugeiconsIcon
-      icon={icon}
-      size={size}
-      strokeWidth={STROKE_WIDTH}
-      className={className}
-      aria-hidden
-    />
+    <svg width={size} height={size} viewBox={viewBox} fill="none" aria-hidden className={className}>
+      {body}
+    </svg>
   );
 }

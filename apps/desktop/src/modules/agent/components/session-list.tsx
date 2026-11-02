@@ -1,9 +1,3 @@
-import FlashIcon from "@hugeicons/core-free-icons/FlashIcon";
-import Folder01Icon from "@hugeicons/core-free-icons/Folder01Icon";
-import FolderAddIcon from "@hugeicons/core-free-icons/FolderAddIcon";
-import InboxIcon from "@hugeicons/core-free-icons/InboxIcon";
-import PlusSignIcon from "@hugeicons/core-free-icons/PlusSignIcon";
-import Search01Icon from "@hugeicons/core-free-icons/Search01Icon";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useState, type MouseEvent } from "react";
 import { useTranslation } from "react-i18next";
@@ -70,12 +64,12 @@ function ProjectSessions({ project, onMenu }: ProjectProps) {
     <li className="flex flex-col">
       <div className="group flex h-7 items-center gap-1 pr-0.5" onContextMenu={(event) => onMenu(event, projectMenu)}>
         <p title={project.path} className="flex min-w-0 flex-1 items-center gap-2 px-2 text-[13px]/4 font-medium">
-          <Icon icon={Folder01Icon} className="shrink-0 text-icon-muted" />
+          <Icon icon="folder" className="shrink-0 text-icon-muted" />
           <span className="truncate">{project.name}</span>
           {project.missing && <span className="shrink-0 text-[12px] font-normal text-text-faint">{t("agent.projects.missing")}</span>}
         </p>
         {!project.missing && (
-          <IconButton icon={PlusSignIcon} label={t("agent.sessions.newIn", { project: project.name })} onClick={create} />
+          <IconButton icon="plus" label={t("agent.sessions.newIn", { project: project.name })} onClick={create} />
         )}
       </div>
       {removing && (
@@ -143,22 +137,22 @@ export function SessionList({ deferred }: { deferred: string[] }) {
     <div className="flex min-h-0 flex-1 flex-col">
       <nav aria-label={t("agent.sessions.sections")} className="flex shrink-0 flex-col gap-0.5 px-1 pt-0.5">
         <button type="button" className={ROW} onClick={openSearch}>
-          <Icon icon={Search01Icon} className="shrink-0" />
+          <Icon icon="magnifying-glass" className="shrink-0" />
           <span className="flex-1 text-left">{t("agent.search.open")}</span>
           <kbd className="font-sans text-[11px] text-text-faint">{shortcutLabel("K")}</kbd>
         </button>
         <Link to="/actions" className={ROW}>
-          <Icon icon={FlashIcon} className="shrink-0" />
+          <Icon icon="task" className="shrink-0" />
           {t("agent.actions.title")}
         </Link>
         <Link to="/inbox" className={ROW}>
-          <Icon icon={InboxIcon} className="shrink-0" />
+          <Icon icon="archive" className="shrink-0" />
           {t("inbox.title")}
         </Link>
       </nav>
       <div className="mt-3 flex h-9 shrink-0 items-center gap-1 pr-1.5 pl-3">
         <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-text-muted">{t("agent.projects.title")}</span>
-        <IconButton icon={FolderAddIcon} label={t("agent.projects.add")} onClick={addProject} />
+        <IconButton icon="folder-add-left" label={t("agent.projects.add")} onClick={addProject} />
       </div>
       {add.isError && (
         <p role="alert" className="px-3 pb-1 text-[12px]/[18px] text-state-fg-danger">

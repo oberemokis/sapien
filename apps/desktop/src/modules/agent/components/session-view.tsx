@@ -1,4 +1,3 @@
-import AiChat02Icon from "@hugeicons/core-free-icons/AiChat02Icon";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/core/ui/button";
 import { Icon } from "@/core/ui/icon";
@@ -23,7 +22,7 @@ function Welcome() {
   return (
     <div className="grid flex-1 place-items-center p-6">
       <div className="flex max-w-md flex-col items-center gap-4 text-center">
-        <Icon icon={AiChat02Icon} size={20} className="text-icon-muted" />
+        <Icon icon="bubble-5" size={20} className="text-icon-muted" />
         <div className="flex flex-col items-center gap-1">
           <h1 className="text-[16px]/7 font-medium">
             {project === null ? t("agent.welcome.firstTitle") : t("agent.welcome.title")}

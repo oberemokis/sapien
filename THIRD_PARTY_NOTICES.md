@@ -6,7 +6,7 @@
 
 https://github.com/anomalyco/opencode, коммит `e5c9b015`.
 
-Что перенесено: палитра, тени, скругления и шрифты второй версии интерфейса из `packages/ui/src/styles` (`apps/desktop/src/styles.css`), вид кнопок, меню, сегментов и строк настроек из `packages/ui/src/components` (`apps/desktop/src/core/ui`).
+Что перенесено: палитра, тени, скругления и шрифты второй версии интерфейса из `packages/ui/src/styles` (`apps/desktop/src/styles.css`), вид кнопок, меню, сегментов и строк настроек из `packages/ui/src/components` (`apps/desktop/src/core/ui`), иконки из `packages/ui/src/icons` (`apps/desktop/src/core/ui/icons.tsx`).
 
 ```
 MIT License
