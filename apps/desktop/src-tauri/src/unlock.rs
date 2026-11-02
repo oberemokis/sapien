@@ -1,5 +1,5 @@
-//! Разблокировка окна: Touch ID, Windows Hello или пароль учётной записи
-//! системы, когда биометрии нет. Саму блокировку держит окно, Rust только
+//! Разблокировка окна: Touch ID или пароль учётной записи macOS, когда
+//! датчика нет. Саму блокировку держит окно, Rust только
 //! спрашивает систему, тот ли человек вернулся.
 
 use crate::error::AppError;
@@ -9,10 +9,6 @@ use robius_authentication::{
 use std::sync::Mutex;
 use tokio::sync::oneshot;
 
-/// Действие polkit из `polkit/is.oberemok.sapien.policy`, его ставят пакеты
-/// .deb и .rpm. Текст окна пароля на Linux берётся оттуда, а не из `Text`.
-const POLKIT_ACTION: &str = "is.oberemok.sapien.unlock";
-
 /// macOS показывает его как «sapien пытается разблокировать окно».
 const REASON: &str = "разблокировать окно";
 
@@ -21,8 +17,8 @@ enum Outcome {
     Verified,
     Canceled,
     Failed,
-    /// Системе нечем спросить: у учётной записи нет пароля, Windows Hello
-    /// закрыт политикой, нет агента polkit или действия polkit (AppImage).
+    /// Системе нечем спросить: у учётной записи нет пароля или проверку
+    /// закрыла политика.
     Unavailable,
 }
 
@@ -52,9 +48,9 @@ fn ask() -> Result<oneshot::Receiver<Result<(), Error>>, Error> {
         .biometrics(Some(BiometricStrength::Strong))
         .password(true)
         .companion(true)
-        .action_ids([POLKIT_ACTION])
         .build()
         .ok_or(Error::Unavailable)?;
+    // Крейт просит текст под каждую систему, macOS показывает только `apple`.
     let text = Text {
         android: AndroidText {
             title: "sapien",

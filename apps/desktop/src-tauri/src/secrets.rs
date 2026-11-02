@@ -40,8 +40,7 @@ pub trait Keychain: Send + Sync {
     fn erase(&self, key: &str) -> Result<(), Unavailable>;
 }
 
-/// Связка ключей на macOS, диспетчер учётных данных на Windows,
-/// Secret Service на Linux.
+/// Связка ключей macOS.
 pub struct SystemKeychain;
 
 impl Keychain for SystemKeychain {
@@ -69,9 +68,9 @@ impl Keychain for SystemKeychain {
 
 pub struct Secrets {
     keychain: Box<dyn Keychain>,
-    /// Секреты, которые системное хранилище не приняло. На Linux без
-    /// Secret Service токен живёт здесь до закрытия приложения: открытым
-    /// текстом на диск он не ложится ни при каких условиях.
+    /// Секреты, которые Связка ключей не приняла. Токен живёт здесь до
+    /// закрытия приложения: открытым текстом на диск он не ложится ни при
+    /// каких условиях.
     memory: Mutex<HashMap<&'static str, String>>,
 }
 
@@ -164,7 +163,7 @@ mod tests {
     use std::sync::Arc;
 
     /// Системное хранилище в памяти теста. Без хранилища пишет и читает
-    /// с отказом, как Linux без Secret Service.
+    /// с отказом, как закрытая Связка ключей.
     #[derive(Clone, Default)]
     struct Fake {
         stored: Arc<Mutex<HashMap<String, String>>>,

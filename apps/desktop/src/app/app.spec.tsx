@@ -8,8 +8,7 @@ import { restoreTheme, useThemeSync } from "@/modules/appearance";
 import { restoreLayout } from "@/modules/layout";
 import { routeTree } from "@/route-tree.gen";
 
-// happy-dom представляется Linux, но тест не должен от этого зависеть.
-const mod = /Mac/.test(navigator.userAgent) ? { metaKey: true } : { ctrlKey: true };
+const mod = { metaKey: true };
 
 function ThemeSync() {
   useThemeSync();

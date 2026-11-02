@@ -97,12 +97,12 @@ describe("экран «Действия»", () => {
 
     fireEvent.change(await screen.findByLabelText("Название"), { target: { value: " Обзор недели " } });
     fireEvent.change(screen.getByLabelText("Задание агенту"), { target: { value: "Собери изменения с {{since}}" } });
-    fireEvent.keyDown(hotkeyField(), { code: "KeyY", ctrlKey: true, shiftKey: true });
+    fireEvent.keyDown(hotkeyField(), { code: "KeyY", metaKey: true, shiftKey: true });
     fireEvent.change(screen.getByLabelText("Расписание"), { target: { value: "пн 10:00" } });
-    expect(hotkeyField().value).toBe("Ctrl+Shift+Y");
+    expect(hotkeyField().value).toBe("⇧⌘Y");
     fireEvent.click(createButton());
 
-    expect((await row("Обзор недели")).getByText("Ctrl+Shift+Y · по расписанию пн 10:00")).toBeDefined();
+    expect((await row("Обзор недели")).getByText("⇧⌘Y · по расписанию пн 10:00")).toBeDefined();
     expect(rust.actions.at(-1)).toEqual({
       path: "Обзор недели.md",
       text: "---\nhotkey: Mod+Shift+Y\nschedule: пн 10:00\n---\nСобери изменения с {{since}}\n",
@@ -136,10 +136,10 @@ describe("экран «Действия»", () => {
     fireEvent.change(name, { target: { value: "Новое" } });
     expect(createButton().disabled).toBe(false);
 
-    fireEvent.keyDown(hotkeyField(), { code: "KeyK", ctrlKey: true });
+    fireEvent.keyDown(hotkeyField(), { code: "KeyK", metaKey: true });
     expect(screen.getByText("это сочетание занято приложением")).toBeDefined();
     expect(createButton().disabled).toBe(true);
-    fireEvent.keyDown(hotkeyField(), { code: "KeyJ", ctrlKey: true, shiftKey: true });
+    fireEvent.keyDown(hotkeyField(), { code: "KeyJ", metaKey: true, shiftKey: true });
     expect(screen.getByText("это сочетание уже у другого действия")).toBeDefined();
     fireEvent.keyDown(hotkeyField(), { key: "Backspace", code: "Backspace" });
     expect(hotkeyField().value).toBe("");
@@ -170,12 +170,12 @@ describe("экран «Действия»", () => {
     expect(screen.getByRole("heading", { name: "Действие «Обзор изменений»" })).toBeDefined();
     expect(screen.queryByLabelText("Название")).toBeNull();
     expect(screen.getByLabelText<HTMLTextAreaElement>("Задание агенту").value).toBe("Посмотри изменения");
-    expect(hotkeyField().value).toBe("Ctrl+Shift+J");
+    expect(hotkeyField().value).toBe("⇧⌘J");
     expect(screen.queryByText("это сочетание уже у другого действия")).toBeNull();
-    fireEvent.keyDown(hotkeyField(), { code: "KeyS", ctrlKey: true, shiftKey: true });
+    fireEvent.keyDown(hotkeyField(), { code: "KeyS", metaKey: true, shiftKey: true });
     expect(screen.getByText("это сочетание уже у другого действия")).toBeDefined();
 
-    fireEvent.keyDown(hotkeyField(), { code: "KeyJ", ctrlKey: true, shiftKey: true });
+    fireEvent.keyDown(hotkeyField(), { code: "KeyJ", metaKey: true, shiftKey: true });
     fireEvent.change(screen.getByLabelText("Задание агенту"), { target: { value: "Посмотри изменения за неделю" } });
     fireEvent.change(screen.getByLabelText("Расписание"), { target: { value: "пт 18:00" } });
     fireEvent.click(screen.getByRole("button", { name: "Сохранить" }));
@@ -187,7 +187,7 @@ describe("экран «Действия»", () => {
         text: "---\nhotkey: Mod+Shift+J\nschedule: пт 18:00\n---\nПосмотри изменения за неделю\n",
       },
     ]);
-    expect(await (await row("Обзор изменений")).findByText("Ctrl+Shift+J · по расписанию пт 18:00")).toBeDefined();
+    expect(await (await row("Обзор изменений")).findByText("⇧⌘J · по расписанию пт 18:00")).toBeDefined();
   });
 
   it("удаление спрашивает, после него действие пропадает", async () => {
@@ -209,8 +209,8 @@ describe("экран «Действия»", () => {
     fakeRust({ actions: [...ACTIONS, { path: "Кривое.md", text: "---\nhotkey: Shift+T\n---\nзадание\n" }] });
     open();
 
-    expect((await row("Пустое")).getByText("Ctrl+Shift+E · нет задания, не запускается")).toBeDefined();
+    expect((await row("Пустое")).getByText("⇧⌘E · нет задания, не запускается")).toBeDefined();
     expect((await row("Кривое")).getByText("Shift+T · клавиша не разобрана")).toBeDefined();
-    expect((await row("Сводка")).getByText("Ctrl+Shift+S")).toBeDefined();
+    expect((await row("Сводка")).getByText("⇧⌘S")).toBeDefined();
   });
 });

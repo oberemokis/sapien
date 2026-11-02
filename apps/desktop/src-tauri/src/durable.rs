@@ -51,17 +51,11 @@ pub fn write(path: &Path, bytes: &[u8]) -> io::Result<()> {
 
 /// Переименование переживает выключение питания, когда сброшена и папка.
 /// Ошибку не поднимаем: файл уже на месте, и хуже от неё не станет.
-#[cfg(unix)]
 fn sync_dir(path: &Path) {
     if let Some(dir) = path.parent() {
         let _ = File::open(dir).and_then(|dir| dir.sync_all());
     }
 }
-
-/// Windows не даёт открыть папку как файл, а переименование там и так
-/// записывается в журнал файловой системы.
-#[cfg(not(unix))]
-fn sync_dir(_path: &Path) {}
 
 #[cfg(test)]
 mod tests {

@@ -156,9 +156,8 @@ describe("горячая клавиша", () => {
     expect(parseHotkey(raw)).toBe(hotkey);
   });
 
-  // В тестах не macOS: Mod это Ctrl.
   it("нажатие берётся по месту клавиши: Alt на macOS не меняет букву", () => {
-    const mod = { metaKey: false, ctrlKey: true };
+    const mod = { metaKey: true, ctrlKey: false };
 
     expect(hotkeyOf({ code: "KeyJ", altKey: true, shiftKey: false, ...mod })).toBe("Mod+Alt+J");
     expect(hotkeyOf({ code: "Digit3", altKey: false, shiftKey: true, ...mod })).toBe("Mod+Shift+3");

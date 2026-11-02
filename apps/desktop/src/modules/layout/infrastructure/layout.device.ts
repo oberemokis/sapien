@@ -1,14 +1,12 @@
 import { isTauri } from "@tauri-apps/api/core";
-import { isMac } from "@/core/ui/keys";
 import type { LayoutState } from "../model/layout";
 
 const STORAGE_KEY = "sapien.layout";
 
-// Окно Tauri на macOS рисует свои кнопки поверх страницы: верхнюю полосу
-// отдаёт ей titleBarStyle Overlay в tauri.conf.json. В браузере и на других
-// системах кнопки остаются в рамке окна.
+// Окно Tauri рисует кнопки macOS поверх страницы: верхнюю полосу отдаёт ей
+// titleBarStyle Overlay в tauri.conf.json. В браузере кнопок нет.
 export function hasWindowButtons() {
-  return isTauri() && isMac;
+  return isTauri();
 }
 
 // Хранилище окна бывает закрыто политикой: тогда раскладка живёт до

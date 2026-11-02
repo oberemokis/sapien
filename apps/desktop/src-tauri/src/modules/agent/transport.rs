@@ -1,4 +1,4 @@
-use super::domain::{ClaudeState, ClaudeStatus, Effect, Hook, SessionInfo, Tracked};
+use super::domain::{ClaudeStatus, Effect, Hook, SessionInfo, Tracked};
 use super::infrastructure::claude_code::ClaudeCode;
 use super::infrastructure::neighbours::ProjectFolders;
 use super::infrastructure::sessions_dir::SessionsDir;
@@ -26,9 +26,6 @@ fn data_dir<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, AppError> {
 fn sessions<R: Runtime>(app: &AppHandle<R>) -> Result<SessionsDir, AppError> {
     Ok(SessionsDir::new(&data_dir(app)?))
 }
-
-/// Подписка Claude через Claude Code пока только на macOS.
-const CLAUDE_SUPPORTED: bool = cfg!(target_os = "macos");
 
 /// Claude Code устройства. Проверки он проходит в папке данных
 /// приложения, поэтому она должна быть.
@@ -148,10 +145,6 @@ fn start(
     channel: Option<Channel>,
     (cols, rows): (u16, u16),
 ) -> Result<Opened, AppError> {
-    if !CLAUDE_SUPPORTED {
-        return Err(AppError::invalid("claude_unsupported"));
-    }
-
     let claude = claude(app)?;
     let program = claude.program()?.to_owned();
     let exe = std::env::current_exe().map_err(|_| AppError::unavailable("terminal_failed"))?;
@@ -510,9 +503,5 @@ pub async fn terminal_close(
 /// Есть ли Claude Code, какой версии и как выполнен вход.
 #[tauri::command]
 pub async fn agent_claude_status(app: AppHandle) -> Result<ClaudeStatus, AppError> {
-    if !CLAUDE_SUPPORTED {
-        return Ok(ClaudeStatus::of_state(ClaudeState::Unsupported));
-    }
-
     Ok(claude(&app)?.status().await)
 }
