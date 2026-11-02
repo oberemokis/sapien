@@ -4,7 +4,6 @@ import { useCallback, useEffect } from "react";
 import {
   agentAnswer,
   agentAttach,
-  agentClaudeSession,
   agentHistory,
   agentRunning,
   agentSend,
@@ -162,9 +161,6 @@ export function useAttach() {
 // busy: ответ идёт в другой сессии, и новое сообщение подождёт его.
 export function useChat(session: string) {
   const history = useQuery({ queryKey: historyKey(session), queryFn: () => agentHistory(session) });
-  // Сессия Claude Code, чтобы продолжить разговор в терминале. Читается
-  // заранее: в буфер обмена окно пишет сразу по нажатию.
-  const claude = useQuery({ queryKey: [...historyKey(session), "claude"], queryFn: () => agentClaudeSession(session) });
   const state = useSelector(chatStore);
   const send = useSend();
   const here = state.session === session;
@@ -225,7 +221,6 @@ export function useChat(session: string) {
     problem,
     open,
     askEdits: state.askEdits,
-    claudeSession: claude.data ?? null,
     setAskEdits,
     send: (model: string, text: string) => send(session, model, text),
     answer,

@@ -277,14 +277,6 @@ pub fn agent_running(running: State<'_, Running>) -> Option<String> {
     running_session(&running.slot()).map(str::to_owned)
 }
 
-/// Сессия Claude Code сессии `session`, чтобы продолжить разговор
-/// в терминале командой `claude --resume`. Разговора ещё не было,
-/// значит, `None`.
-#[tauri::command]
-pub fn agent_claude_session(app: AppHandle, session: String) -> Result<Option<String>, AppError> {
-    use_case::claude_session(&sessions(&app)?, &session)
-}
-
 /// Окно открылось заново, например после перезагрузки: события идущего
 /// ответа идут в новый канал, открытый вопрос виден снова. Кончается вместе
 /// с ответом. `true`, если ответ шёл и окну пора перечитать историю.
