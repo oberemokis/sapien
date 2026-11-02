@@ -43,7 +43,7 @@ export function MenuButton({ value, text = value, label, items, disabled = false
         }}
       >
         <span className={`truncate ${tint}`}>{text}</span>
-        <Icon icon="chevron-down" size={12} className="shrink-0 text-icon-muted" />
+        <Icon icon="chevron-down" size={14} className="shrink-0 text-icon-muted" />
       </button>
       {at !== null && (
         <ContextMenu x={at.x} y={at.y} above anchor={at.button} items={items} onClose={() => setAt(null)} />
