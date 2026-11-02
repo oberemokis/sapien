@@ -2,7 +2,7 @@ import { queryOptions, useQuery, type QueryClient } from "@tanstack/react-query"
 import { useSelector } from "@tanstack/react-store";
 import { agentCommands, agentProviders } from "../infrastructure/agent.api";
 import { readChoice, writeChoice } from "../infrastructure/agent.device";
-import { fitChoice, savedChoice, wantedChoice, type Choice, type Commands, type Provider } from "../model/agents";
+import { fitChoice, wantedChoice, type Choice, type Commands } from "../model/agents";
 import type { Project, SessionInfo } from "../model/sessions";
 import { choiceStore } from "../store/choice.store";
 import { SESSIONS_KEY } from "./sessions";
@@ -45,8 +45,8 @@ export function useCommands(provider: string | null, project: Project | undefine
   };
 }
 
-// Выбор сессии и агенты на выбор. locked: сессия уже отвечала, и её агент
-// не меняется.
+// Выбор сессии и агенты на выбор. locked: разговор в сессии начат, и её
+// агент не меняется.
 export function useChoice(session: SessionInfo) {
   const providers = useProviders().data ?? [];
   const picked = useSelector(choiceStore, (state) => state.sessions[session.id] ?? null);
@@ -55,7 +55,7 @@ export function useChoice(session: SessionInfo) {
   return {
     choice: fitChoice(wantedChoice(session, picked, last), providers),
     providers,
-    locked: savedChoice(session) !== null,
+    locked: session.started,
   };
 }
 
@@ -67,8 +67,10 @@ export function setChoice(session: string, choice: Choice) {
 }
 
 // Выбор сессии вне чата, например для действия. null: агентов нет.
+// Отказ Rust в списке агентов уходит к вызвавшему: это не то же, что
+// агентов нет.
 export async function choiceFor(queryClient: QueryClient, session: string) {
-  const providers: Provider[] = await queryClient.fetchQuery(providersQuery).catch(() => []);
+  const providers = await queryClient.fetchQuery(providersQuery);
   const info = queryClient.getQueryData<SessionInfo[]>(SESSIONS_KEY)?.find((candidate) => candidate.id === session);
   const { sessions, last } = choiceStore.get();
   const picked = sessions[session] ?? null;

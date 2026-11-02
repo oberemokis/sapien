@@ -132,8 +132,9 @@ export function useSend() {
         problems: without(state.problems, session),
       }));
       // Название новой сессии Rust берёт из первой строки первого сообщения,
-      // а выбор агента запоминает с сообщением. Список перечитается только
-      // в конце ответа: до тех пор они здесь.
+      // а выбор агента запоминает с сообщением. С непустым сообщением
+      // разговор начат, и агент закреплён. Список перечитается только
+      // в конце ответа: до тех пор всё это здесь.
       queryClient.setQueryData<SessionInfo[]>(SESSIONS_KEY, (list) =>
         list?.map((item) => {
           if (item.id !== session) {
@@ -146,7 +147,7 @@ export function useSend() {
             title = titleOf(text);
           }
 
-          return { ...item, ...choice, title };
+          return { ...item, ...choice, title, started: item.started || text.trim() !== "" };
         }),
       );
 

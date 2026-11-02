@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { commandsMatching, fitChoice, wantedChoice, type AgentCommand, type Choice, type Provider } from "./agents";
+import {
+  commandsMatching,
+  fitChoice,
+  parseChoice,
+  wantedChoice,
+  type AgentCommand,
+  type Choice,
+  type Provider,
+} from "./agents";
 import type { SessionInfo } from "./sessions";
 
 const ALL = ["low", "medium", "high", "xhigh", "max"];
@@ -15,6 +23,16 @@ const CLAUDE: Provider = {
 
 // Агент, который не назвал своих моделей.
 const SILENT: Provider = { id: "claude", name: "Claude Code", models: [] };
+
+// Вторая модель без полного имени за псевдонимом.
+const MIXED: Provider = {
+  id: "claude",
+  name: "Claude Code",
+  models: [
+    { id: "default", resolved: "claude-sonnet-5-5", name: "По умолчанию", description: "", efforts: [] },
+    { id: "custom", resolved: null, name: "Своя", description: "", efforts: [] },
+  ],
+};
 
 const choice = (model: string | null, effort: Choice["effort"] = null, provider = "claude"): Choice => ({
   provider,
@@ -32,12 +50,14 @@ describe("выбор, который годится установленным �
     ["агента нет на устройстве: первый установленный", choice("gpt-5", "low", "codex"), [CLAUDE], choice("sonnet")],
     ["агент не назвал моделей: выбор как есть", choice("opus", "high"), [SILENT], choice("opus", "high")],
     ["агентов нет", choice("sonnet"), [], null],
+    ["модели нет, а у модели агента нет полного имени: первая", choice(null), [MIXED], choice("default")],
   ])("%s", (_, wanted, providers, fitted) => {
     expect(fitChoice(wanted, providers)).toEqual(fitted);
   });
 });
 
-const session = (provider: string, model: string | null, effort: string | null = null): SessionInfo => ({
+// started: в истории есть сообщения.
+const session = (provider: string, model: string | null, effort: string | null = null, started = true): SessionInfo => ({
   id: "s1",
   project: "p1",
   title: "",
@@ -45,17 +65,33 @@ const session = (provider: string, model: string | null, effort: string | null =
   provider,
   model,
   effort,
+  started,
 });
 
 describe("что хочет сессия", () => {
   it.each([
     ["выбранное в сессии важнее сохранённого", session("claude", "sonnet"), choice("haiku"), choice("opus"), choice("haiku")],
     ["сохранённое важнее последнего выбора окна", session("claude", "sonnet", "high"), null, choice("haiku"), choice("sonnet", "high")],
-    ["новая сессия берёт последний выбор окна", session("claude", null), null, choice("haiku"), choice("haiku")],
+    ["новая сессия берёт последний выбор окна", session("claude", null, null, false), null, choice("haiku"), choice("haiku")],
     ["агент ответившей сессии не меняется", session("claude", "sonnet"), choice("gpt-5", null, "codex"), null, choice("gpt-5")],
+    ["агент начатой сессии без модели тоже не меняется", session("claude", null), choice("gpt-5", null, "codex"), null, choice("gpt-5")],
     ["неизвестный уровень из файла сессии не берётся", session("claude", "sonnet", "turbo"), null, null, choice("sonnet")],
   ])("%s", (_, info, picked, last, wanted) => {
     expect(wantedChoice(info, picked, last)).toEqual(wanted);
+  });
+});
+
+describe("выбор из хранилища окна", () => {
+  it.each([
+    ["целый", { provider: "claude", model: "opus", effort: "high" }, choice("opus", "high")],
+    ["модель по умолчанию", { provider: "claude", model: null, effort: null }, choice(null)],
+    ["неизвестный уровень сбрасывается", { provider: "claude", model: "opus", effort: "turbo" }, choice("opus")],
+    ["выбора не было", null, null],
+    ["без модели", { provider: "claude" }, null],
+    ["агент не строкой", { provider: 1, model: "opus", effort: null }, null],
+    ["строка вместо выбора", "sonnet", null],
+  ])("%s", (_, stored, parsed) => {
+    expect(parseChoice(stored)).toEqual(parsed);
   });
 });
 

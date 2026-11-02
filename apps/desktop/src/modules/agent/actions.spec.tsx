@@ -38,7 +38,7 @@ const CLAUDE = {
 };
 
 // Сессия, которая ещё не отвечала.
-const FRESH = { provider: "claude", model: null, effort: null };
+const FRESH = { provider: "claude", model: null, effort: null, started: false };
 
 // То, с чем уходит каждое задание действия в этих тестах.
 const AGENT = { provider: "claude", model: "sonnet", effort: null };
@@ -72,18 +72,21 @@ const COMMANDS: AgentCommand[] = [
 // Rust за командами агента и действий. Ответ агента приходит сразу.
 // refuse это код отказа actions_create. commands это команды агента
 // в папке проекта, по умолчанию их нет, refuseCommands: сколько первых
-// запросов команд агент не ответит.
+// запросов команд агент не ответит. refuseProviders это код отказа
+// в списке агентов.
 function fakeRust({
   actions = ACTIONS,
   projects = [SAPIEN, SITE],
   commands = [],
   refuseCommands = 0,
+  refuseProviders,
   refuse,
 }: {
   actions?: File[];
   projects?: Project[];
   commands?: AgentCommand[];
   refuseCommands?: number;
+  refuseProviders?: string;
   refuse?: string;
 } = {}) {
   const rust = {
@@ -134,6 +137,10 @@ function fakeRust({
       case "agent_claude_status":
         return { state: "ready", version: "2.1.316" };
       case "agent_providers":
+        if (refuseProviders !== undefined) {
+          throw { kind: "unavailable", code: refuseProviders };
+        }
+
         return [CLAUDE];
       case "agent_commands": {
         const { provider, project } = args as { provider: string; project: string };
@@ -470,6 +477,18 @@ describe("действия в чате", () => {
     expect(rust.sent[0]).toMatchObject({ session: rust.created[0]?.id, text: "Посмотри изменения" });
     expect(await screen.findByLabelText("Сообщение агенту")).toBeDefined();
     expect(panel().getByRole("button", { current: "page" })).toBeDefined();
+  });
+
+  it("отказ Rust в списке агентов чат называет своей причиной, а не «Claude Code не найден»", async () => {
+    const rust = fakeRust({ refuseProviders: "claude_failed" });
+    open();
+    await openSession("Рефакторинг парсера");
+
+    hotkey("KeyJ");
+
+    expect(await screen.findByText("Claude Code не ответил, попробуйте ещё раз.")).toBeDefined();
+    expect(screen.queryByText(/Claude Code не найден/)).toBeNull();
+    expect(rust.sent).toEqual([]);
   });
 
   it("клавиша, пока открытая сессия отвечает, начинает новую в её проекте и шлёт задание туда", async () => {

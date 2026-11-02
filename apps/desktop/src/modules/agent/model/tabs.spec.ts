@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SessionInfo } from "./sessions";
-import { closeTab, NO_TABS, openTab, visibleTabs } from "./tabs";
+import { closeTab, NO_TABS, openTab, parseTabs, visibleTabs } from "./tabs";
 
 const session = (id: string, project: string): SessionInfo => ({
   id,
@@ -10,6 +10,7 @@ const session = (id: string, project: string): SessionInfo => ({
   provider: "claude",
   model: null,
   effort: null,
+  started: false,
 });
 
 const SESSIONS = [session("a", "p1"), session("b", "p1"), session("c", "p1"), session("x", "p2")];
@@ -43,5 +44,20 @@ describe("видимые вкладки", () => {
 
   it("без открытого проекта вкладок нет", () => {
     expect(visibleTabs(NO_TABS, SESSIONS)).toEqual({ sessions: [], active: null });
+  });
+});
+
+describe("вкладки из хранилища окна", () => {
+  it.each([
+    ["целые", THREE, THREE],
+    ["вкладок не было", null, null],
+    ["проекта нет", NO_TABS, NO_TABS],
+    ["проект не строкой", { project: 1, projects: {} }, null],
+    ["без проектов", { project: "p1" }, null],
+    ["сессии не списком", { project: "p1", projects: { p1: { sessions: "a", active: "a" } } }, null],
+    ["сессия не строкой", { project: "p1", projects: { p1: { sessions: [1], active: null } } }, null],
+    ["активная не строкой", { project: "p1", projects: { p1: { sessions: ["a"], active: 0 } } }, null],
+  ])("%s", (_, stored, parsed) => {
+    expect(parseTabs(stored)).toEqual(parsed);
   });
 });

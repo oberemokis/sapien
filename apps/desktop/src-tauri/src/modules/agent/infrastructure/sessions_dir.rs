@@ -152,21 +152,37 @@ mod tests {
             [session("a1", "p1").info(), session("b2", "p2").info()]
         );
         assert_eq!(again.load("a1"), Ok(session("a1", "p1")));
+        // Сессия с сообщениями начата, и список видит это без истории.
+        assert!(listed.iter().all(|info| info.started));
 
-        // Сессия из версии без выбора агента: агент Claude Code, модели нет.
+        // Сессии из версии без выбора агента: агент Claude Code, модели нет.
+        // Пустая не начата, а с сообщениями начата и без модели.
         fs::write(
             data.path().join("sessions/d4.json"),
             r#"{"id":"d4","project":"p1","title":"","created":1,"updated":1}"#,
         )
         .unwrap();
+        fs::write(
+            data.path().join("sessions/e5.json"),
+            r#"{"id":"e5","project":"p1","title":"Привет","created":1,"updated":1,"chat":{"messages":[{"role":"user","content":[]}]}}"#,
+        )
+        .unwrap();
 
         let old = again.load("d4").unwrap().info();
+        let talked = again.load("e5").unwrap().info();
 
         assert_eq!(
-            (old.provider.as_str(), old.model.clone(), old.effort.clone()),
-            ("claude", None, None)
+            (
+                old.provider.as_str(),
+                old.model.clone(),
+                old.effort.clone(),
+                old.started
+            ),
+            ("claude", None, None, false)
         );
+        assert_eq!((talked.model.clone(), talked.started), (None, true));
         assert!(again.list().unwrap().contains(&old));
+        assert!(again.list().unwrap().contains(&talked));
 
         again.delete("a1").unwrap();
         again.delete("a1").unwrap();

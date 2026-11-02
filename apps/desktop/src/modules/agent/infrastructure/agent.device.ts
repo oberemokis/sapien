@@ -1,6 +1,6 @@
 import type { Run } from "../model/actions";
-import type { Choice } from "../model/agents";
-import type { Tabs } from "../model/tabs";
+import { parseChoice, type Choice } from "../model/agents";
+import { parseTabs, type Tabs } from "../model/tabs";
 
 const CHOICE_KEY = "sapien.agent.choice";
 const TABS_KEY = "sapien.agent.tabs";
@@ -27,10 +27,11 @@ export function writeRun(path: string, run: Run) {
 
 // Последний выбор агента, модели и размышления: с ним начинается новая
 // сессия. Хранилище окна бывает закрыто политикой: тогда выбор живёт до
-// закрытия окна, а приложение не падает. null: выбора ещё не было.
+// закрытия окна, а приложение не падает. null: выбора ещё не было или
+// в хранилище не выбор.
 export function readChoice(): Choice | null {
   try {
-    return JSON.parse(localStorage.getItem(CHOICE_KEY) ?? "null");
+    return parseChoice(JSON.parse(localStorage.getItem(CHOICE_KEY) ?? "null"));
   } catch {
     return null;
   }
@@ -45,10 +46,10 @@ export function writeChoice(choice: Choice) {
 }
 
 // Открытые вкладки: после перезапуска окно открывает их же. null: вкладок
-// ещё не было или хранилище закрыто.
+// ещё не было, хранилище закрыто или в нём не вкладки.
 export function readTabs(): Tabs | null {
   try {
-    return JSON.parse(localStorage.getItem(TABS_KEY) ?? "null");
+    return parseTabs(JSON.parse(localStorage.getItem(TABS_KEY) ?? "null"));
   } catch {
     return null;
   }

@@ -591,7 +591,7 @@ export function AgentChat({ session, project }: Props) {
                   label={t("agent.chat.provider")}
                   value={provider?.name ?? choice.provider}
                   items={providerItems}
-                  disabled={locked || chat.running || count > 0}
+                  disabled={locked || chat.running}
                 />
                 <MenuButton
                   label={t("agent.chat.model")}
