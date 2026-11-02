@@ -191,6 +191,10 @@ export const ru = {
       title: "Масштаб",
       description: "Размер текста и всего окна, как масштаб страницы в браузере.",
     },
+    language: {
+      title: "Язык",
+      description: "Язык окна и меню приложения.",
+    },
   },
   updates: {
     offer: {

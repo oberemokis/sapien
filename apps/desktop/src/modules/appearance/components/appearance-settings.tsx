@@ -1,8 +1,10 @@
 import { useId } from "react";
 import { useTranslation } from "react-i18next";
 import { SettingsGroup, SettingsRow, SettingsSection, SettingsSelect } from "@/core/ui/settings";
+import { setLanguage, useLanguage } from "../interactions/language";
 import { setUiScale, useUiScale } from "../interactions/scale";
 import { setThemePreference, useThemePreference } from "../interactions/theme";
+import { LANGUAGES } from "../model/language";
 import { UI_SCALES } from "../model/scale";
 import { THEME_PREFERENCES, type Theme, type ThemePreference } from "../model/theme";
 
@@ -102,11 +104,20 @@ function ThemePicker() {
 export function AppearanceSettings() {
   const { t } = useTranslation();
   const scale = useUiScale();
+  const language = useLanguage();
 
   return (
     <SettingsSection title={t("appearance.title")} description={t("appearance.description")}>
       <ThemePicker />
       <SettingsGroup>
+        <SettingsRow title={t("appearance.language.title")} description={t("appearance.language.description")}>
+          <SettingsSelect
+            label={t("appearance.language.title")}
+            value={language}
+            options={LANGUAGES}
+            onChange={setLanguage}
+          />
+        </SettingsRow>
         <SettingsRow title={t("appearance.scale.title")} description={t("appearance.scale.description")}>
           <SettingsSelect
             label={t("appearance.scale.title")}

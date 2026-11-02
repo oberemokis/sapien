@@ -3,14 +3,13 @@
 //! спрашивает систему, тот ли человек вернулся.
 
 use crate::error::AppError;
+use crate::language::{self, Language};
 use robius_authentication::{
     AndroidText, BiometricStrength, Context, Error, PolicyBuilder, Text, WindowsText,
 };
 use std::sync::Mutex;
+use tauri::AppHandle;
 use tokio::sync::oneshot;
-
-/// macOS показывает его как «sapien пытается разблокировать окно».
-const REASON: &str = "разблокировать окно";
 
 #[derive(Debug, PartialEq)]
 enum Outcome {
@@ -43,7 +42,7 @@ fn outcome(result: Result<(), Error>) -> Outcome {
 
 /// Биометрия с паролем: без датчика или после неудач система сама
 /// предлагает пароль учётной записи.
-fn ask() -> Result<oneshot::Receiver<Result<(), Error>>, Error> {
+fn ask(language: Language) -> Result<oneshot::Receiver<Result<(), Error>>, Error> {
     let policy = PolicyBuilder::new()
         .biometrics(Some(BiometricStrength::Strong))
         .password(true)
@@ -57,8 +56,9 @@ fn ask() -> Result<oneshot::Receiver<Result<(), Error>>, Error> {
             subtitle: None,
             description: None,
         },
-        apple: REASON,
-        windows: WindowsText::new("sapien", "Разблокировать sapien").ok_or(Error::InvalidText)?,
+        // macOS показывает его как «sapien is trying to unlock the window».
+        apple: language.pick("unlock the window", "разблокировать окно"),
+        windows: WindowsText::new("sapien", "Unlock sapien").ok_or(Error::InvalidText)?,
     };
     let (sender, receiver) = oneshot::channel();
     // Ответ приходит один раз, но крейт просит Fn.
@@ -76,8 +76,8 @@ fn ask() -> Result<oneshot::Receiver<Result<(), Error>>, Error> {
 /// Окно ждёт ответа человека в системном окне проверки, поэтому команда
 /// асинхронная и главный поток не держит.
 #[tauri::command]
-pub async fn app_unlock() -> Result<(), AppError> {
-    let result = match ask() {
+pub async fn app_unlock(app: AppHandle) -> Result<(), AppError> {
+    let result = match ask(language::current(&app)) {
         Ok(receiver) => receiver.await.unwrap_or(Err(Error::Unknown)),
         Err(error) => Err(error),
     };

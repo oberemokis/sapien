@@ -2,8 +2,8 @@ mod data_format;
 mod durable;
 mod egress;
 mod error;
+mod language;
 mod links;
-#[cfg(target_os = "macos")]
 mod menu;
 mod modules;
 mod secrets;
@@ -27,12 +27,11 @@ pub fn hook() {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let builder = tauri::Builder::default();
-    // Меню по умолчанию Tauri ставит только на macOS, там же его и заменяем.
-    #[cfg(target_os = "macos")]
-    let builder = builder.menu(menu::build).on_menu_event(menu::handle);
-
-    builder
+    // Меню сначала на английском: язык окна приходит командой
+    // app_set_language, когда окно открылось.
+    tauri::Builder::default()
+        .menu(|app| menu::build(app, language::Language::default()))
+        .on_menu_event(menu::handle)
         // Лог в папке логов приложения и в терминале: туда пишутся отказы
         // запросов из egress.rs. Ниже предупреждения не пишется ничего.
         .plugin(
@@ -50,6 +49,7 @@ pub fn run() {
         )
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(updates::Pending::default())
+        .manage(language::AppLanguage::default())
         .manage(secrets::Secrets::default())
         .manage(forge::Http::default())
         .manage(agent::Terminals::default())
@@ -70,6 +70,7 @@ pub fn run() {
             updates::app_update_check,
             updates::app_update_install,
             unlock::app_unlock,
+            language::app_set_language,
             projects::transport::projects_list,
             projects::transport::projects_add,
             projects::transport::projects_remove,
