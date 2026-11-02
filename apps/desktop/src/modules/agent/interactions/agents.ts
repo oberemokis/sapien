@@ -7,7 +7,7 @@ import type { Project, SessionInfo } from "../model/sessions";
 import { choiceStore } from "../store/choice.store";
 import { SESSIONS_KEY } from "./sessions";
 
-const NO_COMMANDS: Commands = { commands: [], agents: [] };
+const NO_COMMANDS: Commands = { commands: [] };
 
 choiceStore.setState((state) => ({ ...state, last: readChoice() }));
 

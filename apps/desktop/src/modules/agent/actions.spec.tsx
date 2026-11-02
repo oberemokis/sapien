@@ -62,11 +62,11 @@ const ACTIONS: File[] = [
   { path: "Пустое.md", text: "---\nhotkey: Mod+Shift+E\n---\n" },
 ];
 
-// Команды Claude Code в папке проекта: свой скил с подсказкой аргументов
-// и встроенная команда с другим именем.
+// Команды Claude Code в папке проекта: свой скил и встроенная команда
+// с другим именем.
 const COMMANDS: AgentCommand[] = [
-  { name: "review", description: "Проверить пул-реквест", hint: "<pr>", aliases: [], builtin: false },
-  { name: "clear", description: "Начать разговор заново", hint: "", aliases: ["reset"], builtin: true },
+  { name: "review", description: "Проверить пул-реквест", aliases: [], builtin: false },
+  { name: "clear", description: "Начать разговор заново", aliases: ["reset"], builtin: true },
 ];
 
 // Rust за командами агента и действий. Ответ агента приходит сразу.
@@ -151,7 +151,7 @@ function fakeRust({
           throw { kind: "unavailable", code: "claude_failed" };
         }
 
-        return { commands, agents: [] };
+        return { commands };
       }
       case "agent_send": {
         const { session, provider, model, effort, text, oversight } = args as Sent;

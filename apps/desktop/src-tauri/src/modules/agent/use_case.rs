@@ -741,11 +741,9 @@ mod tests {
                 commands: vec![AgentCommand {
                     name: dir.display().to_string(),
                     description: String::new(),
-                    hint: String::new(),
                     aliases: vec![],
                     builtin: false,
                 }],
-                agents: vec![],
             })
         }
 

@@ -2,7 +2,7 @@ import { Fragment, useEffect, useLayoutEffect, useRef, type KeyboardEvent } from
 import { createPortal } from "react-dom";
 import { Icon } from "./icon";
 
-// Недоступный пункт виден серым с пометкой справа, почему. separated
+// Недоступный пункт виден серым с пометкой под названием, почему. separated
 // отделяет пункт и следующие за ним чертой сверху, heading подписывает
 // группу над пунктом. checked делает пункт выбором из нескольких с галочкой.
 // id нужен, когда подписи пунктов повторяются в разных группах.

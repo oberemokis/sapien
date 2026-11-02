@@ -47,10 +47,6 @@ export const ICONS = {
     viewBox: "0 0 16 16",
     body: <path d="M8 6.75047V9.25047M10.668 6.75047V9.25047M5.33398 6.75047V9.25047M1.33398 2.44531V13.5553H14.6673V2.44531H1.33398Z" stroke="currentColor" strokeLinecap="square" />,
   },
-  folder: {
-    viewBox: "0 0 16 16",
-    body: <path d="M1.33337 2V13.3333H14.6667V4H8.66671L6.66671 2H1.33337Z" stroke="currentColor" strokeMiterlimit="10" strokeLinecap="square" />,
-  },
   "folder-add-left": {
     viewBox: "0 0 16 16",
     body: <path d="M7.5 13.3333H1.5V2H6.83333L8.83333 4H14.8333V6M10.1667 11.3333H15.5M12.8333 8.66667V14" stroke="currentColor" strokeMiterlimit="10" strokeLinecap="square" />,
@@ -74,10 +70,6 @@ export const ICONS = {
   "magnifying-glass": {
     viewBox: "0 0 16 16",
     body: <path d="M14 14L10.3454 10.3454M6.88889 11.7778C9.58889 11.7778 11.7778 9.58889 11.7778 6.88889C11.7778 4.18889 9.58889 2 6.88889 2C4.18889 2 2 4.18889 2 6.88889C2 9.58889 4.18889 11.7778 6.88889 11.7778Z" stroke="currentColor" />,
-  },
-  models: {
-    viewBox: "0 0 16 16",
-    body: <path fillRule="evenodd" clipRule="evenodd" d="M14 8C9.83336 8 8 9.83336 8 14C8 9.83336 6.16666 8 2 8C6.16666 8 8 6.16666 8 2C8 6.16666 9.83336 8 14 8Z" stroke="currentColor" />,
   },
   plus: {
     viewBox: "0 0 16 16",

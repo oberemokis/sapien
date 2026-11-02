@@ -281,10 +281,10 @@ impl Claude for ClaudeCode {
         static TURNS: AtomicU64 = AtomicU64::new(0);
 
         let failed = |_| AppError::unavailable("claude_failed");
+        let bridge = std::env::current_exe().map_err(failed)?;
         let turn = TURNS.fetch_add(1, Ordering::Relaxed);
         let socket = self.data.join(format!("claude-{turn}.sock"));
         let listener = talk::listen(&socket)?;
-        let bridge = std::env::current_exe().map_err(failed)?;
         let config = json!({
             "mcpServers": {
                 "sapien": {
@@ -332,7 +332,10 @@ impl Claude for ClaudeCode {
             }
         }
 
-        let mut child = self.spawn(run.dir, &args, &CHAT_ENV)?;
+        // Сокет убирает `Talk`. Без запуска его нет, и сокет убирается здесь.
+        let mut child = self.spawn(run.dir, &args, &CHAT_ENV).inspect_err(|_| {
+            let _ = std::fs::remove_file(&socket);
+        })?;
 
         // Сообщение Claude Code читает целиком до начала ответа, поэтому
         // ввод пишется сразу и закрывается.
@@ -406,13 +409,19 @@ mod talk {
     const ERRORS_LIMIT: usize = 64 * 1024;
 
     /// Сокет хода, открытый только владельцу. Сокет от прошлого запуска,
-    /// оборванного вместе с приложением, убирается.
+    /// оборванного вместе с приложением, убирается, как и свой, если
+    /// закрыть его не вышло.
     pub fn listen(socket: &Path) -> Result<UnixListener, AppError> {
         let failed = |_| AppError::unavailable("claude_failed");
         let _ = std::fs::remove_file(socket);
         let listener = UnixListener::bind(socket).map_err(failed)?;
 
-        std::fs::set_permissions(socket, std::fs::Permissions::from_mode(0o600)).map_err(failed)?;
+        std::fs::set_permissions(socket, std::fs::Permissions::from_mode(0o600)).map_err(
+            |error| {
+                let _ = std::fs::remove_file(socket);
+                failed(error)
+            },
+        )?;
         Ok(listener)
     }
 
@@ -631,7 +640,7 @@ mod talk {
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
-    use crate::modules::agent::domain::{AgentCommand, Limit, Subagent};
+    use crate::modules::agent::domain::{AgentCommand, Limit};
     use crate::modules::agent::ports::{Conversation, Incoming};
     use std::collections::HashSet;
     use std::fs;
@@ -643,6 +652,17 @@ mod tests {
     /// Запуск по одному: свежий скрипт, открытый на запись в момент чужого
     /// fork, не запускается («Text file busy»).
     static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
+
+    /// Ввод ещё открыт: закрытый настоящий Claude Code понимает как конец
+    /// и выходит без ответа. Остаток ввода читает фоновый `cat`: жив он,
+    /// значит, конца ввода нет. Фоновой команде sh даёт пустой ввод, поэтому
+    /// настоящий передаётся через третий дескриптор.
+    const OPEN_INPUT: &str = r#"open_input() {
+    exec 3<&0
+    cat <&3 >/dev/null &
+    sleep 0.1
+    kill -0 $! 2>/dev/null
+}"#;
 
     /// Поддельный `claude` на месте родного установщика: пишет рядом с собой,
     /// с чем его позвали, и отвечает по сценарию `script`. Рядом папка
@@ -657,7 +677,7 @@ mod tests {
         fs::create_dir_all(dir.path().join("проект")).unwrap();
         fs::write(
             &program,
-            format!("#!/bin/sh\nhere=$(dirname \"$0\")\n{script}\n"),
+            format!("#!/bin/sh\nhere=$(dirname \"$0\")\n{OPEN_INPUT}\n{script}\n"),
         )
         .unwrap();
         fs::set_permissions(&program, fs::Permissions::from_mode(0o755)).unwrap();
@@ -767,12 +787,13 @@ esac"#;
     }
 
     /// Claude Code отвечает на `initialize` после своих строк и чужого
-    /// ответа, а потом ждёт следующего ввода.
+    /// ответа, если ввод остался открытым, а потом ждёт следующего ввода.
     const INITIALIZE: &str = r#"
 printf '%s\n' "$@" > "$here/args"
 pwd -P > "$here/pwd"
 read -r line
 printf '%s\n' "$line" > "$here/request"
+open_input || exit 0
 echo '{"type":"system","subtype":"init"}'
 echo 'не json'
 echo '{"type":"control_response","response":{"subtype":"success","request_id":"чужой","response":{"models":[{"value":"чужая"}]}}}'
@@ -838,26 +859,14 @@ while true; do sleep 0.02; done"#;
                     AgentCommand {
                         name: "review".into(),
                         description: "Ревью изменений".into(),
-                        hint: "[ветка]".into(),
                         aliases: vec!["r".into()],
                         builtin: false,
                     },
                     AgentCommand {
                         name: "compact".into(),
                         description: "Сжать разговор".into(),
-                        hint: String::new(),
                         aliases: vec![],
                         builtin: true,
-                    },
-                ],
-                agents: vec![
-                    Subagent {
-                        name: "Explore".into(),
-                        description: "Ищет по коду".into(),
-                    },
-                    Subagent {
-                        name: "tester".into(),
-                        description: String::new(),
                     },
                 ],
             })
@@ -892,6 +901,7 @@ pwd -P > "$here/pwd"
 read -r first
 read -r second
 printf '%s\n%s\n' "$first" "$second" > "$here/request"
+open_input || exit 0
 echo '{"type":"control_response","response":{"subtype":"success","request_id":"sapien-init","response":{"account":{"email":"me@example.com"}}}}'
 echo '{"type":"control_response","response":{"subtype":"success","request_id":"sapien-usage","response":{"session":{"total_cost_usd":1},"subscription_type":"max","rate_limits_available":true,"rate_limits":{"five_hour":{"utilization":15,"resets_at":"2026-11-02T16:00:00Z"},"seven_day":{"utilization":24.5,"resets_at":null},"seven_day_opus":{"utilization":3,"resets_at":null}},"behaviors":null}}}'
 while true; do sleep 0.02; done"#;
@@ -1165,6 +1175,28 @@ while true; do sleep 0.02; done"#,
             UnixStream::connect(socket).unwrap();
             drop(first);
         });
+
+        assert!(sockets(&dir).is_empty());
+    }
+
+    #[test]
+    fn ход_без_claude_code_не_оставляет_сокета() {
+        let _one = ONE_AT_A_TIME
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+
+        // Claude Code удалили после запуска окна, а человек дважды
+        // нажимает «Повторить».
+        let (dir, claude) = fake("exit 0");
+        let project = dir.path().join("проект");
+
+        fs::remove_file(dir.path().join("home/.local/bin/claude")).unwrap();
+
+        for _ in 0..2 {
+            let turn = block_on(claude.converse(&run(&project, Oversight::Ask, None)));
+
+            assert_eq!(turn.err(), Some(AppError::not_found("claude_missing")));
+        }
 
         assert!(sockets(&dir).is_empty());
     }

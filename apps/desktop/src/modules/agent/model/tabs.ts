@@ -1,7 +1,7 @@
 import type { SessionInfo } from "./sessions";
 
 // Вкладки одного проекта: открытые сессии по порядку и активная среди них.
-export type ProjectTabs = { sessions: string[]; active: string | null };
+type ProjectTabs = { sessions: string[]; active: string | null };
 
 // Вкладки окна. У каждого проекта свой набор, а видны вкладки одного:
 // открытого, project. Ответы идут во всех вкладках сразу.

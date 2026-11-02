@@ -8,8 +8,8 @@ use std::path::{Path, PathBuf};
 
 /// Сессии лежат в папке данных приложения, файл на сессию:
 /// `sessions/<id>.json`, внутри `{ id, project, title, created, updated,
-/// chat }`. В папке проекта их нет: они не попадают ни в git, ни на
-/// облачный диск.
+/// provider, model, effort, chat }`. В папке проекта их нет: они не
+/// попадают ни в git, ни на облачный диск.
 pub struct SessionsDir {
     dir: PathBuf,
 }
