@@ -43,17 +43,8 @@ function isLight() {
 
 describe("настройки", () => {
   beforeEach(() => {
-    // Хранилище открыто и пусто: эти тесты не про него.
-    mockIPC(
-      (command) => {
-        if (command === "vault_status") {
-          return { kind: "ready", path: "/notes" };
-        }
-
-        return [];
-      },
-      { shouldMockEvents: true },
-    );
+    // Проектов и сессий нет: эти тесты не про них.
+    mockIPC(() => [], { shouldMockEvents: true });
     localStorage.clear();
     relaunch("/").unmount();
   });
@@ -76,7 +67,6 @@ describe("настройки", () => {
 
     fireEvent.keyDown(window, { key: "Escape" });
     expect(await screen.findByRole("button", { name: "Показать боковую панель" })).toBeDefined();
-    expect(screen.getByRole("button", { name: "Скрыть чат" })).toBeDefined();
   });
 
   it("тема меняется сразу, без сохранения, и переживает перезапуск", async () => {

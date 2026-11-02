@@ -52,8 +52,7 @@
       "files": [
         "**/vite.config.ts",
         "**/vitest.config.ts",
-        "**/tsup.config.ts",
-        "apps/mobile/src/app/**/*.tsx"
+        "**/tsup.config.ts"
       ],
       "rules": {
         "import/no-default-export": "off"

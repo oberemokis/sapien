@@ -1,4 +1,5 @@
-//! Сервер MCP с инструментами sapien для Claude Code. Claude Code запускает
+//! Сервер MCP sapien для Claude Code: вопрос агента человеку и разрешение
+//! на вызов инструмента (domain::mcp_tools). Claude Code запускает
 //! приложение командой `sapien mcp <сокет>`, и оно только перекачивает
 //! stdio в сокет открытого приложения (`bridge`). Сам протокол разбирает
 //! открытое приложение (`request`): вызов идёт в ход, которым владеет Rust.
@@ -63,7 +64,7 @@ pub fn request(line: &str) -> Request {
     Request::Reply(json!({ "jsonrpc": "2.0", "id": id, "result": result }))
 }
 
-/// Ответ на вызов инструмента: ошибка уходит Claude текстом, как на ключе API.
+/// Ответ на вызов инструмента: ошибка уходит Claude текстом.
 pub fn call_result(id: Value, result: Result<String, String>) -> Value {
     let error = result.is_err();
     let text = result.unwrap_or_else(|error| error);
@@ -123,23 +124,26 @@ mod tests {
             panic!("список без ответа");
         };
         let tools = list["result"]["tools"].as_array().unwrap();
-        let read = tools
-            .iter()
-            .find(|tool| tool["name"] == "read_note")
-            .unwrap();
+        let names: Vec<_> = tools.iter().map(|tool| &tool["name"]).collect();
+        let approve = &tools[1];
 
-        assert!(tools.iter().any(|tool| tool["name"] == "ask_user"));
-        assert_eq!(read["inputSchema"]["required"], json!(["path"]));
-        assert!(read["_meta"]["anthropic/maxResultSizeChars"].as_u64() > Some(50_000));
+        // Работа с проектом у Claude Code своя: sapien только спрашивает
+        // человека. Новый инструмент меняет этот список осознанно.
+        assert_eq!(names, [&json!("ask_user"), &json!("approve")]);
+        assert_eq!(
+            approve["inputSchema"]["required"],
+            json!(["tool_name", "input"])
+        );
+        assert!(approve["_meta"]["anthropic/maxResultSizeChars"].as_u64() > Some(50_000));
 
         assert_eq!(
             request(
-                r#"{"jsonrpc":"2.0","id":"7","method":"tools/call","params":{"name":"read_note","arguments":{"path":"план.md"}}}"#
+                r#"{"jsonrpc":"2.0","id":"7","method":"tools/call","params":{"name":"ask_user","arguments":{"question":"Срок?","options":[]}}}"#
             ),
             Request::Call {
                 id: json!("7"),
-                name: "read_note".into(),
-                input: json!({ "path": "план.md" }),
+                name: "ask_user".into(),
+                input: json!({ "question": "Срок?", "options": [] }),
             }
         );
 
@@ -157,8 +161,8 @@ mod tests {
         assert_eq!(unknown["error"]["code"], -32601);
 
         assert_eq!(
-            call_result(json!(3), Err("Ошибка: note_closed".into()))["result"],
-            json!({ "content": [{ "type": "text", "text": "Ошибка: note_closed" }], "isError": true })
+            call_result(json!(3), Err("Человек не ответил".into()))["result"],
+            json!({ "content": [{ "type": "text", "text": "Человек не ответил" }], "isError": true })
         );
     }
 

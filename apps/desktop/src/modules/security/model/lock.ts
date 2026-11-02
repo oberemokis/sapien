@@ -42,6 +42,21 @@ export function idleFor(minutes: LockMinutes, lastActivity: number, now: number)
   return now - lastActivity >= minutes * 60_000;
 }
 
+// Система окна: от неё зависит, чем открывается заблокированное окно.
+export type System = "macos" | "windows" | "linux";
+
+export function systemOf(userAgent: string): System {
+  if (userAgent.includes("Windows")) {
+    return "windows";
+  }
+
+  if (/Mac|iPhone|iPad/.test(userAgent)) {
+    return "macos";
+  }
+
+  return "linux";
+}
+
 // Отказ app_unlock из src-tauri/src/unlock.rs. unavailable значит, что
 // системе нечем спросить: нет пароля у учётной записи или агента polkit.
 export type UnlockFailure = "canceled" | "failed" | "unavailable";

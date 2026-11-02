@@ -3,21 +3,18 @@ import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useEffect, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { AppLock, DataKeyNotice, SecuritySettings, restoreLock } from "@/modules/security";
+import { AppLock, LockSettings, restoreLock } from "@/modules/security";
 import { parseLockSettings } from "./model/lock";
-import type { SecurityStatus } from "./model/security";
 
 type Answer = "verified" | "unlock_canceled" | "unlock_failed" | "unlock_unavailable";
 
-// Rust: состояние безопасности и ответ системы на проверку. Ответы идут
-// по очереди, последний повторяется.
-function fakeRust(answers: Answer[], status: SecurityStatus = { data: "sealed", system: "macos", disk: true }) {
+// Rust: ответ системы на проверку. Ответы идут по очереди, последний
+// повторяется.
+function fakeRust(answers: Answer[]) {
   const rust = { checks: 0 };
 
   mockIPC((command) => {
     switch (command) {
-      case "security_status":
-        return status;
       case "app_unlock": {
         const answer = answers[Math.min(rust.checks, answers.length - 1)];
 
@@ -50,20 +47,24 @@ function ScheduledProbe() {
   return <p>тиков: {ticks}</p>;
 }
 
-// Окно как в __root.tsx: страница, окно о ключе и блокировка последней.
-// Настройки и страница рядом, чтобы включать блокировку и видеть, что
-// под заглушкой всё работает.
+// Окно как в __root.tsx: страница и блокировка последней. Настройки
+// и страница рядом, чтобы включать блокировку и видеть, что под заглушкой
+// всё работает.
 function launch() {
   restoreLock();
 
   return render(
     <QueryClientProvider client={new QueryClient()}>
       <ScheduledProbe />
-      <SecuritySettings />
-      <DataKeyNotice />
+      <LockSettings />
       <AppLock />
     </QueryClientProvider>,
   );
+}
+
+// Система окна: от неё зависит, чем окно открывается.
+function onSystem(userAgent: string) {
+  vi.spyOn(navigator, "userAgent", "get").mockReturnValue(userAgent);
 }
 
 function storeLock(enabled: boolean, minutes = 1) {
@@ -86,6 +87,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.restoreAllMocks();
   clearMocks();
 });
 
@@ -104,6 +106,7 @@ describe("блокировка окна", () => {
   it("включается только после проверки системы и переживает перезапуск", async () => {
     const rust = fakeRust(["unlock_canceled", "verified"]);
 
+    onSystem("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)");
     launch();
     const toggle = await screen.findByRole("checkbox", { name: "Блокировать окно" });
 
@@ -118,8 +121,9 @@ describe("блокировка окна", () => {
   });
 
   it("проверка не прошла или системе нечем спросить: блокировка не включается, и видно почему", async () => {
-    fakeRust(["unlock_failed", "unlock_unavailable"], { data: "sealed", system: "linux", disk: true });
+    fakeRust(["unlock_failed", "unlock_unavailable"]);
 
+    onSystem("Mozilla/5.0 (X11; Linux x86_64)");
     launch();
     const toggle = await screen.findByRole("checkbox", { name: "Блокировать окно" });
 
@@ -202,7 +206,9 @@ describe("блокировка окна", () => {
     const unlock = within(dialog).getByRole("button", { name: "Разблокировать" });
 
     fireEvent.click(unlock);
-    await waitFor(() => expect(rust.checks).toBe(1));
+    // Отмена страницу не меняет, а waitFor перепроверяет по setInterval,
+    // который здесь подменён. vi.waitFor ходит на настоящих таймерах.
+    await vi.waitFor(() => expect(rust.checks).toBe(1));
     expect(within(dialog).queryByRole("alert")).toBeNull();
 
     fireEvent.click(unlock);
@@ -221,19 +227,6 @@ describe("блокировка окна", () => {
     fireEvent.click(within(lockScreen() as HTMLElement).getByRole("button", { name: "Разблокировать" }));
 
     await waitFor(() => expect(lockScreen()).toBeNull());
-  });
-
-  it("окно о пропавшем ключе ждёт разблокировки, чтобы не встать поверх заглушки", async () => {
-    fakeRust(["verified"], { data: "lost", system: "macos", disk: true });
-    storeLock(true);
-
-    launch();
-    await screen.findByText("Блокировать окно");
-    expect(screen.queryByRole("dialog", { name: "Данные приложения не читаются" })).toBeNull();
-
-    fireEvent.click(within(lockScreen() as HTMLElement).getByRole("button", { name: "Разблокировать" }));
-
-    expect(await screen.findByRole("dialog", { name: "Данные приложения не читаются" })).toBeTruthy();
   });
 
   it("испорченная настройка даёт выключенную блокировку", () => {

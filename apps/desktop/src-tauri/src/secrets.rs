@@ -1,46 +1,31 @@
-//! Секреты: ключи API и токены. Живут в системном хранилище паролей,
+//! Секреты: токены GitHub и GitLab. Живут в системном хранилище паролей,
 //! а где его нет, только в памяти до закрытия приложения, и никогда
-//! в файлах. Окну ни одна команда секрет не отдаёт: только задан ли он
-//! и чем заканчивается. Запрос с секретом делает Rust и сам его подставляет.
+//! в файлах. Окну ни одна команда секрет не отдаёт: запрос с секретом
+//! делает Rust и сам его подставляет.
 
 use crate::error::AppError;
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Mutex;
-use tauri::State;
 
 /// Под этим именем приложение кладёт записи в системное хранилище:
 /// идентификатор из tauri.conf.json.
 const SERVICE: &str = "is.oberemok.sapien";
 
-/// Какие секреты бывают. Окно называет секрет только этими именами
-/// и не может записать в системное хранилище ничего другого.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
-#[serde(rename_all = "snake_case")]
+/// Какие секреты бывают. Записать в системное хранилище что-то другое
+/// приложение не может.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SecretName {
-    /// Ключ API провайдера модели для агента.
-    ModelKey,
-    /// Постоянный токен YouTrack.
-    YoutrackToken,
+    GithubToken,
+    GitlabToken,
 }
 
 impl SecretName {
     fn key(self) -> &'static str {
         match self {
-            Self::ModelKey => "model_key",
-            Self::YoutrackToken => "youtrack_token",
+            Self::GithubToken => "github_token",
+            Self::GitlabToken => "gitlab_token",
         }
     }
-}
-
-/// Что окно знает о секрете.
-#[derive(Debug, PartialEq, Serialize)]
-pub struct SecretStatus {
-    /// Последние четыре знака заданного секрета: по ним человек узнаёт
-    /// свой ключ, не видя его.
-    pub ending: Option<String>,
-    /// Секрет переживёт перезапуск: системное хранилище паролей есть.
-    pub kept: bool,
 }
 
 /// Системное хранилище не ответило: его нет или оно отказало.
@@ -85,7 +70,7 @@ impl Keychain for SystemKeychain {
 pub struct Secrets {
     keychain: Box<dyn Keychain>,
     /// Секреты, которые системное хранилище не приняло. На Linux без
-    /// Secret Service ключ живёт здесь до закрытия приложения: открытым
+    /// Secret Service токен живёт здесь до закрытия приложения: открытым
     /// текстом на диск он не ложится ни при каких условиях.
     memory: Mutex<HashMap<&'static str, String>>,
 }
@@ -137,29 +122,9 @@ impl Secrets {
             .or_else(|| self.keychain.read(name.key()).ok().flatten())
     }
 
-    pub fn status(&self, name: SecretName) -> SecretStatus {
-        if let Some(value) = self.remembered(name) {
-            return SecretStatus {
-                ending: Some(ending(&value)),
-                kept: false,
-            };
-        }
-
-        match self.keychain.read(name.key()) {
-            Ok(value) => SecretStatus {
-                ending: value.as_deref().map(ending),
-                kept: true,
-            },
-            Err(Unavailable) => SecretStatus {
-                ending: None,
-                kept: false,
-            },
-        }
-    }
-
     /// Задаёт или заменяет секрет. Пробелы по краям это след копирования,
-    /// а не часть ключа.
-    pub fn set(&self, name: SecretName, value: &str) -> Result<SecretStatus, AppError> {
+    /// а не часть токена.
+    pub fn set(&self, name: SecretName, value: &str) -> Result<(), AppError> {
         let value = value.trim();
 
         if value.is_empty() {
@@ -178,10 +143,7 @@ impl Secrets {
             memory.insert(name.key(), value.to_owned());
         }
 
-        Ok(SecretStatus {
-            ending: Some(ending(value)),
-            kept,
-        })
+        Ok(())
     }
 
     /// Стирает секрет отовсюду. После перезапуска его нет.
@@ -194,32 +156,6 @@ impl Secrets {
             .erase(name.key())
             .map_err(|Unavailable| AppError::unavailable("secret_unerased"))
     }
-}
-
-fn ending(value: &str) -> String {
-    let chars: Vec<char> = value.chars().collect();
-
-    chars[chars.len().saturating_sub(4)..].iter().collect()
-}
-
-#[tauri::command]
-pub fn secret_status(secrets: State<'_, Secrets>, name: SecretName) -> SecretStatus {
-    secrets.status(name)
-}
-
-/// Секрет приходит из окна один раз и обратно не возвращается.
-#[tauri::command]
-pub fn secret_set(
-    secrets: State<'_, Secrets>,
-    name: SecretName,
-    value: String,
-) -> Result<SecretStatus, AppError> {
-    secrets.set(name, &value)
-}
-
-#[tauri::command]
-pub fn secret_delete(secrets: State<'_, Secrets>, name: SecretName) -> Result<(), AppError> {
-    secrets.delete(name)
 }
 
 #[cfg(test)]
@@ -259,38 +195,25 @@ mod tests {
         }
     }
 
-    const KEY: &str = "sk-ant-api03-секрет-WXYZ";
+    const TOKEN: &str = "ghp_секрет-WXYZ";
 
     #[test]
-    fn окну_виден_только_конец_секрета() {
+    fn токен_переживает_перезапуск_в_системном_хранилище() {
         let keychain = Fake::default();
         let secrets = Secrets::new(keychain.clone());
 
-        assert_eq!(
-            secrets.status(SecretName::ModelKey),
-            SecretStatus {
-                ending: None,
-                kept: true
-            }
-        );
-
-        let status = secrets
-            .set(SecretName::ModelKey, &format!("  {KEY}\n"))
+        secrets
+            .set(SecretName::GithubToken, &format!("  {TOKEN}\n"))
             .unwrap();
 
-        assert_eq!(
-            status,
-            SecretStatus {
-                ending: Some("WXYZ".into()),
-                kept: true
-            }
-        );
-        assert_eq!(secrets.status(SecretName::ModelKey), status);
-        assert_eq!(secrets.get(SecretName::ModelKey).as_deref(), Some(KEY));
+        assert_eq!(secrets.get(SecretName::GithubToken).as_deref(), Some(TOKEN));
+        assert_eq!(secrets.get(SecretName::GitlabToken), None);
         // Перезапуск: секрет берётся из системного хранилища.
         assert_eq!(
-            Secrets::new(keychain).get(SecretName::ModelKey).as_deref(),
-            Some(KEY)
+            Secrets::new(keychain)
+                .get(SecretName::GithubToken)
+                .as_deref(),
+            Some(TOKEN)
         );
     }
 
@@ -299,26 +222,28 @@ mod tests {
         let secrets = Secrets::new(Fake::default());
 
         assert_eq!(
-            secrets.set(SecretName::ModelKey, "  \n"),
+            secrets.set(SecretName::GithubToken, "  \n"),
             Err(AppError::invalid("secret_empty"))
         );
 
-        secrets.set(SecretName::ModelKey, "старый-ключ").unwrap();
-        secrets.set(SecretName::ModelKey, KEY).unwrap();
-        assert_eq!(secrets.get(SecretName::ModelKey).as_deref(), Some(KEY));
+        secrets
+            .set(SecretName::GithubToken, "старый-токен")
+            .unwrap();
+        secrets.set(SecretName::GithubToken, TOKEN).unwrap();
+        assert_eq!(secrets.get(SecretName::GithubToken).as_deref(), Some(TOKEN));
     }
 
     #[test]
     fn удалённый_секрет_не_переживает_перезапуск() {
         let keychain = Fake::default();
         let secrets = Secrets::new(keychain.clone());
-        secrets.set(SecretName::ModelKey, KEY).unwrap();
+        secrets.set(SecretName::GitlabToken, TOKEN).unwrap();
 
-        secrets.delete(SecretName::ModelKey).unwrap();
+        secrets.delete(SecretName::GitlabToken).unwrap();
 
         assert!(keychain.stored.lock().unwrap().is_empty());
-        assert_eq!(secrets.status(SecretName::ModelKey).ending, None);
-        assert_eq!(Secrets::new(keychain).get(SecretName::ModelKey), None);
+        assert_eq!(secrets.get(SecretName::GitlabToken), None);
+        assert_eq!(Secrets::new(keychain).get(SecretName::GitlabToken), None);
     }
 
     #[test]
@@ -329,23 +254,14 @@ mod tests {
         };
         let secrets = Secrets::new(keychain.clone());
 
-        assert!(!secrets.status(SecretName::ModelKey).kept);
+        secrets.set(SecretName::GithubToken, TOKEN).unwrap();
 
-        let status = secrets.set(SecretName::ModelKey, KEY).unwrap();
-
-        assert_eq!(
-            status,
-            SecretStatus {
-                ending: Some("WXYZ".into()),
-                kept: false
-            }
-        );
-        assert_eq!(secrets.get(SecretName::ModelKey).as_deref(), Some(KEY));
+        assert_eq!(secrets.get(SecretName::GithubToken).as_deref(), Some(TOKEN));
         assert!(keychain.stored.lock().unwrap().is_empty());
         // После перезапуска секрета нет: на диск он не попал.
-        assert_eq!(Secrets::new(keychain).get(SecretName::ModelKey), None);
+        assert_eq!(Secrets::new(keychain).get(SecretName::GithubToken), None);
 
-        secrets.delete(SecretName::ModelKey).unwrap();
-        assert_eq!(secrets.get(SecretName::ModelKey), None);
+        secrets.delete(SecretName::GithubToken).unwrap();
+        assert_eq!(secrets.get(SecretName::GithubToken), None);
     }
 }

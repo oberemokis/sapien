@@ -6,7 +6,6 @@
     "dev": "turbo run dev",
     "dev:api": "turbo run dev --filter @sapien/api",
     "dev:web": "turbo run dev:web",
-    "dev:mobile": "turbo run dev:mobile",
     "build": "turbo run build",
     "bundle": "pnpm --filter @sapien/desktop tauri build",
     "test": "turbo run test",

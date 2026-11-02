@@ -1,13 +1,11 @@
-// Список действий после «/» это combobox по ARIA, как поиск файла: фокус
+// Список действий после «/» это combobox по ARIA, как поиск сессии: фокус
 // остаётся в поле, строку выбирают стрелками через aria-activedescendant,
 // мышь только дублирует их. Родной datalist не показывает клавишу действия
 // и пометку «нет сети».
 /* oxlint-disable jsx-a11y/prefer-tag-over-role, jsx-a11y/click-events-have-key-events */
 import Alert02Icon from "@hugeicons/core-free-icons/Alert02Icon";
 import ArrowUp02Icon from "@hugeicons/core-free-icons/ArrowUp02Icon";
-import Cancel01Icon from "@hugeicons/core-free-icons/Cancel01Icon";
 import ComputerTerminal01Icon from "@hugeicons/core-free-icons/ComputerTerminal01Icon";
-import Delete02Icon from "@hugeicons/core-free-icons/Delete02Icon";
 import PlusSignIcon from "@hugeicons/core-free-icons/PlusSignIcon";
 import Shield01Icon from "@hugeicons/core-free-icons/Shield01Icon";
 import SparklesIcon from "@hugeicons/core-free-icons/SparklesIcon";
@@ -21,35 +19,29 @@ import type { MenuItem } from "@/core/ui/context-menu";
 import { Icon } from "@/core/ui/icon";
 import { IconButton } from "@/core/ui/icon-button";
 import { MenuButton } from "@/core/ui/menu-button";
-import type { ActionLauncher } from "../interactions/actions";
-import { useChat, useOnline, useUndo } from "../interactions/chat";
-import { setAgentMethod, useClaudeStatus } from "../interactions/method";
+import { useActionList, useRunAction } from "../interactions/actions";
+import { useChat, useOnline } from "../interactions/chat";
+import { useClaudeStatus } from "../interactions/claude";
 import { setAgentModel, useAgentModel } from "../interactions/model";
-import { useModelKey } from "../interactions/model-key";
 import { hotkeyLabel, type Action } from "../model/actions";
 import {
   AGENT_MODELS,
   isToolName,
   MODEL_NAMES,
   problemOf,
-  questionsOf,
   resetsAt,
-  type AgentModel,
   type Answer,
-  type ChangedEntry,
-  type ChatContext,
   type ChatEntry,
   type NoticeEntry,
   type PermissionEntry,
   type QuestionEntry,
 } from "../model/chat";
-import type { AgentMethod } from "../model/method";
+import type { Project, SessionInfo } from "../model/sessions";
 
 type Props = {
-  // Открытая заметка и выделенное в ней: их даёт страница.
-  context: ChatContext;
-  // Действия хранилища для «/» в поле ввода.
-  actions?: ActionLauncher;
+  session: SessionInfo;
+  // Папка сессии. undefined: проект убрали, пока сессия была открыта.
+  project: Project | undefined;
 };
 
 const OPTION =
@@ -71,7 +63,7 @@ const SEND = `${SQUARE} bg-bg-submit text-text-submit shadow-button-contrast ena
 // Рамка вопроса и разрешения: карточка над лентой, как доки opencode.
 const DOCK = "flex flex-col gap-3 bg-bg-dock p-3 shadow-raised";
 
-function Line({ entry }: { entry: Exclude<ChatEntry, ChangedEntry | QuestionEntry | PermissionEntry | NoticeEntry> }) {
+function Line({ entry }: { entry: Exclude<ChatEntry, QuestionEntry | PermissionEntry | NoticeEntry> }) {
   const { t } = useTranslation();
 
   if (entry.kind === "user") {
@@ -79,11 +71,12 @@ function Line({ entry }: { entry: Exclude<ChatEntry, ChangedEntry | QuestionEntr
   }
 
   // ponytail: ответ показан исходным markdown, без разметки. Рисовать его
-  // разметкой можно редактором заметок только для чтения, когда понадобится.
+  // разметкой, когда понадобится.
   if (entry.kind === "assistant") {
     return <p className="text-[14px]/[22.4px] font-[400] break-words whitespace-pre-wrap">{entry.text}</p>;
   }
 
+  // Встроенный инструмент подписан по-русски, чужой своим именем.
   let action: string = entry.name;
 
   if (isToolName(entry.name)) {
@@ -109,25 +102,26 @@ type AskedProps = {
   answer: (id: string, answer: Answer) => void;
 };
 
-// Вопрос агента с вариантами или просьба разрешить правку. Пока строка ждёт,
-// под ней кнопки, а свой ответ пишут в поле ввода. Ответ на вопрос остаётся
-// в ленте репликой человека.
+// Вопрос агента с вариантами или просьба разрешить инструмент. Пока строка
+// ждёт, под ней кнопки, а свой ответ пишут в поле ввода. Ответ на вопрос
+// остаётся в ленте репликой человека.
 function Asked({ entry, waiting, answer }: AskedProps) {
   const { t } = useTranslation();
 
   if (entry.kind === "permission") {
-    let ask: string = t("agent.chat.permission.edit_note", { path: entry.path });
-
-    if (entry.tool === "write_note") {
-      ask = t("agent.chat.permission.write_note", { path: entry.path });
-    }
-
     return (
       <div role="group" aria-label={t("agent.chat.permissionLabel")} className={`${DOCK} rounded-dock`}>
-        <p className="flex items-start gap-2 text-[14px]/[21px] font-[500] break-words">
+        <div className="flex items-start gap-2 text-[14px]/[21px] font-[500] break-words">
           <Icon icon={Shield01Icon} size={16} className="mt-0.5 shrink-0 text-state-fg-warning" />
-          {ask}
-        </p>
+          <p className="min-w-0">
+            {t("agent.chat.permission", { tool: entry.tool })}
+            {entry.target !== "" && (
+              <span className="mt-1 block font-mono text-[12px]/[18px] font-normal break-all whitespace-pre-wrap text-text-muted">
+                {entry.target}
+              </span>
+            )}
+          </p>
+        </div>
         {waiting && (
           <div className="flex justify-end gap-2">
             <Button onClick={() => answer(entry.id, { kind: "deny" })}>{t("agent.chat.deny")}</Button>
@@ -163,67 +157,6 @@ function Asked({ entry, waiting, answer }: AskedProps) {
       {!waiting && entry.answer === null && (
         <p className="text-[13px]/4 text-text-faint">{t("agent.chat.noAnswer")}</p>
       )}
-    </div>
-  );
-}
-
-type ChangedProps = {
-  entry: ChangedEntry;
-  // Сообщения человека, ответы на которые откатятся вместе с этим.
-  later: { turn: number; text: string }[];
-  disabled: boolean;
-};
-
-// Под ответом, который менял заметки: сколько их и «Откатить». Если вместе
-// с ним откатятся более поздние ответы, сначала их список и вопрос.
-function Changed({ entry, later, disabled }: ChangedProps) {
-  const { t } = useTranslation();
-  const undo = useUndo();
-  const [asking, setAsking] = useState(false);
-  const count = entry.paths.length;
-
-  if (asking) {
-    return (
-      <div className="flex flex-col gap-2 rounded-md bg-bg-layer-01 px-3 py-2 text-[13px]/5 shadow-[inset_0_0_0_0.5px_var(--border-border-muted)]">
-        <p>{t("agent.chat.undoWith")}</p>
-        <ul aria-label={t("agent.chat.undoLater")} className="pl-2 text-text-muted">
-          {later.map((question) => (
-            <li key={question.turn} className="truncate">
-              {question.text}
-            </li>
-          ))}
-        </ul>
-        <div className="flex gap-2">
-          <Button
-            onClick={() => {
-              setAsking(false);
-              undo.mutate(entry.turn);
-            }}
-          >
-            {t("agent.chat.undoAll")}
-          </Button>
-          <Button onClick={() => setAsking(false)}>{t("agent.chat.undoNo")}</Button>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex items-center gap-2 text-[13px]/5 text-text-muted">
-      <span title={entry.paths.join("\n")}>
-        {entry.undone ? t("agent.chat.undone", { count }) : t("agent.chat.changed", { count })}
-      </span>
-      {!entry.undone && (
-        <button
-          type="button"
-          disabled={disabled || undo.isPending}
-          className={`${LINK} text-text-base disabled:opacity-50`}
-          onClick={() => (entry.with.length > 0 ? setAsking(true) : undo.mutate(entry.turn))}
-        >
-          {t("agent.chat.undo")}
-        </button>
-      )}
-      {undo.isError && <span role="alert">{t("agent.chat.undoFailed")}</span>}
     </div>
   );
 }
@@ -270,7 +203,7 @@ const TONE = {
 };
 
 // Плашка под лентой, как Banner дизайн-системы: ошибка красная, то, что
-// ждёт сети или настройки, жёлтое.
+// ждёт сети, настройки или другого ответа, жёлтое.
 function Notice({
   children,
   action,
@@ -281,35 +214,42 @@ function Notice({
   tone?: keyof typeof TONE;
 }) {
   return (
-    <div role="alert" className={`mx-3 mb-2 flex items-center gap-3 rounded-md px-3 py-2 text-[13px]/5 ${TONE[tone]}`}>
+    <div role="alert" className={`mx-auto mb-2 flex w-full max-w-200 items-center gap-3 rounded-md px-3 py-2 text-[13px]/5 ${TONE[tone]}`}>
       <p className="flex-1">{children}</p>
       {action}
     </div>
   );
 }
 
-// Чат с агентом в правой панели. Enter отправляет, Shift+Enter переносит
+// Команда, которая продолжает разговор в терминале: Claude Code ищет
+// сессию в папке, где его запустили.
+function terminalCommand(path: string | undefined, claudeSession: string) {
+  const resume = `claude --resume ${claudeSession}`;
+
+  if (path === undefined) {
+    return resume;
+  }
+
+  return `cd '${path.replaceAll("'", "'\\''")}' && ${resume}`;
+}
+
+// Чат сессии посередине окна. Enter отправляет, Shift+Enter переносит
 // строку. Пока идёт ответ, кнопка отправки становится «Стоп». «/» в начале
 // поля или «+» открывает список действий: стрелки выбирают, Enter запускает,
-// Escape закрывает. Под полем модель со способом и доступ агента к правкам.
-export function AgentChat({ context, actions }: Props) {
+// Escape закрывает. Под полем модель и доступ агента к инструментам.
+export function AgentChat({ session, project }: Props) {
   const { t } = useTranslation();
-  const key = useModelKey();
   const claude = useClaudeStatus();
   const model = useAgentModel();
-  const chat = useChat();
+  const chat = useChat(session.id);
+  const actions = useActionList();
+  const runAction = useRunAction();
   const online = useOnline();
   const [draft, setDraft] = useState("");
   const [picked, setPicked] = useState(0);
-  const [clearing, setClearing] = useState(false);
-  // Модель другого способа ждёт подтверждения: разговор сменится.
-  const [switching, setSwitching] = useState<{ method: AgentMethod; model: AgentModel } | null>(null);
   // Команда для терминала, которую только что скопировали.
   const [copied, setCopied] = useState<{ command: string; ok: boolean } | null>(null);
   const fieldRef = useRef<HTMLTextAreaElement>(null);
-  // Что человек убрал из контекста этого сообщения. Другая заметка или
-  // другое выделение приходят снова целиком.
-  const [dropped, setDropped] = useState({ of: "", path: false, selection: false });
   const logRef = useRef<HTMLDivElement>(null);
   const listId = useId();
   const last = chat.entries.at(-1)?.entry;
@@ -341,27 +281,12 @@ export function AgentChat({ context, actions }: Props) {
     return () => clearTimeout(timer);
   }, [copied]);
 
-  // Способу нечем работать: нет ключа или Claude Code не готов. Поле ввода
-  // остаётся, чтобы под ним выбрать другой способ.
+  // Агенту нечем или негде работать: Claude Code не готов или папки
+  // проекта больше нет.
   let blocked: ReactNode = null;
-
-  if (chat.method === "key" && key.status?.ending === null) {
-    blocked = (
-      <Notice
-        action={
-          <Link to="/settings/agent" className={LINK}>
-            {t("agent.chat.setUp")}
-          </Link>
-        }
-      >
-        {t("agent.chat.noKey")}
-      </Notice>
-    );
-  }
-
   const claudeState = claude.status?.state;
 
-  if (chat.method === "subscription" && claudeState !== undefined && claudeState !== "ready") {
+  if (claudeState !== undefined && claudeState !== "ready") {
     blocked = (
       <Notice
         action={
@@ -375,33 +300,24 @@ export function AgentChat({ context, actions }: Props) {
     );
   }
 
-  const asked = chat.entries.map(({ entry }) => entry);
+  if (project === undefined || project.missing) {
+    blocked = <Notice>{t("agent.chat.projectMissing", { path: project?.path ?? "" })}</Notice>;
+  }
+
   // Пока агент ждёт ответа, написанное уходит ответом на его вопрос.
   const answering = chat.open !== null;
-  const canSend = online && draft.trim() !== "" && (answering || (!chat.running && blocked === null));
-  const canRun = online && !chat.running && blocked === null;
-  const slash = actions !== undefined && /^\/[^\n]*$/.test(draft);
+  const free = !chat.running && !chat.busy && blocked === null;
+  const canSend = online && draft.trim() !== "" && (answering || free);
+  const canRun = online && free;
+  const slash = /^\/[^\n]*$/.test(draft);
   const query = draft.slice(1).trim().toLowerCase();
   let matches: Action[] = [];
 
   if (slash) {
-    matches = actions.actions.filter((action) => action.name.toLowerCase().includes(query));
+    matches = actions.filter((action) => action.name.toLowerCase().includes(query));
   }
 
   const active = Math.min(picked, Math.max(matches.length - 1, 0));
-  const of = `${context.path}\n${context.selection}`;
-  let drop = { of, path: false, selection: false };
-
-  if (dropped.of === of) {
-    drop = dropped;
-  }
-
-  // Что уйдёт модели вместе с сообщением: открытая заметка и выделение,
-  // кроме убранного.
-  const sent: ChatContext = {
-    path: drop.path ? null : context.path,
-    selection: drop.selection ? "" : context.selection,
-  };
 
   function send() {
     if (!canSend) {
@@ -415,40 +331,24 @@ export function AgentChat({ context, actions }: Props) {
       return;
     }
 
-    void chat.send(model, draft, sent);
+    void chat.send(model, draft);
   }
 
   function run(action: Action | undefined) {
-    if (!canRun || action === undefined || actions === undefined) {
+    if (!canRun || action === undefined) {
       return;
     }
 
     setDraft("");
     setPicked(0);
-    void actions.run(action, sent);
+    void runAction(action, session.id);
   }
 
-  const chips: { label: string; title: string; remove: () => void }[] = [];
-
-  if (sent.path !== null) {
-    const name = sent.path.split("/").at(-1)?.replace(/\.md$/, "") ?? sent.path;
-
-    chips.push({ label: name, title: sent.path, remove: () => setDropped({ ...drop, path: true }) });
-  }
-
-  if (sent.selection.trim() !== "") {
-    chips.push({
-      label: t("agent.chat.selection"),
-      title: sent.selection,
-      remove: () => setDropped({ ...drop, selection: true }),
-    });
-  }
-
-  // Сессию Claude Code продолжают в терминале обычным claude. Команда
-  // пишется в буфер сразу по нажатию, а не вышло, видна, чтобы её
-  // скопировали руками.
-  function toTerminal(session: string) {
-    const command = `claude --resume ${session}`;
+  // Сессию Claude Code продолжают в терминале обычным claude из папки
+  // проекта. Команда пишется в буфер сразу по нажатию, а не вышло, видна,
+  // чтобы её скопировали руками.
+  function toTerminal(claudeSession: string) {
+    const command = terminalCommand(project?.path, claudeSession);
 
     navigator.clipboard.writeText(command).then(
       () => setCopied({ command, ok: true }),
@@ -456,35 +356,11 @@ export function AgentChat({ context, actions }: Props) {
     );
   }
 
-  // Модель своего способа выбирается сразу. Другой способ это другой
-  // разговор: при непустой истории сначала вопрос.
-  function choose(method: AgentMethod, value: AgentModel) {
-    if (method === chat.method || chat.entries.length === 0) {
-      setAgentMethod(method);
-      setAgentModel(value);
-      return;
-    }
-
-    setSwitching({ method, model: value });
-  }
-
-  // Все модели по способам: подписка Claude, где есть Claude Code, и ключ API.
-  const methods: AgentMethod[] = ["key"];
-
-  if (claudeState !== undefined && claudeState !== "unsupported") {
-    methods.unshift("subscription");
-  }
-
-  const models: MenuItem[] = methods.flatMap((method, group) =>
-    AGENT_MODELS.map((value, index) => ({
-      id: `${method}/${value}`,
-      label: MODEL_NAMES[value],
-      heading: index === 0 ? t(`agent.chat.methods.${method}`) : undefined,
-      separated: index === 0 && group > 0,
-      checked: method === chat.method && value === model,
-      onSelect: () => choose(method, value),
-    })),
-  );
+  const models: MenuItem[] = AGENT_MODELS.map((value) => ({
+    label: MODEL_NAMES[value],
+    checked: value === model,
+    onSelect: () => setAgentModel(value),
+  }));
 
   const access: MenuItem[] = [
     {
@@ -501,160 +377,103 @@ export function AgentChat({ context, actions }: Props) {
     },
   ];
 
-  const session = chat.method === "subscription" ? chat.session : null;
-  let header = (
-    <>
-      <p className="flex-1 truncate text-[12px] text-text-muted">{t(`agent.chat.methods.${chat.method}`)}</p>
-      {session !== null && !chat.running && (
-        <IconButton icon={ComputerTerminal01Icon} label={t("agent.chat.terminal")} onClick={() => toTerminal(session)} />
-      )}
-      {chat.entries.length > 0 && !chat.running && (
-        <IconButton icon={Delete02Icon} label={t("agent.chat.clear")} onClick={() => setClearing(true)} />
-      )}
-    </>
-  );
-
-  if (switching !== null) {
-    header = (
-      <>
-        <p className="min-w-0 flex-1 text-[13px]/4">{t("agent.chat.switchAsk")}</p>
-        <Button
-          onClick={() => {
-            setSwitching(null);
-            setAgentMethod(switching.method);
-            setAgentModel(switching.model);
-          }}
-        >
-          {t("agent.chat.switchYes")}
-        </Button>
-        <Button onClick={() => setSwitching(null)}>{t("agent.chat.clearNo")}</Button>
-      </>
-    );
-  }
-
-  if (clearing) {
-    header = (
-      <>
-        <p className="flex-1 truncate text-[13px]/4">{t("agent.chat.clearAsk")}</p>
-        <Button
-          onClick={() => {
-            setClearing(false);
-            void chat.clear();
-          }}
-        >
-          {t("agent.chat.clearYes")}
-        </Button>
-        <Button onClick={() => setClearing(false)}>{t("agent.chat.clearNo")}</Button>
-      </>
-    );
-  }
-
-  // Действию не хватило интеграции: вместо повтора ссылка туда, где её
-  // подключают.
-  let fix = (
-    <button type="button" className={LINK} onClick={() => void chat.send(model, "", sent)}>
-      {t("agent.chat.retry")}
-    </button>
-  );
-
-  if (chat.problem === "needsYoutrack") {
-    fix = (
-      <Link to="/settings/integrations" className={LINK}>
-        {t("agent.actions.connect")}
-      </Link>
-    );
-  }
-
   let noMatch: string | null = null;
 
-  if (slash && actions.actions.length === 0) {
+  if (slash && actions.length === 0) {
     noMatch = t("agent.actions.none");
   } else if (slash && matches.length === 0) {
     noMatch = t("agent.actions.noMatch");
   }
 
+  const claudeSession = chat.claudeSession;
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex min-h-10 shrink-0 items-center gap-2 px-3 py-1">{header}</div>
+      <div className="flex min-h-11 shrink-0 items-center gap-2 border-b-[0.5px] border-border-base px-4 py-1">
+        <div className="flex min-w-0 flex-1 items-baseline gap-2">
+          <h1 className="truncate text-[13px]/5 font-medium">{session.title || t("agent.sessions.untitled")}</h1>
+          <p title={project?.path} className="truncate text-[12px] text-text-muted">
+            {project?.name}
+          </p>
+        </div>
+        {claudeSession !== null && !chat.running && (
+          <IconButton
+            icon={ComputerTerminal01Icon}
+            label={t("agent.chat.terminal")}
+            onClick={() => toTerminal(claudeSession)}
+          />
+        )}
+      </div>
       <div
         ref={logRef}
         role="log"
         aria-label={t("agent.chat.log")}
-        // Строки ленты не сжимаются: обрезанная строка инструмента иначе
-        // уходит в нулевую высоту, когда лента длиннее панели.
-        className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 pb-3 *:shrink-0"
+        className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 pt-4 pb-3"
       >
-        {chat.loaded && chat.entries.length === 0 && (
-          <p className="m-auto text-center text-[13px]/5 text-text-muted">{t("agent.chat.empty")}</p>
-        )}
-        {chat.entries.map(({ id, entry }) => {
-          if (entry.kind === "changed") {
-            return <Changed key={id} entry={entry} later={questionsOf(asked, entry.with)} disabled={chat.running} />;
-          }
-
-          if (entry.kind === "question" || entry.kind === "permission") {
-            return (
-              <Asked
-                key={id}
-                entry={entry}
-                waiting={entry.id === chat.open}
-                answer={(question, reply) => void chat.answer(question, reply)}
-              />
-            );
-          }
-
-          if (entry.kind === "notice") {
-            let retry: (() => void) | null = null;
-
-            if (id === count - 1 && !chat.running && blocked === null) {
-              retry = () => void chat.send(model, "", sent);
+        {/* Строки ленты не сжимаются: обрезанная строка инструмента иначе
+            уходит в нулевую высоту, когда лента длиннее экрана. */}
+        <div className="mx-auto flex w-full max-w-200 flex-1 flex-col gap-3 *:shrink-0">
+          {chat.loaded && chat.entries.length === 0 && (
+            <p className="m-auto text-center text-[13px]/5 text-text-muted">
+              {t("agent.chat.empty", { project: project?.name ?? "" })}
+            </p>
+          )}
+          {chat.entries.map(({ id, entry }) => {
+            if (entry.kind === "question" || entry.kind === "permission") {
+              return (
+                <Asked
+                  key={id}
+                  entry={entry}
+                  waiting={entry.id === chat.open}
+                  answer={(question, reply) => void chat.answer(question, reply)}
+                />
+              );
             }
 
-            return <Noticed key={id} entry={entry} retry={retry} />;
-          }
+            if (entry.kind === "notice") {
+              let retry: (() => void) | null = null;
 
-          return <Line key={id} entry={entry} />;
-        })}
-        {chat.running && !answering && last?.kind !== "assistant" && (
-          <p className="text-[14px]/5 font-[500] text-text-faint motion-safe:animate-pulse">{t("agent.chat.thinking")}</p>
+              if (id === count - 1 && free) {
+                retry = () => void chat.send(model, "");
+              }
+
+              return <Noticed key={id} entry={entry} retry={retry} />;
+            }
+
+            return <Line key={id} entry={entry} />;
+          })}
+          {chat.running && !answering && last?.kind !== "assistant" && (
+            <p className="text-[14px]/5 font-[500] text-text-faint motion-safe:animate-pulse">{t("agent.chat.thinking")}</p>
+          )}
+        </div>
+      </div>
+      <div className="px-4">
+        {!online && <Notice tone="warning">{t("agent.chat.offline")}</Notice>}
+        {online && blocked}
+        {online && blocked === null && chat.busy && <Notice tone="warning">{t("agent.chat.busy")}</Notice>}
+        {online && chat.problem !== null && (
+          <Notice
+            action={
+              free && (
+                <button type="button" className={LINK} onClick={() => void chat.send(model, "")}>
+                  {t("agent.chat.retry")}
+                </button>
+              )
+            }
+          >
+            {t(`agent.problems.${chat.problem}`)}
+          </Notice>
+        )}
+        {copied !== null && (
+          <p role="status" className="mx-auto mb-2 max-w-200 text-[12px] break-all text-text-muted">
+            {copied.ok
+              ? t("agent.chat.copied", { command: copied.command })
+              : t("agent.chat.copyFailed", { command: copied.command })}
+          </p>
         )}
       </div>
-      {!online && <Notice tone="warning">{t("agent.chat.offline")}</Notice>}
-      {online && blocked}
-      {online && chat.problem !== null && <Notice action={fix}>{t(`agent.problems.${chat.problem}`)}</Notice>}
-      {actions !== undefined && actions.deferred.length > 0 && (
-        <Notice tone="warning">{t("agent.actions.deferred", { names: actions.deferred.join(", ") })}</Notice>
-      )}
-      {copied !== null && (
-        <p role="status" className="mx-3 mb-2 text-[12px] break-all text-text-muted">
-          {copied.ok
-            ? t("agent.chat.copied", { command: copied.command })
-            : t("agent.chat.copyFailed", { command: copied.command })}
-        </p>
-      )}
-      <div className="p-3 pt-0">
-        <div className="rounded-xl bg-bg-dock shadow-raised">
-          {chips.length > 0 && (
-            <ul aria-label={t("agent.chat.context")} className="flex flex-wrap gap-2 px-2 pt-2">
-              {chips.map((chip) => (
-                <li
-                  key={chip.label}
-                  title={chip.title}
-                  className="flex h-6 max-w-55 items-center gap-1.5 rounded-md bg-overlay-hover pr-0.5 pl-2 text-[13px]/4 text-text-muted shadow-[inset_0_0_0_0.5px_var(--border-border-base)]"
-                >
-                  <span className="truncate">{chip.label}</span>
-                  <button
-                    type="button"
-                    aria-label={t("agent.chat.drop", { what: chip.label })}
-                    className="grid size-5 shrink-0 place-items-center rounded-sm text-icon-muted transition-colors duration-120 hover:bg-overlay-hover hover:text-icon-base focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-border-focus"
-                    onClick={chip.remove}
-                  >
-                    <Icon icon={Cancel01Icon} size={12} />
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
+      <div className="px-4 pb-4">
+        <div className="mx-auto max-w-200 rounded-xl bg-bg-dock shadow-raised">
           {slash && (
             <div className="max-h-48 overflow-y-auto border-b-[0.5px] border-border-base p-0.5">
               {noMatch !== null && <p className="px-3 py-1.5 text-[12px] text-text-muted">{noMatch}</p>}
@@ -715,23 +534,21 @@ export function AgentChat({ context, actions }: Props) {
               }
             }}
           />
-          {/* Узкой панели обе подписи не влезают: доступ остаётся значком. */}
+          {/* Узкому окну обе подписи не влезают: доступ остаётся значком. */}
           <div className="@container flex h-11 items-center gap-0.5 px-2">
-            {actions !== undefined && (
-              <button
-                type="button"
-                aria-label={t("agent.actions.title")}
-                title={t("agent.actions.title")}
-                className={`${SQUARE} text-icon-muted hover:bg-overlay-hover hover:text-icon-base`}
-                onClick={() => {
-                  setDraft("/");
-                  setPicked(0);
-                  fieldRef.current?.focus();
-                }}
-              >
-                <Icon icon={PlusSignIcon} size={14} />
-              </button>
-            )}
+            <button
+              type="button"
+              aria-label={t("agent.actions.title")}
+              title={t("agent.actions.title")}
+              className={`${SQUARE} text-icon-muted hover:bg-overlay-hover hover:text-icon-base`}
+              onClick={() => {
+                setDraft("/");
+                setPicked(0);
+                fieldRef.current?.focus();
+              }}
+            >
+              <Icon icon={PlusSignIcon} size={14} />
+            </button>
             <MenuButton
               icon={SparklesIcon}
               label={t("agent.chat.model")}

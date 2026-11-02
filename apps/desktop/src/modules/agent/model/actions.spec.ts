@@ -2,10 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   actionsOf,
   actionText,
-  DIGEST_ACTION,
   dueActions,
   hotkeyOf,
-  isRunnable,
+  hotkeyProblem,
   lastSlot,
   nameProblem,
   parseHotkey,
@@ -13,46 +12,74 @@ import {
   taskAt,
 } from "./actions";
 
-const note = (name: string, text: string) => ({ path: `Действия/${name}.md`, text });
+// Действие лежит файлом в папке приложения: путь это имя файла.
+const file = (name: string, text: string) => ({ path: `${name}.md`, text });
 
-describe("действия из заметок", () => {
-  it("название из имени файла, задание из текста под шапкой, интеграции и клавиша из шапки", () => {
+describe("действия из файлов", () => {
+  it("название из имени файла, задание из текста под шапкой, клавиша и расписание из шапки", () => {
     const [action] = actionsOf([
-      note("Задачи на сегодня", "---\nintegrations: [youtrack]\nhotkey: mod+shift+t\n---\nСобери задачи\n"),
+      file("Задачи на сегодня", "---\nhotkey: mod+shift+t\nschedule: пн 9:30\n---\nСобери задачи\n"),
     ]);
 
     expect(action).toEqual({
-      path: "Действия/Задачи на сегодня.md",
+      path: "Задачи на сегодня.md",
       name: "Задачи на сегодня",
       task: "Собери задачи",
-      integrations: ["youtrack"],
       hotkey: "Mod+Shift+T",
       hotkeyText: "mod+shift+t",
-      schedule: null,
-      scheduleText: "",
+      schedule: { days: [1], minutes: 570 },
+      scheduleText: "пн 9:30",
       problems: [],
     });
   });
 
-  it("значения шапки встают в задание, а незаполненное держит запуск", () => {
-    const [filled, empty] = actionsOf([
-      note("А", "---\nepic: SAP-1\n---\nСводка по {{epic}} с {{since}}"),
-      note("Б", "---\nepic:\n---\nСводка по {{epic}}"),
-    ]);
+  it("без шапки весь текст это задание, клавиши и расписания нет", () => {
+    const [action] = actionsOf([file("А", "Просто задание")]);
 
-    expect(filled).toMatchObject({ task: "Сводка по SAP-1 с {{since}}", problems: [] });
-    expect(empty?.problems).toEqual(["emptyValue"]);
-    expect([filled, empty].map((action) => action !== undefined && isRunnable(action))).toEqual([true, false]);
+    expect(action).toMatchObject({ task: "Просто задание", hotkey: null, schedule: null, problems: [] });
   });
 
-  it("готовая сводка по эпику ждёт эпика в шапке, расписание у неё по понедельникам", () => {
-    const [digest] = actionsOf([note(DIGEST_ACTION.name, DIGEST_ACTION.text)]);
+  it("действия идут по алфавиту", () => {
+    const actions = actionsOf([file("Ёлка", "з"), file("Бета", "з"), file("Альфа", "з")]);
 
-    expect(digest).toMatchObject({
-      integrations: ["youtrack"],
-      schedule: { days: [1], minutes: 600 },
-      problems: ["emptyValue"],
+    expect(actions.map((action) => action.name)).toEqual(["Альфа", "Бета", "Ёлка"]);
+  });
+
+  it("то, что не разобрать, видно причиной, а не молча пропадает", () => {
+    const actions = actionsOf([
+      file("Пустое", "---\nhotkey: Mod+K\n---\n"),
+      file("Кривое", "---\nhotkey: Shift+T\nschedule: понедельник\n---\nзадание"),
+    ]);
+
+    expect(actions.map(({ name, hotkey, schedule, problems }) => ({ name, hotkey, schedule, problems }))).toEqual([
+      { name: "Кривое", hotkey: null, schedule: null, problems: ["badSchedule", "badHotkey"] },
+      { name: "Пустое", hotkey: null, schedule: null, problems: ["emptyTask", "reservedHotkey"] },
+    ]);
+  });
+
+  it("одна клавиша у двух действий не срабатывает ни у одного", () => {
+    const actions = actionsOf([
+      file("А", "---\nhotkey: Mod+Shift+1\n---\nзадание"),
+      file("Б", "---\nhotkey: Mod+Shift+1\n---\nзадание"),
+      file("В", "---\nhotkey: Mod+Shift+2\n---\nзадание"),
+    ]);
+
+    expect(actions.map((action) => action.hotkey)).toEqual([null, null, "Mod+Shift+2"]);
+    expect(actions[0]?.problems).toEqual(["takenHotkey"]);
+  });
+
+  it("файл нового действия читается обратно тем же действием", () => {
+    const [full] = actionsOf([file("А", actionText("  Собери задачи \n", "Mod+Alt+J", " пн, чт 10:00 "))]);
+    const [plain] = actionsOf([file("Б", actionText("задание", null, ""))]);
+
+    expect(full).toMatchObject({
+      task: "Собери задачи",
+      hotkey: "Mod+Alt+J",
+      schedule: { days: [1, 4], minutes: 600 },
+      scheduleText: "пн, чт 10:00",
+      problems: [],
     });
+    expect(plain).toMatchObject({ task: "задание", hotkey: null, schedule: null, problems: [] });
   });
 });
 
@@ -61,11 +88,14 @@ describe("расписание", () => {
     ["Mon 10:00", { days: [1], minutes: 600 }],
     ["пн, чт 9:30", { days: [1, 4], minutes: 570 }],
     ["fri,MON 18:05", { days: [1, 5], minutes: 1085 }],
+    ["пн пн 8:00", { days: [1], minutes: 480 }],
     ["7:00", { days: [], minutes: 420 }],
     ["Mon", null],
     ["Mon 25:00", null],
+    ["Mon 10:60", null],
     ["понедельник 10:00", null],
-  ])("%s", (raw, schedule) => {
+    ["", null],
+  ])("«%s»", (raw, schedule) => {
     expect(parseSchedule(raw)).toEqual(schedule);
   });
 
@@ -81,20 +111,22 @@ describe("расписание", () => {
 
   it("срок прошёл после прошлого запуска, а новое действие ещё не замечено", () => {
     const actions = actionsOf([
-      note("Еженедельное", "---\nschedule: Mon 10:00\n---\nзадание"),
-      note("Ежедневное", "---\nschedule: 13:00\n---\nзадание"),
-      note("Новое", "---\nschedule: Mon 10:00\n---\nзадание"),
+      file("Еженедельное", "---\nschedule: Mon 10:00\n---\nзадание"),
+      file("Ежедневное", "---\nschedule: 13:00\n---\nзадание"),
+      file("Новое", "---\nschedule: Mon 10:00\n---\nзадание"),
+      file("Без расписания", "задание"),
     ]);
     const runs = {
-      "Действия/Еженедельное.md": { at: new Date(2026, 9, 26, 9, 0).getTime(), ran: true },
-      "Действия/Ежедневное.md": { at: new Date(2026, 9, 29, 14, 0).getTime(), ran: true },
+      "Еженедельное.md": { at: new Date(2026, 9, 26, 9, 0).getTime(), ran: true },
+      "Ежедневное.md": { at: new Date(2026, 9, 29, 14, 0).getTime(), ran: true },
+      "Без расписания.md": { at: 0, ran: true },
     };
 
     expect(dueActions(actions, runs, friday).map((action) => action.name)).toEqual(["Еженедельное"]);
   });
 
   it("период задания от прошлого запуска, а первый раз неделя", () => {
-    const [action] = actionsOf([note("А", "с {{since}} по {{today}}")]);
+    const [action] = actionsOf([file("А", "с {{since}} по {{today}}")]);
 
     if (action === undefined) {
       throw new Error("нет действия");
@@ -107,49 +139,6 @@ describe("расписание", () => {
       "с 2026-10-23 по 2026-10-30",
     );
     expect(taskAt(action, undefined, friday)).toBe("с 2026-10-23 по 2026-10-30");
-  });
-
-  it("интеграции списком строк, в кавычках и в любом регистре", () => {
-    const [action] = actionsOf([note("А", "---\nintegrations:\n  - 'YouTrack'\n---\nзадание")]);
-
-    expect(action?.integrations).toEqual(["youtrack"]);
-  });
-
-  it("без шапки весь текст это задание, клавиши и интеграций нет", () => {
-    const [action] = actionsOf([note("А", "Просто задание")]);
-
-    expect(action).toMatchObject({ task: "Просто задание", integrations: [], hotkey: null, problems: [] });
-  });
-
-  it("то, что не разобрать, видно причиной, а не молча пропадает", () => {
-    const actions = actionsOf([
-      note("Пустое", "---\nhotkey: Mod+K\n---\n"),
-      note("Кривое", "---\nintegrations: [jira]\nhotkey: Shift+T\n---\nзадание"),
-    ]);
-
-    expect(actions.map(({ name, hotkey, problems }) => ({ name, hotkey, problems }))).toEqual([
-      { name: "Кривое", hotkey: null, problems: ["unknownIntegration", "badHotkey"] },
-      { name: "Пустое", hotkey: null, problems: ["emptyTask", "reservedHotkey"] },
-    ]);
-  });
-
-  it("одна клавиша у двух действий не срабатывает ни у одного", () => {
-    const actions = actionsOf([
-      note("А", "---\nhotkey: Mod+Shift+1\n---\nзадание"),
-      note("Б", "---\nhotkey: Mod+Shift+1\n---\nзадание"),
-      note("В", "---\nhotkey: Mod+Shift+2\n---\nзадание"),
-    ]);
-
-    expect(actions.map((action) => action.hotkey)).toEqual([null, null, "Mod+Shift+2"]);
-    expect(actions[0]?.problems).toEqual(["takenHotkey"]);
-  });
-
-  it("файл нового действия читается обратно тем же действием", () => {
-    const text = actionText("  Собери задачи \n", ["youtrack"], "Mod+Alt+J");
-    const [action] = actionsOf([note("А", text)]);
-
-    expect(action).toMatchObject({ task: "Собери задачи", integrations: ["youtrack"], hotkey: "Mod+Alt+J" });
-    expect(actionsOf([note("А", actionText("задание", [], null))])[0]?.problems).toEqual([]);
   });
 });
 
@@ -176,17 +165,37 @@ describe("горячая клавиша", () => {
     expect(hotkeyOf({ code: "KeyJ", altKey: true, shiftKey: false, metaKey: false, ctrlKey: false })).toBeNull();
     expect(hotkeyOf({ code: "ShiftLeft", altKey: false, shiftKey: true, ...mod })).toBeNull();
   });
+
+  describe("занятое сочетание", () => {
+    const actions = actionsOf([
+      file("Обзор", "---\nhotkey: Mod+Shift+J\n---\nзадание"),
+      file("Сводка", "---\nhotkey: Mod+Shift+S\n---\nзадание"),
+    ]);
+
+    it.each([
+      ["Mod+K", null, "reservedHotkey"],
+      ["Mod+Shift+Z", "Обзор.md", "reservedHotkey"],
+      ["Mod+Shift+J", null, "takenHotkey"],
+      ["Mod+Shift+S", "Обзор.md", "takenHotkey"],
+      ["Mod+Shift+J", "Обзор.md", null],
+      ["Mod+Shift+U", null, null],
+    ])("%s у действия %s", (hotkey, self, problem) => {
+      expect(hotkeyProblem(hotkey, actions, self)).toBe(problem);
+    });
+  });
 });
 
 describe("название нового действия", () => {
-  const actions = actionsOf([note("Задачи", "задание")]);
+  const actions = actionsOf([file("Задачи", "задание")]);
 
   it.each([
     ["", "name_empty"],
     ["  ", "name_empty"],
     ["Отчёт: неделя", "name_forbidden"],
+    ["план/факт", "name_forbidden"],
     [".скрытое", "name_hidden"],
     ["задачи", "name_taken"],
+    [" Задачи ", "name_taken"],
     ["Сводка", null],
   ])("«%s»", (name, problem) => {
     expect(nameProblem(name, actions)).toBe(problem);

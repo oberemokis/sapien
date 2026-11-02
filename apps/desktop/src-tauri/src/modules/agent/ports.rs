@@ -1,6 +1,7 @@
-use super::domain::{Answer, Chat, ClaudeStatus, ModelError, Question, Stamp};
+use super::domain::{Answer, ClaudeStatus, Oversight, Question, Session, SessionInfo, Stamp};
 use crate::error::AppError;
 use serde_json::Value;
+use std::path::{Path, PathBuf};
 
 /// Человек у окна: отвечает на вопросы агента посреди ответа.
 pub trait Human {
@@ -9,35 +10,32 @@ pub trait Human {
     fn ask(&self, question: &Question) -> impl Future<Output = Option<Answer>> + Send;
 }
 
-/// Claude Code на устройстве со входом пользователя, отгороженный от его
-/// настроек, инструментов и памяти.
+/// Claude Code на устройстве со входом пользователя. Работает в папке
+/// проекта со своими инструментами, настройками и CLAUDE.md, как в терминале.
 pub trait Claude {
     /// Идущий ответ в сессии.
     type Talk: Conversation;
 
     fn status(&self) -> impl Future<Output = ClaudeStatus> + Send;
-    /// Один запрос без инструментов и без сохранённой сессии. Ответ JSON
-    /// по схеме `schema`.
-    fn structured(
-        &self,
-        model: &str,
-        system: &str,
-        schema: &Value,
-        message: &str,
-    ) -> impl Future<Output = Result<Value, AppError>> + Send;
-    /// Запускает ответ на сообщение в сессии Claude Code с инструментами
-    /// sapien. Ответ идёт событиями `Conversation`.
+    /// Запускает ответ на сообщение в сессии Claude Code с сервером
+    /// MCP sapien. Ответ идёт событиями `Conversation`.
     fn converse(&self, run: &Run<'_>) -> impl Future<Output = Result<Self::Talk, AppError>> + Send;
-    /// Каким сейчас лежит файл сессии `id`. Нет файла, значит, `None`.
-    fn stamp(&self, id: &str) -> Option<Stamp>;
+    /// Каким сейчас лежит файл сессии `id`, начатой в папке `dir`. Нет
+    /// файла, значит, `None`.
+    fn stamp(&self, dir: &Path, id: &str) -> Option<Stamp>;
 }
 
 /// Один ответ в сессии Claude Code.
 pub struct Run<'a> {
+    /// Папка проекта: в ней Claude Code работает.
+    pub dir: &'a Path,
     pub model: &'a str,
-    pub system: &'a str,
+    /// Что дописать к системному промпту Claude Code.
+    pub append: &'a str,
     /// Сообщение человека.
     pub prompt: &'a str,
+    /// Спрашивать ли разрешения на вызовы.
+    pub oversight: Oversight,
     /// Сессия, которую продолжить. Без неё Claude Code начинает новую.
     pub resume: Option<&'a str>,
     /// Продолжить в копии сессии: её меняли снаружи.
@@ -72,52 +70,19 @@ pub trait Conversation: Send {
     fn errors(&self) -> &str;
 }
 
-/// Messages API провайдера модели.
-pub trait Model {
-    /// Шлёт запрос с потоком и отдаёт события потока по одному, как пришли.
-    /// Кончается, когда поток закрылся.
-    fn stream(
-        &self,
-        key: &str,
-        body: &Value,
-        on_event: &mut (impl FnMut(Value) + Send),
-    ) -> impl Future<Output = Result<(), ModelError>> + Send;
+/// Проекты, в которых работает агент.
+pub trait Projects: Sync {
+    /// Папка проекта `id`. Проекта нет в списке или папки нет на диске:
+    /// `None`.
+    fn folder(&self, id: &str) -> Option<PathBuf>;
 }
 
-/// Заметки хранилища без папок, закрытых для агента: их заметок нет
-/// в списке и поиске, а чтение и запись по пути отвечают `note_closed`.
-/// Удаления нет: агент не удаляет вовсе.
-pub trait Notes {
-    /// Можно ли показать агенту этот путь.
-    fn open(&self, path: &str) -> bool;
-    fn paths(&self) -> Result<Vec<String>, AppError>;
-    /// Пути и тексты всех заметок.
-    fn texts(&self) -> Result<Vec<(String, String)>, AppError>;
-    fn read(&self, path: &str) -> Result<String, AppError>;
-    /// Пишет заметку целиком, новую создаёт. Прежний текст уходит в историю.
-    fn put(&self, path: &str, text: &str) -> Result<(), AppError>;
-    /// Откат правки агента: заметка получает текст до неё, а без текста
-    /// уходит в корзину. Откат просит человек, поэтому закрытые папки ему
-    /// не мешают. Текущий текст уходит в историю.
-    fn revert(&self, path: &str, before: Option<&str>) -> Result<(), AppError>;
-}
-
-/// Задачи YouTrack, только чтение. Ответ JSON-текстом.
-pub trait Tracker {
-    fn search(&self, query: &str) -> impl Future<Output = Result<String, AppError>> + Send;
-    fn issue(&self, id: &str) -> impl Future<Output = Result<String, AppError>> + Send;
-    /// Что случилось с подзадачами эпика с даты ГГГГ-ММ-ДД.
-    fn epic_changes(
-        &self,
-        epic: &str,
-        since: &str,
-    ) -> impl Future<Output = Result<String, AppError>> + Send;
-}
-
-/// Где лежит история чата хранилища: сообщения в формате Messages API,
-/// что поменял каждый ответ и сессия Claude Code.
-pub trait ChatStore: Sync {
-    fn load(&self) -> Result<Chat, AppError>;
-    fn save(&self, chat: &Chat) -> Result<(), AppError>;
-    fn clear(&self) -> Result<(), AppError>;
+/// Где лежат сессии: их история, заголовок и сессия Claude Code.
+pub trait Sessions: Sync {
+    fn list(&self) -> Result<Vec<SessionInfo>, AppError>;
+    /// Нет сессии, значит, `session_missing`.
+    fn load(&self, id: &str) -> Result<Session, AppError>;
+    fn save(&self, session: &Session) -> Result<(), AppError>;
+    /// Сессии уже нет: удалять нечего.
+    fn delete(&self, id: &str) -> Result<(), AppError>;
 }

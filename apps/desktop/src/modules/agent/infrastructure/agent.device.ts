@@ -1,13 +1,12 @@
 import type { Run } from "../model/actions";
 import type { AgentModel } from "../model/chat";
-import type { AgentMethod } from "../model/method";
 
 const STORAGE_KEY = "sapien.agent.model";
-const METHOD_KEY = "sapien.agent.method";
+const SESSION_KEY = "sapien.agent.session";
 const RUNS_KEY = "sapien.actions.runs";
 
 // Когда действия по расписанию последний раз запускались, по путям
-// заметок. Без хранилища окна каждый запуск приложения замечает действия
+// файлов. Без хранилища окна каждый запуск приложения замечает действия
 // заново, и сроки, пропущенные при закрытом приложении, теряются.
 export function readRuns(): Record<string, Run> {
   try {
@@ -43,17 +42,22 @@ export function writeAgentModel(model: AgentModel) {
   }
 }
 
-export function readAgentMethod(): string | null {
+// Открытая сессия: после перезапуска окно открывает её же.
+export function readSession(): string | null {
   try {
-    return localStorage.getItem(METHOD_KEY);
+    return localStorage.getItem(SESSION_KEY);
   } catch {
     return null;
   }
 }
 
-export function writeAgentMethod(method: AgentMethod) {
+export function writeSession(session: string | null) {
   try {
-    localStorage.setItem(METHOD_KEY, method);
+    if (session === null) {
+      localStorage.removeItem(SESSION_KEY);
+    } else {
+      localStorage.setItem(SESSION_KEY, session);
+    }
   } catch {
     // Как с моделью: выбор действует до закрытия окна.
   }

@@ -1,18 +1,42 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { RouterProvider, createMemoryHistory, createRootRoute, createRouter } from "@tanstack/react-router";
-import { createStore, useSelector } from "@tanstack/react-store";
+import {
+  Outlet,
+  RouterProvider,
+  createMemoryHistory,
+  createRootRoute,
+  createRoute,
+  createRouter,
+  useNavigate,
+} from "@tanstack/react-router";
 import type { Channel } from "@tauri-apps/api/core";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { useCallback } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { AgentChat } from "@/modules/agent";
-import type { Answer, ChatContext, ChatEntry, ChatEvent, Question } from "./model/chat";
-import type { ClaudeStatus } from "./model/method";
-import { methodStore } from "./store/method.store";
+import { SessionList, SessionSearch, SessionView, useActionTriggers, useAttach } from "@/modules/agent";
+import type { Answer, ChatEntry, ChatEvent, ClaudeStatus, Oversight, Question } from "./model/chat";
+import type { Project, SessionInfo } from "./model/sessions";
+import { chatStore, searchStore, sessionStore } from "./store/chat.store";
+import { modelStore } from "./store/model.store";
 
-type Sent = { method: string; model: string; text: string; context: ChatContext; oversight: string };
+type Sent = { session: string; model: string; text: string; oversight: Oversight };
 
 const READY: ClaudeStatus = { state: "ready", version: "2.1.316" };
+
+const SAPIEN: Project = { id: "p1", name: "sapien", path: "/Users/me/sapien", missing: false };
+// Кавычка в пути: команда для терминала должна её экранировать.
+const SITE: Project = { id: "p2", name: "сайт", path: "/Users/me/O'Brien/сайт", missing: false };
+// Папка, которую человек выберет в системном диалоге «Добавить проект».
+const DOCS: Project = { id: "p3", name: "документы", path: "/Users/me/документы", missing: false };
+
+const SESSIONS: SessionInfo[] = [
+  { id: "s1", project: "p1", title: "Рефакторинг парсера", updated: 3000 },
+  { id: "s2", project: "p1", title: "Тесты окна", updated: 5000 },
+  { id: "s3", project: "p2", title: "Лендинг", updated: 4000 },
+];
+
+// happy-dom представляется Linux, но тест не должен от этого зависеть.
+const MOD = /Mac/.test(navigator.userAgent) ? { metaKey: true } : { ctrlKey: true };
 
 // Сообщение в канал так, как его шлёт Rust. Каналы mockIPC держит здесь.
 function toChannel(channel: Channel<ChatEvent>, index: number, message: ChatEvent) {
@@ -22,26 +46,26 @@ function toChannel(channel: Channel<ChatEvent>, index: number, message: ChatEven
   internals.runCallback(channel.id, { index, message });
 }
 
-// Rust за командами агента: история чата, ключ и ответ, который идёт
-// событиями через канал. Ответ кончается, когда тест его отпустит.
-// ongoing это ответ, который уже идёт и ждёт ответа на вопрос, когда окно
-// открывается: так выглядит перезагрузка окна. Claude Code по умолчанию
-// не поддержан, и чат идёт ключом.
+// Rust за командами агента: проекты, их сессии, история каждой сессии
+// и ответ, который идёт событиями через канал и кончается, когда тест его
+// отпустит. ongoing это ответ в первой сессии, который уже идёт и ждёт
+// ответа на вопрос, когда окно открывается: так выглядит перезагрузка окна.
 function fakeRust({
-  key = true,
+  projects = [SAPIEN, SITE],
+  claude = READY,
   ongoing = null,
-  claude = { state: "unsupported", version: null },
-}: { key?: boolean; ongoing?: Question | null; claude?: ClaudeStatus } = {}) {
+}: { projects?: Project[]; claude?: ClaudeStatus; ongoing?: Question | null } = {}) {
   const rust = {
-    history: [] as ChatEntry[],
-    // Каким способом окно читало историю.
-    read: [] as string[],
-    session: null as string | null,
+    projects: [...projects],
+    sessions: SESSIONS.filter((session) => projects.some((project) => project.id === session.project)),
+    history: {} as Record<string, ChatEntry[]>,
+    claudeSessions: {} as Record<string, string>,
+    // Сессии, которые Rust начал по просьбе окна.
+    created: [] as SessionInfo[],
+    removed: [] as string[],
     sent: [] as Sent[],
     answers: [] as { id: string; answer: Answer }[],
     stops: 0,
-    undos: [] as number[],
-    undoFails: false,
     emit: (_event: ChatEvent) => {},
     finish: (_answer: ChatEntry[]) => {},
     fail: (_code: string) => {},
@@ -56,8 +80,54 @@ function fakeRust({
     };
   }
 
+  // Конец ответа: его строки ложатся в историю сессии.
+  function answer(session: string, resolve: () => void) {
+    rust.finish = (entries) => {
+      rust.history[session] = [...(rust.history[session] ?? []), ...entries];
+      resolve();
+    };
+  }
+
   mockIPC((command, args) => {
     switch (command) {
+      case "projects_list":
+        return rust.projects;
+      case "projects_add":
+        rust.projects = [...rust.projects, DOCS];
+        return DOCS;
+      case "projects_remove": {
+        const { id } = args as { id: string };
+
+        rust.removed.push(id);
+        rust.projects = rust.projects.filter((project) => project.id !== id);
+        rust.sessions = rust.sessions.filter((session) => session.project !== id);
+        return null;
+      }
+      case "agent_sessions":
+        return rust.sessions;
+      case "agent_session_new": {
+        const { project } = args as { project: string };
+
+        if (rust.projects.find((candidate) => candidate.id === project)?.missing !== false) {
+          throw { kind: "not_found", code: "project_missing" };
+        }
+
+        const session: SessionInfo = { id: `new${rust.created.length + 1}`, project, title: "", updated: 10_000 };
+
+        rust.created.push(session);
+        rust.sessions = [...rust.sessions, session];
+        return session;
+      }
+      case "agent_history":
+        return rust.history[(args as { session: string }).session] ?? [];
+      case "agent_claude_session":
+        return rust.claudeSessions[(args as { session: string }).session] ?? null;
+      case "agent_claude_status":
+        return claude;
+      case "actions_list":
+        return [];
+      case "agent_running":
+        return ongoing && "s1";
       case "agent_attach": {
         if (ongoing === null) {
           return false;
@@ -66,61 +136,30 @@ function fakeRust({
         listen((args as { onEvent: Channel<ChatEvent> }).onEvent);
         rust.emit({ kind: "asked", question: ongoing });
 
-        return new Promise((resolve) => {
-          rust.finish = (answer) => {
-            rust.history.push(...answer);
-            resolve(true);
-          };
-        });
+        return new Promise((resolve) => answer("s1", () => resolve(true)));
       }
       case "agent_answer":
         rust.answers.push(args as { id: string; answer: Answer });
         return null;
-      case "agent_clear":
-        rust.history = [];
-        return null;
-      case "secret_status":
-        return { ending: key ? "WXYZ" : null, kept: true };
-      case "agent_history":
-        rust.read.push((args as { method: string }).method);
-        return rust.history;
-      case "agent_claude_status":
-        return claude;
-      case "agent_claude_session":
-        return rust.session;
       case "agent_stop":
         rust.stops += 1;
         return null;
-      // Откат помечает ответ и тех, кто откатился с ним.
-      case "agent_undo": {
-        const { turn } = args as { turn: number };
-
-        rust.undos.push(turn);
-
-        if (rust.undoFails) {
-          throw { kind: "unavailable", code: "vault_unwritable" };
-        }
-
-        const undone = new Set(
-          rust.history.flatMap((entry) => (entry.kind === "changed" && entry.turn === turn ? [turn, ...entry.with] : [])),
-        );
-
-        rust.history = rust.history.map((entry) =>
-          entry.kind === "changed" && undone.has(entry.turn) ? { ...entry, undone: true, with: [] } : entry,
-        );
-        return null;
-      }
       case "agent_send": {
         const { onEvent, ...sent } = args as Sent & { onEvent: Channel<ChatEvent> };
 
         rust.sent.push(sent);
+        // Название пустой сессии Rust берёт из первой строки сообщения.
+        rust.sessions = rust.sessions.map((session) => {
+          if (session.id !== sent.session || session.title !== "") {
+            return session;
+          }
+
+          return { ...session, title: sent.text.split("\n")[0] ?? "" };
+        });
         listen(onEvent);
 
         return new Promise((resolve, reject) => {
-          rust.finish = (answer) => {
-            rust.history.push(...answer);
-            resolve(null);
-          };
+          answer(sent.session, () => resolve(null));
           rust.fail = (code) => reject({ kind: "invalid", code });
         });
       }
@@ -132,30 +171,87 @@ function fakeRust({
   return rust;
 }
 
-const CONTEXT: ChatContext = { path: "Проекты/план.md", selection: "пункт про релиз" };
+// Оболочка окна, как pages/_shell.tsx: слева панель сессий, посередине
+// открытая сессия, поверх поиск.
+function Shell() {
+  const navigate = useNavigate();
+  const showChat = useCallback(() => void navigate({ to: "/" }), [navigate]);
+  const { deferred } = useActionTriggers({ onRun: showChat });
 
-// Чат на странице. show открывает другую заметку, как сделал бы человек.
-function open() {
-  const shown = createStore(CONTEXT);
+  return (
+    <>
+      <aside>
+        <SessionList deferred={deferred} />
+      </aside>
+      <main>
+        <Outlet />
+      </main>
+      <SessionSearch />
+    </>
+  );
+}
 
-  function Page() {
-    return <AgentChat context={useSelector(shown)} />;
-  }
+// Окно открылось заново. useAttach подключается один раз за жизнь модуля,
+// как за жизнь окна, поэтому в этом файле его зовёт только один тест.
+function Reopened() {
+  useAttach();
 
-  const root = createRootRoute({ component: Page });
-  const router = createRouter({ routeTree: root, history: createMemoryHistory({ initialEntries: ["/"] }) });
+  return <Shell />;
+}
+
+function open({ reopened = false } = {}) {
+  const root = createRootRoute({ component: reopened ? Reopened : Shell });
+  const chat = createRoute({ getParentRoute: () => root, path: "/", component: SessionView });
+  const router = createRouter({
+    routeTree: root.addChildren([chat]),
+    history: createMemoryHistory({ initialEntries: ["/"] }),
+  });
 
   render(
     <QueryClientProvider client={new QueryClient()}>
       <RouterProvider router={router} />
     </QueryClientProvider>,
   );
+}
 
-  return { show: (context: ChatContext) => act(() => shown.setState(() => context)) };
+function panel() {
+  return within(screen.getByRole("navigation", { name: "Сессии" }));
+}
+
+// Названия сессий проекта в левой панели сверху вниз.
+function sessionTitles(project: string) {
+  const item = panel().getByText(project).closest("li");
+
+  if (item === null) {
+    throw new Error(`нет проекта ${project}`);
+  }
+
+  return within(item)
+    .queryAllByRole("listitem")
+    .map((row) => row.querySelector("span")?.textContent);
+}
+
+// Отметка идущего ответа у сессии в левой панели.
+function isRunning(title: string) {
+  const row = panel().getByText(title).closest("button");
+
+  return row !== null && within(row).queryByText("агент отвечает") !== null;
+}
+
+// Сессию открывают в левой панели. Имя строки начинается с названия,
+// за ним может стоять отметка идущего ответа.
+async function openSession(title: string) {
+  await waitFor(() => panel().getByText(title));
+  fireEvent.click(panel().getByRole("button", { name: (name) => name.startsWith(title) }));
+  await screen.findByRole("heading", { name: title });
 }
 
 function field() {
   return screen.getByLabelText<HTMLTextAreaElement>("Сообщение агенту");
+}
+
+function sendButton() {
+  return screen.getByRole<HTMLButtonElement>("button", { name: "Отправить" });
 }
 
 async function ask(text: string) {
@@ -163,73 +259,158 @@ async function ask(text: string) {
   fireEvent.keyDown(field(), { key: "Enter" });
 }
 
+// Окно в каждом тесте новое: то, что живёт с окном, начинается заново.
 afterEach(() => {
   cleanup();
   clearMocks();
   vi.restoreAllMocks();
-  localStorage.clear();
-  methodStore.setState(() => null);
+  chatStore.setState(() => ({ session: null, live: null, problem: null, open: null, askEdits: true }));
+  sessionStore.setState(() => null);
+  searchStore.setState(() => false);
+  modelStore.setState(() => "claude-sonnet-5-5");
 });
 
-describe("чат с агентом", () => {
-  it("сообщение уходит с тем, что открыто, ответ идёт потоком и остаётся в истории", async () => {
+describe("левая панель", () => {
+  it("проекты показывают свои сессии свежими сверху, идущий ответ отмечен у своей сессии", async () => {
     const rust = fakeRust();
     open();
-    const context = await screen.findByRole("list", { name: "Уйдёт агенту вместе с сообщением" });
-    expect(within(context).getAllByRole("listitem").map((item) => item.textContent)).toEqual(["план", "выделенное"]);
+    await waitFor(() => expect(sessionTitles("sapien")).toEqual(["Тесты окна", "Рефакторинг парсера"]));
+    expect(sessionTitles("сайт")).toEqual(["Лендинг"]);
 
-    await ask("Отметь релиз");
+    await openSession("Рефакторинг парсера");
+    await ask("Почини парсер");
+    await waitFor(() => expect(rust.sent).toHaveLength(1));
+
+    expect(isRunning("Рефакторинг парсера")).toBe(true);
+    expect(isRunning("Тесты окна")).toBe(false);
+    rust.finish([]);
+    await waitFor(() => expect(isRunning("Рефакторинг парсера")).toBe(false));
+  });
+
+  it("«+» у проекта начинает в нём сессию и открывает её, название встаёт по первому сообщению", async () => {
+    const rust = fakeRust();
+    open();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Новая сессия в «сайт»" }));
+
+    expect(
+      await screen.findByText("Опишите задачу. Агент работает в папке «сайт»: читает и правит файлы, запускает команды."),
+    ).toBeDefined();
+    expect(rust.created.map((session) => session.project)).toEqual(["p2"]);
+    expect(sessionTitles("сайт")).toEqual(["Новая сессия", "Лендинг"]);
+    expect(panel().getByRole("button", { current: "page" }).textContent).toBe("Новая сессия");
+
+    await ask("Сверстай шапку\nи подвал");
+
+    await waitFor(() => expect(rust.sent).toHaveLength(1));
+    expect(rust.sent[0]?.session).toBe(rust.created[0]?.id);
+    // Название видно сразу, ответ ещё идёт.
+    expect(sessionTitles("сайт")).toEqual(["Сверстай шапку", "Лендинг"]);
+    expect(screen.getByRole("heading", { name: "Сверстай шапку" })).toBeDefined();
+  });
+
+  it("«Добавить проект» заводит проект и сразу открывает сессию в нём", async () => {
+    const rust = fakeRust();
+    open();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Добавить проект" }));
+
+    expect(
+      await screen.findByText(
+        "Опишите задачу. Агент работает в папке «документы»: читает и правит файлы, запускает команды.",
+      ),
+    ).toBeDefined();
+    expect(rust.created.map((session) => session.project)).toEqual(["p3"]);
+    expect(sessionTitles("документы")).toEqual(["Новая сессия"]);
+  });
+
+  it("«Убрать проект» сначала спрашивает, потом убирает проект с его сессиями", async () => {
+    const rust = fakeRust();
+    open();
+    await waitFor(() => expect(sessionTitles("сайт")).toEqual(["Лендинг"]));
+
+    fireEvent.contextMenu(panel().getByText("сайт"));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Убрать проект" }));
+    const question = screen.getByRole("alert");
+    expect(question.textContent).toContain("Его сессии удалятся, папка на диске останется.");
+    fireEvent.click(within(question).getByRole("button", { name: "Отмена" }));
+
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(rust.removed).toEqual([]);
+
+    fireEvent.contextMenu(panel().getByText("сайт"));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Убрать проект" }));
+    fireEvent.click(within(screen.getByRole("alert")).getByRole("button", { name: "Убрать" }));
+
+    await waitFor(() => expect(panel().queryByText("сайт")).toBeNull());
+    expect(panel().queryByText("Лендинг")).toBeNull();
+    expect(rust.removed).toEqual(["p2"]);
+  });
+});
+
+function found() {
+  return within(screen.getByRole("listbox", { name: "Поиск сессии" }))
+    .queryAllByRole("option")
+    .map((option) => option.textContent);
+}
+
+describe("поиск сессии", () => {
+  it("⌘K находит сессию по названию и проекту, Enter её открывает", async () => {
+    fakeRust();
+    open();
+    await waitFor(() => expect(sessionTitles("sapien")).toHaveLength(2));
+
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyK", cancelable: true, ...MOD }));
+    });
+    const query = await screen.findByRole("combobox", { name: "Поиск сессии" });
+    expect(found()).toEqual(["Тесты окнаsapien", "Лендингсайт", "Рефакторинг парсераsapien"]);
+
+    fireEvent.change(query, { target: { value: "сайт" } });
+    expect(found()).toEqual(["Лендингсайт"]);
+    fireEvent.change(query, { target: { value: "погода" } });
+    expect(screen.getByText("Ничего не найдено")).toBeDefined();
+
+    fireEvent.change(query, { target: { value: "парсер sapien" } });
+    fireEvent.keyDown(query, { key: "Enter" });
+
+    expect(await screen.findByRole("heading", { name: "Рефакторинг парсера" })).toBeDefined();
+    expect(screen.queryByRole("combobox", { name: "Поиск сессии" })).toBeNull();
+  });
+});
+
+describe("чат сессии", () => {
+  it("сообщение уходит в свою сессию, ответ идёт потоком и остаётся в истории", async () => {
+    const rust = fakeRust();
+    open();
+    await openSession("Рефакторинг парсера");
+
+    await ask("Почини парсер");
 
     expect(field().value).toBe("");
     await waitFor(() => expect(rust.sent).toHaveLength(1));
-    expect(rust.sent[0]).toEqual({
-      method: "key",
-      model: "claude-sonnet-5-5",
-      text: "Отметь релиз",
-      context: CONTEXT,
-      oversight: "ask",
-    });
+    expect(rust.sent[0]).toEqual({ session: "s1", model: "claude-sonnet-5-5", text: "Почини парсер", oversight: "ask" });
 
-    const tool: ChatEntry = { kind: "tool", name: "edit_note", target: "Проекты/план.md", ok: true };
+    const tool: ChatEntry = { kind: "tool", name: "Edit", target: "src/parser.ts", ok: true };
     rust.emit(tool);
-    rust.emit({ kind: "text", text: "Отметил " });
-    rust.emit({ kind: "text", text: "релиз." });
+    rust.emit({ kind: "text", text: "Починил " });
+    rust.emit({ kind: "text", text: "парсер." });
 
-    expect(await screen.findByText("Отметил релиз.")).toBeDefined();
+    expect(await screen.findByText("Починил парсер.")).toBeDefined();
     expect(screen.getByText("Изменил")).toBeDefined();
     expect(screen.getByRole("button", { name: "Стоп" })).toBeDefined();
 
-    rust.finish([{ kind: "user", text: "Отметь релиз" }, tool, { kind: "assistant", text: "Отметил релиз." }]);
+    rust.finish([{ kind: "user", text: "Почини парсер" }, tool, { kind: "assistant", text: "Починил парсер." }]);
 
     expect(await screen.findByRole("button", { name: "Отправить" })).toBeDefined();
-    expect(screen.getAllByText("Отметь релиз")).toHaveLength(1);
-    expect(screen.getAllByText("Отметил релиз.")).toHaveLength(1);
-  });
-
-  it("заметку и выделение можно убрать до отправки, следующая заметка приходит целиком", async () => {
-    const rust = fakeRust();
-    const view = open();
-
-    fireEvent.click(await screen.findByRole("button", { name: "Не отправлять: выделенное" }));
-    await ask("Вопрос без выделения");
-    await waitFor(() => expect(rust.sent).toHaveLength(1));
-    expect(rust.sent[0]?.context).toEqual({ path: "Проекты/план.md", selection: "" });
-    rust.finish([]);
-
-    fireEvent.click(await screen.findByRole("button", { name: "Не отправлять: план" }));
-    expect(screen.queryAllByRole("listitem")).toHaveLength(0);
-    await ask("Вопрос без заметки");
-    await waitFor(() => expect(rust.sent).toHaveLength(2));
-    expect(rust.sent[1]?.context).toEqual({ path: null, selection: "" });
-    rust.finish([]);
-
-    view.show({ path: "Идеи.md", selection: "" });
-    expect(await screen.findByText("Идеи")).toBeDefined();
+    expect(screen.getAllByText("Почини парсер")).toHaveLength(1);
+    expect(screen.getAllByText("Починил парсер.")).toHaveLength(1);
   });
 
   it("«Стоп» останавливает ответ, пришедшее остаётся", async () => {
     const rust = fakeRust();
     open();
+    await openSession("Рефакторинг парсера");
     await ask("Расскажи");
     await waitFor(() => expect(rust.sent).toHaveLength(1));
     rust.emit({ kind: "text", text: "Начало" });
@@ -242,337 +423,283 @@ describe("чат с агентом", () => {
     expect(screen.getByText("Начало")).toBeDefined();
   });
 
-  it("отказ провайдера виден причиной, вопрос остаётся, «Повторить» шлёт его снова", async () => {
+  it("отказ виден причиной, вопрос остаётся, «Повторить» шлёт его снова в ту же сессию", async () => {
     const rust = fakeRust();
     open();
+    await openSession("Рефакторинг парсера");
     await ask("Вопрос");
     await waitFor(() => expect(rust.sent).toHaveLength(1));
 
-    rust.history.push({ kind: "user", text: "Вопрос" });
-    rust.fail("agent_key_rejected");
+    rust.history.s1 = [{ kind: "user", text: "Вопрос" }];
+    rust.fail("claude_failed");
 
-    expect(await screen.findByText(/Anthropic не принял ключ/)).toBeDefined();
+    expect(await screen.findByText("Claude Code не ответил, попробуйте ещё раз.")).toBeDefined();
     expect(screen.getByText("Вопрос")).toBeDefined();
 
     fireEvent.click(screen.getByRole("button", { name: "Повторить" }));
     await waitFor(() => expect(rust.sent).toHaveLength(2));
-    expect(rust.sent[1].text).toBe("");
+    expect(rust.sent[1]).toMatchObject({ session: "s1", text: "" });
 
     rust.finish([{ kind: "assistant", text: "Ответ" }]);
     expect(await screen.findByText("Ответ")).toBeDefined();
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
-  it("«Откатить» под ответом откатывает его правки, строка говорит, что откачено", async () => {
+  it("лимит подписки встаёт строкой со временем сброса, а внизу чата второй раз не повторяется", async () => {
     const rust = fakeRust();
-    rust.history.push(
-      { kind: "user", text: "Отметь релиз" },
-      { kind: "tool", name: "edit_note", target: "Проекты/план.md", ok: true },
-      { kind: "assistant", text: "Отметил." },
-      { kind: "changed", turn: 0, paths: ["Проекты/план.md", "итоги.md"], undone: false, with: [] },
-    );
     open();
+    await openSession("Рефакторинг парсера");
+    await ask("Привет");
+    await waitFor(() => expect(rust.sent).toHaveLength(1));
 
-    expect(await screen.findByText("Изменено заметок: 2")).toBeDefined();
-    fireEvent.click(screen.getByRole("button", { name: "Откатить" }));
+    // 31 октября 2026, 15:00 по Москве.
+    rust.history.s1 = [{ kind: "user", text: "Привет" }, { kind: "notice", code: "claude_limit", resets: 1_793_448_000 }];
+    rust.fail("claude_limit");
 
-    expect(await screen.findByText("Откачено заметок: 2")).toBeDefined();
-    expect(rust.undos).toEqual([0]);
-    expect(screen.queryByRole("button", { name: "Откатить" })).toBeNull();
+    const line = await screen.findByText(/Лимит подписки Claude исчерпан/);
+    expect(line.textContent).toMatch(/Сбросится \d+ октября в \d\d:\d\d\./);
+    expect(screen.queryByRole("alert")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Повторить" }));
+    await waitFor(() => expect(rust.sent).toHaveLength(2));
+    rust.finish([{ kind: "assistant", text: "Привет!" }]);
+
+    expect(await screen.findByText("Привет!")).toBeDefined();
+    expect(screen.queryByRole("button", { name: "Повторить" })).toBeNull();
   });
 
-  it("откат раннего ответа сначала показывает поздние, которые откатятся с ним", async () => {
+  it("пока ответ идёт в другой сессии, сообщение ждёт, а потом уходит в свою", async () => {
     const rust = fakeRust();
-    rust.history.push(
-      { kind: "user", text: "Запиши план" },
-      { kind: "assistant", text: "Записал." },
-      { kind: "changed", turn: 0, paths: ["план.md"], undone: false, with: [2] },
-      { kind: "user", text: "Как дела?" },
-      { kind: "assistant", text: "Хорошо." },
-      { kind: "user", text: "Перепиши план" },
-      { kind: "assistant", text: "Переписал." },
-      { kind: "changed", turn: 2, paths: ["план.md"], undone: false, with: [] },
-    );
     open();
+    await openSession("Рефакторинг парсера");
+    await ask("Почини парсер");
+    await waitFor(() => expect(rust.sent).toHaveLength(1));
 
-    const [first] = await screen.findAllByRole("button", { name: "Откатить" });
-    fireEvent.click(first);
+    await openSession("Тесты окна");
+    await ask("Допиши тесты");
 
-    const later = screen.getByRole("list", { name: "Откатятся вместе с ним" });
-    expect(within(later).getAllByRole("listitem").map((item) => item.textContent)).toEqual(["Перепиши план"]);
-    expect(rust.undos).toEqual([]);
+    expect(screen.getByRole("alert").textContent).toBe(
+      "Агент сейчас отвечает в другой сессии. Сообщение можно отправить, когда он закончит.",
+    );
+    expect(sendButton().disabled).toBe(true);
+    expect(rust.sent).toHaveLength(1);
 
-    fireEvent.click(screen.getByRole("button", { name: "Откатить все" }));
+    rust.finish([]);
+    await waitFor(() => expect(sendButton().disabled).toBe(false));
+    fireEvent.click(sendButton());
 
-    await waitFor(() => expect(screen.getAllByText("Откачено заметок: 1")).toHaveLength(2));
-    expect(rust.undos).toEqual([0]);
+    await waitFor(() => expect(rust.sent).toHaveLength(2));
+    expect(rust.sent[1]).toMatchObject({ session: "s2", text: "Допиши тесты" });
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
-  it("не прошедший откат виден, а кнопка остаётся для повтора", async () => {
+  it("«Продолжить в терминале» копирует команду, которая переходит в папку проекта", async () => {
     const rust = fakeRust();
-    rust.undoFails = true;
-    rust.history.push(
-      { kind: "user", text: "Отметь релиз" },
-      { kind: "changed", turn: 0, paths: ["план.md"], undone: false, with: [] },
-    );
+    let clipboard = "";
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: (text: string) => {
+          clipboard = text;
+          return Promise.resolve();
+        },
+      },
+    });
+    rust.claudeSessions.s3 = "4f1c-9a";
+    rust.history.s3 = [{ kind: "user", text: "Привет" }];
     open();
+    await openSession("Лендинг");
 
-    fireEvent.click(await screen.findByRole("button", { name: "Откатить" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Продолжить в терминале" }));
 
-    expect(await screen.findByText("Откат не прошёл, попробуйте ещё раз.")).toBeDefined();
-    expect(screen.getByRole("button", { name: "Откатить" })).toBeDefined();
+    const command = "cd '/Users/me/O'\\''Brien/сайт' && claude --resume 4f1c-9a";
+    expect(await screen.findByText(`Скопировано, вставьте в терминал: ${command}`)).toBeDefined();
+    expect(clipboard).toBe(command);
   });
 
-  it("без ключа ведёт в настройки, а отправить нельзя", async () => {
-    const rust = fakeRust({ key: false });
+  it("папки проекта больше нет: история видна, отправить нельзя, новую сессию не начать", async () => {
+    const rust = fakeRust({ projects: [{ ...SAPIEN, missing: true }, SITE] });
+    rust.history.s1 = [{ kind: "assistant", text: "Прошлый ответ" }];
     open();
+    await openSession("Рефакторинг парсера");
 
-    const link = await screen.findByRole("link", { name: "Задать ключ в настройках" });
+    expect(await screen.findByText("Прошлый ответ")).toBeDefined();
+    expect(screen.getByRole("alert").textContent).toBe(
+      "Папки проекта больше нет на диске: /Users/me/sapien. История видна, а новый ответ не начнётся.",
+    );
 
-    expect(link.getAttribute("href")).toBe("/settings/agent");
     await ask("Вопрос");
-    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Отправить" }).disabled).toBe(true);
+
+    expect(sendButton().disabled).toBe(true);
     expect(rust.sent).toHaveLength(0);
+    expect(panel().getByText("нет папки")).toBeDefined();
+    expect(panel().queryByRole("button", { name: "Новая сессия в «sapien»" })).toBeNull();
   });
 
   it("без сети отправить нельзя, история читается", async () => {
     const rust = fakeRust();
-    rust.history.push({ kind: "assistant", text: "Прошлый ответ" });
+    rust.history.s1 = [{ kind: "assistant", text: "Прошлый ответ" }];
     vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
     open();
+    await openSession("Рефакторинг парсера");
 
     expect(await screen.findByText("Прошлый ответ")).toBeDefined();
     expect(screen.getByText(/Без сети агент недоступен/)).toBeDefined();
 
     await ask("Вопрос");
 
-    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Отправить" }).disabled).toBe(true);
+    expect(sendButton().disabled).toBe(true);
     expect(rust.sent).toHaveLength(0);
   });
-});
 
-function model() {
-  return screen.getByRole("button", { name: /^Модель/ });
-}
-
-describe("способ агента", () => {
-  it("с готовым Claude Code чат идёт подпиской, отказ встаёт строкой со временем сброса", async () => {
-    const rust = fakeRust({ claude: READY });
+  it("Claude Code без входа: чат ведёт в настройки, а отправить нельзя", async () => {
+    const rust = fakeRust({ claude: { state: "logged_out", version: "2.1.316" } });
     open();
+    await openSession("Рефакторинг парсера");
 
-    expect(await screen.findByText("Подписка Claude")).toBeDefined();
-    await ask("Привет");
-    await waitFor(() => expect(rust.sent).toHaveLength(1));
-    expect(rust.sent[0].method).toBe("subscription");
-    expect(rust.read).toContain("subscription");
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Вход не выполнен");
+    expect(within(alert).getByRole("link", { name: "Настройки" }).getAttribute("href")).toBe("/settings/agent");
 
-    // 31 октября 2026, 15:00 по Москве.
-    rust.history.push({ kind: "user", text: "Привет" }, { kind: "notice", code: "claude_limit", resets: 1_793_448_000 });
-    rust.fail("claude_limit");
+    await ask("Вопрос");
 
-    const line = await screen.findByText(/Лимит подписки Claude исчерпан/);
-
-    expect(line.textContent).toMatch(/Сбросится \d+ октября в \d\d:\d\d\./);
-    // Строка уже в ленте: внизу чата отказ второй раз не встаёт.
-    expect(screen.queryByRole("alert")).toBeNull();
-
-    fireEvent.click(screen.getByRole("button", { name: "Повторить" }));
-    await waitFor(() => expect(rust.sent).toHaveLength(2));
-    expect(rust.sent[1]).toMatchObject({ method: "subscription", text: "" });
-    rust.finish([{ kind: "assistant", text: "Привет!" }]);
-    expect(await screen.findByText("Привет!")).toBeDefined();
-    expect(screen.queryByRole("button", { name: "Повторить" })).toBeNull();
+    expect(sendButton().disabled).toBe(true);
+    expect(rust.sent).toHaveLength(0);
   });
 
-  it("меню модели перечисляет модели обоих способов, другой способ меняет разговор после вопроса", async () => {
-    const rust = fakeRust({ claude: READY });
-    rust.history.push({ kind: "user", text: "Старый разговор" });
+  it("модель, выбранная под полем, уходит с сообщением", async () => {
+    const rust = fakeRust();
     open();
-
-    await screen.findByText("Старый разговор");
-    expect(model().getAttribute("aria-label")).toBe("Модель: Sonnet 5.5");
-    fireEvent.click(model());
-
-    const menu = screen.getByRole("menu");
-
-    expect(within(menu).getByText("Подписка Claude")).toBeDefined();
-    expect(within(menu).getByText("Ключ API")).toBeDefined();
+    await openSession("Рефакторинг парсера");
+    fireEvent.click(screen.getByRole("button", { name: "Модель: Sonnet 5.5" }));
     expect(
-      within(menu)
-        .getAllByRole("menuitemradio")
-        .map((item) => [item.textContent, item.getAttribute("aria-checked")]),
+      screen.getAllByRole("menuitemradio").map((item) => [item.textContent, item.getAttribute("aria-checked")]),
     ).toEqual([
       ["Sonnet 5.5", "true"],
       ["Opus 5.5", "false"],
       ["Haiku 5.5", "false"],
-      ["Sonnet 5.5", "false"],
-      ["Opus 5.5", "false"],
-      ["Haiku 5.5", "false"],
     ]);
 
-    // Модель своего способа выбирается сразу.
-    fireEvent.click(within(menu).getAllByRole("menuitemradio", { name: "Opus 5.5" })[0]);
-    expect(model().getAttribute("aria-label")).toBe("Модель: Opus 5.5");
-    expect(screen.queryByText(/Перейти к другому разговору/)).toBeNull();
-
-    fireEvent.click(model());
-    fireEvent.click(within(screen.getByRole("menu")).getAllByRole("menuitemradio", { name: "Haiku 5.5" })[1]);
-
-    expect(screen.getByText(/Перейти к другому разговору/)).toBeDefined();
-    // Пока человек не ответил, модель и разговор прежние.
-    expect(model().getAttribute("aria-label")).toBe("Модель: Opus 5.5");
-    fireEvent.click(screen.getByRole("button", { name: "Перейти" }));
-
-    expect(await screen.findByText("Ключ API")).toBeDefined();
-    expect(model().getAttribute("aria-label")).toBe("Модель: Haiku 5.5");
-    await waitFor(() => expect(rust.read).toContain("key"));
-  });
-
-  it("«Продолжить в терминале» копирует команду продолжения сессии", async () => {
-    const rust = fakeRust({ claude: READY });
-    const writeText = vi.fn(() => Promise.resolve());
-    rust.session = "4f1c-9a";
-    rust.history.push({ kind: "user", text: "Привет" });
-    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
-    open();
-
-    fireEvent.click(await screen.findByRole("button", { name: "Продолжить в терминале" }));
-
-    expect(writeText).toHaveBeenCalledWith("claude --resume 4f1c-9a");
-    expect(await screen.findByText("Скопировано, вставьте в терминал: claude --resume 4f1c-9a")).toBeDefined();
-  });
-
-  it("без входа в Claude Code ведёт в настройки, а модель ключа выбрать можно", async () => {
-    const rust = fakeRust({ claude: { state: "logged_out", version: "2.1.316" } });
-    methodStore.setState(() => "subscription");
-    open();
-
-    expect(await screen.findByText(/Вход не выполнен/)).toBeDefined();
-    await ask("Вопрос");
-    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Отправить" }).disabled).toBe(true);
-
-    fireEvent.click(model());
-    fireEvent.click(within(screen.getByRole("menu")).getAllByRole("menuitemradio", { name: "Sonnet 5.5" })[1]);
-    fireEvent.click(screen.getByRole("button", { name: "Отправить" }));
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "Opus 5.5" }));
+    await ask("Почини парсер");
 
     await waitFor(() => expect(rust.sent).toHaveLength(1));
-    expect(rust.sent[0].method).toBe("key");
-    rust.finish([]);
+    expect(rust.sent[0]?.model).toBe("claude-opus-5-5");
+    expect(screen.getByRole("button", { name: "Модель: Opus 5.5" })).toBeDefined();
   });
 });
 
-const WHERE: Question = { kind: "choice", id: "q1", question: "Куда записать?", options: ["Идеи", "План"] };
+const WHERE: Question = {
+  kind: "choice",
+  id: "q1",
+  question: "Куда записать заметку о релизе?",
+  options: ["CHANGELOG.md", "README.md"],
+};
 
-// Доступ агента к правкам выбирают в меню под полем ввода.
 function access() {
-  return screen.getByRole("button", { name: /^Доступ к заметкам/ });
+  return screen.getByRole("button", { name: /^Доступ к инструментам/ });
 }
 
 describe("вопросы и разрешения", () => {
   it("на вопрос агента уходит и выбранный вариант, и написанный ответ", async () => {
     const rust = fakeRust();
     open();
-    await ask("Запиши мысль");
+    await openSession("Рефакторинг парсера");
+    await ask("Запиши заметку о релизе");
     await waitFor(() => expect(rust.sent).toHaveLength(1));
 
     rust.emit({ kind: "asked", question: WHERE });
     const question = await screen.findByRole("group", { name: "Вопрос агента" });
-
-    expect(within(question).getByText("Куда записать?")).toBeDefined();
+    expect(within(question).getByText("Куда записать заметку о релизе?")).toBeDefined();
     expect(screen.queryByText("Агент думает…")).toBeNull();
-    fireEvent.click(within(question).getByRole("button", { name: "Идеи" }));
+    fireEvent.click(within(question).getByRole("button", { name: "CHANGELOG.md" }));
 
-    expect(rust.answers).toEqual([{ id: "q1", answer: { kind: "text", text: "Идеи" } }]);
-    expect(within(question).queryByRole("button", { name: "План" })).toBeNull();
-    expect(within(question).getByText("Идеи")).toBeDefined();
+    expect(rust.answers).toEqual([{ id: "q1", answer: { kind: "text", text: "CHANGELOG.md" } }]);
+    expect(within(question).queryByRole("button", { name: "README.md" })).toBeNull();
+    expect(within(question).getByText("CHANGELOG.md")).toBeDefined();
 
-    rust.emit({ kind: "asked", question: { ...WHERE, id: "q2", question: "Как назвать?" } });
-    await screen.findByText("Как назвать?");
+    rust.emit({ kind: "asked", question: { ...WHERE, id: "q2", question: "Как назвать раздел?" } });
+    await screen.findByText("Как назвать раздел?");
     expect(field().placeholder).toBe("Свой ответ агенту, Enter отправит");
-    await ask("Мысли на ноябрь");
+    await ask("Релиз 2.0");
 
-    expect(rust.answers[1]).toEqual({ id: "q2", answer: { kind: "text", text: "Мысли на ноябрь" } });
+    expect(rust.answers[1]).toEqual({ id: "q2", answer: { kind: "text", text: "Релиз 2.0" } });
     expect(rust.sent).toHaveLength(1);
     rust.finish([]);
     expect(await screen.findByRole("button", { name: "Отправить" })).toBeDefined();
   });
 
-  it("разрешение на правку: «Разрешить» и «Не разрешать» уходят агенту, просьба пропадает", async () => {
+  it("разрешение на инструмент: «Разрешить» и «Не разрешать» уходят агенту, просьба пропадает", async () => {
     const rust = fakeRust();
     open();
-    await ask("Поправь план");
+    await openSession("Рефакторинг парсера");
+    await ask("Почини парсер");
     await waitFor(() => expect(rust.sent).toHaveLength(1));
 
-    rust.emit({ kind: "asked", question: { kind: "permission", id: "e1", tool: "edit_note", path: "Проекты/план.md" } });
-    expect(await screen.findByText("Агент хочет изменить заметку Проекты/план.md.")).toBeDefined();
-    fireEvent.click(screen.getByRole("button", { name: "Разрешить" }));
+    rust.emit({ kind: "asked", question: { kind: "permission", id: "e1", tool: "Edit", target: "src/parser.ts" } });
+    const edit = await screen.findByRole("group", { name: "Разрешение на инструмент" });
+    expect(within(edit).getByText("Агент просит разрешение на Edit")).toBeDefined();
+    expect(within(edit).getByText("src/parser.ts")).toBeDefined();
+    fireEvent.click(within(edit).getByRole("button", { name: "Разрешить" }));
 
-    rust.emit({ kind: "asked", question: { kind: "permission", id: "w1", tool: "write_note", path: "Идеи.md" } });
-    expect(await screen.findByText("Агент хочет записать заметку Идеи.md целиком.")).toBeDefined();
-    fireEvent.click(screen.getByRole("button", { name: "Не разрешать" }));
+    rust.emit({ kind: "asked", question: { kind: "permission", id: "b1", tool: "Bash", target: "rm -rf dist" } });
+    const bash = await screen.findByRole("group", { name: "Разрешение на инструмент" });
+    expect(within(bash).getByText("rm -rf dist")).toBeDefined();
+    fireEvent.click(within(bash).getByRole("button", { name: "Не разрешать" }));
 
     expect(rust.answers).toEqual([
       { id: "e1", answer: { kind: "allow" } },
-      { id: "w1", answer: { kind: "deny" } },
+      { id: "b1", answer: { kind: "deny" } },
     ]);
-    expect(screen.queryByRole("group", { name: "Разрешение на правку" })).toBeNull();
+    expect(screen.queryByRole("group", { name: "Разрешение на инструмент" })).toBeNull();
     rust.finish([]);
     expect(await screen.findByRole("button", { name: "Отправить" })).toBeDefined();
   });
 
-  it("полный доступ правит без вопросов до «Очистить», потом снова по разрешению", async () => {
+  it("полный доступ уходит агенту, и он работает без вопросов", async () => {
     const rust = fakeRust();
     open();
-    await screen.findByLabelText("Сообщение агенту");
-    expect(access().getAttribute("aria-label")).toBe("Доступ к заметкам: По разрешению");
+    await openSession("Рефакторинг парсера");
+    expect(access().getAttribute("aria-label")).toBe("Доступ к инструментам: По разрешению");
     fireEvent.click(access());
-
-    const levels = screen.getAllByRole("menuitemradio").map((item) => [item.textContent, item.getAttribute("aria-checked")]);
-
-    expect(levels).toEqual([
-      ["По разрешениюспрашивает перед правкой", "true"],
-      ["Полный доступправит без вопросов", "false"],
+    expect(
+      screen.getAllByRole("menuitemradio").map((item) => [item.textContent, item.getAttribute("aria-checked")]),
+    ).toEqual([
+      ["По разрешениюспрашивает перед правкой и командой", "true"],
+      ["Полный доступработает без вопросов", "false"],
     ]);
+
     fireEvent.click(screen.getByRole("menuitemradio", { name: /Полный доступ/ }));
-    expect(access().getAttribute("aria-label")).toBe("Доступ к заметкам: Полный доступ");
+    await ask("Почини парсер");
 
-    await ask("Поправь план");
+    expect(access().getAttribute("aria-label")).toBe("Доступ к инструментам: Полный доступ");
     await waitFor(() => expect(rust.sent).toHaveLength(1));
-    expect(rust.sent[0].oversight).toBe("trust");
-    rust.finish([{ kind: "user", text: "Поправь план" }]);
-
-    fireEvent.click(await screen.findByRole("button", { name: "Очистить историю чата" }));
-    fireEvent.click(screen.getByRole("button", { name: "Очистить" }));
-
-    await waitFor(() => expect(access().getAttribute("aria-label")).toBe("Доступ к заметкам: По разрешению"));
-    await ask("Ещё правка");
-    await waitFor(() => expect(rust.sent).toHaveLength(2));
-    expect(rust.sent[1].oversight).toBe("ask");
-    rust.finish([]);
-    expect(await screen.findByRole("button", { name: "Отправить" })).toBeDefined();
+    expect(rust.sent[0]?.oversight).toBe("trust");
   });
 
-  it("окно открылось заново при открытом вопросе: вопрос на месте, ответ доходит", async () => {
+  it("окно открылось заново посреди ответа: сессия отмечена, вопрос на месте, ответ доходит", async () => {
     const rust = fakeRust({ ongoing: WHERE });
-    open();
+    open({ reopened: true });
+    await waitFor(() => expect(isRunning("Рефакторинг парсера")).toBe(true));
+    await openSession("Рефакторинг парсера");
 
     const question = await screen.findByRole("group", { name: "Вопрос агента" });
-
     expect(screen.getByRole("button", { name: "Стоп" })).toBeDefined();
-    fireEvent.click(within(question).getByRole("button", { name: "План" }));
-    expect(rust.answers).toEqual([{ id: "q1", answer: { kind: "text", text: "План" } }]);
+    fireEvent.click(within(question).getByRole("button", { name: "README.md" }));
+    expect(rust.answers).toEqual([{ id: "q1", answer: { kind: "text", text: "README.md" } }]);
 
-    rust.emit({ kind: "text", text: "Записал в план." });
-    expect(await screen.findByText("Записал в план.")).toBeDefined();
+    rust.emit({ kind: "text", text: "Записал в README." });
+    expect(await screen.findByText("Записал в README.")).toBeDefined();
 
     rust.finish([
-      { kind: "user", text: "Запиши мысль" },
-      { kind: "question", id: "q1", question: "Куда записать?", options: ["Идеи", "План"], answer: "План" },
-      { kind: "assistant", text: "Записал в план." },
+      { kind: "user", text: "Запиши заметку о релизе" },
+      { kind: "question", id: "q1", question: WHERE.question, options: ["CHANGELOG.md", "README.md"], answer: "README.md" },
+      { kind: "assistant", text: "Записал в README." },
     ]);
 
     expect(await screen.findByRole("button", { name: "Отправить" })).toBeDefined();
-    expect(screen.getByText("Запиши мысль")).toBeDefined();
-    expect(screen.getAllByText("Записал в план.")).toHaveLength(1);
+    expect(screen.getByText("Запиши заметку о релизе")).toBeDefined();
+    expect(screen.getAllByText("Записал в README.")).toHaveLength(1);
+    expect(isRunning("Рефакторинг парсера")).toBe(false);
   });
 });

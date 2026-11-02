@@ -3,17 +3,25 @@
 use std::fs::{self, File};
 use std::io::{self, Write};
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
 
-/// Имя файла или папки из пути: хранилища и заметки в папке данных
-/// приложения раскладываются по хешу своего пути. FNV-1a, потому что хеш
-/// стандартной библиотеки меняется от версии к версии Rust, и после
-/// обновления приложение потеряло бы свои файлы.
-pub fn file_key(text: &str) -> String {
-    let hash = text.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| {
-        (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
-    });
+/// Миллисекунды Unix сейчас: время записей приложения.
+pub fn now() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .ok()
+        .and_then(|since| u64::try_from(since.as_millis()).ok())
+        .unwrap_or_default()
+}
 
-    format!("{hash:016x}")
+/// Короткое имя новой записи, проекта или сессии, оно же имя её файла:
+/// время в миллисекундах и номер внутри запуска, оба в hex. Номер
+/// разводит записи, заведённые в одну миллисекунду.
+pub fn fresh_id() -> String {
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+
+    format!("{:x}-{:x}", now(), NEXT.fetch_add(1, Ordering::Relaxed))
 }
 
 /// Сначала во временный файл рядом и сброс его на диск, потом подмена одним
@@ -69,6 +77,18 @@ mod tests {
 
         assert_eq!(fs::read_to_string(&file).unwrap(), "стало");
         assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn записи_одной_миллисекунды_получают_разные_имена() {
+        let first = fresh_id();
+
+        assert_ne!(fresh_id(), first);
+        assert!(
+            first
+                .chars()
+                .all(|char| char.is_ascii_hexdigit() || char == '-')
+        );
     }
 
     #[test]

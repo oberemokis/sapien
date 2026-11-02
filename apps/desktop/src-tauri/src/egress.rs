@@ -1,14 +1,15 @@
-//! Сеть только туда, куда её направил человек: к провайдеру модели и к
-//! своему YouTrack. Каждый клиент Rust сверяет адрес запроса со своим
-//! источником здесь, до отправки. Адрес вне списка не уходит, а отказ
-//! пишется в лог приложения. Обновление приложения ходит на GitHub
-//! клиентом плагина updater (updates.rs), без ключей и данных человека.
+//! Сеть только туда, куда её направил человек: к API GitHub и к своему
+//! GitLab. Каждый клиент Rust сверяет адрес запроса со своим источником
+//! здесь, до отправки. Адрес вне списка не уходит, а отказ пишется в лог
+//! приложения. Обновление приложения ходит на GitHub клиентом плагина
+//! updater (updates.rs), без токенов и данных человека. Claude Code ходит
+//! в сеть сам, своим процессом.
 
 use reqwest::redirect::Policy;
 use url::Url;
 
-/// Перенаправления клиенты не выполняют: иначе запрос с ключом ушёл бы
-/// туда, куда укажет сервер, мимо проверки адреса. Заголовок `x-api-key`
+/// Перенаправления клиенты не выполняют: иначе запрос с токеном ушёл бы
+/// туда, куда укажет сервер, мимо проверки адреса. Заголовок `PRIVATE-TOKEN`
 /// reqwest при перенаправлении на чужой хост не снимает. Ответ с
 /// перенаправлением приходит клиенту как есть, а адрес идёт в лог.
 pub fn no_redirects() -> Policy {
@@ -37,8 +38,8 @@ pub fn allowed(url: &Url, origin: &Url) -> bool {
     same
 }
 
-// В лог идёт только источник адреса: путь и параметры могут нести текст
-// заметки или задачи.
+// В лог идёт только источник адреса: путь и параметры могут нести
+// данные человека.
 fn source(url: &Url) -> String {
     url.origin().ascii_serialization()
 }
@@ -53,20 +54,20 @@ mod tests {
 
     #[test]
     fn уходит_только_на_тот_же_источник() {
-        let origin = url("https://yt.company.com/youtrack");
+        let origin = url("https://git.company.com/gitlab");
 
         assert!(allowed(
-            &url("https://yt.company.com/youtrack/api/issues?query=x"),
+            &url("https://git.company.com/gitlab/api/v4/user?x=1"),
             &origin
         ));
-        assert!(allowed(&url("https://yt.company.com:443/api"), &origin));
+        assert!(allowed(&url("https://git.company.com:443/api"), &origin));
 
         for other in [
             "https://evil.example/api",
-            "http://yt.company.com/api",
-            "https://yt.company.com:8443/api",
-            "https://yt.company.com.evil.example/api",
-            "https://me@yt.company.com/api",
+            "http://git.company.com/api",
+            "https://git.company.com:8443/api",
+            "https://git.company.com.evil.example/api",
+            "https://me@git.company.com/api",
         ] {
             assert!(!allowed(&url(other), &origin), "{other}");
         }

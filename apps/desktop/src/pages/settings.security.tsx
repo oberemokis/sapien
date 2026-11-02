@@ -1,4 +1,4 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { SecuritySettings } from "@/modules/security";
+import { LockSettings } from "@/modules/security";
 
-export const Route = createFileRoute("/settings/security")({ component: SecuritySettings });
+export const Route = createFileRoute("/settings/security")({ component: LockSettings });

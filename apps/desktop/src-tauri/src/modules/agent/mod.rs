@@ -1,8 +1,8 @@
-//! Агент: чат с моделью Anthropic, который читает, ищет и правит заметки
-//! хранилища и читает задачи YouTrack. Ключ к модели лежит в системном
-//! хранилище паролей (secrets.rs), запросы делает Rust. Через подписку
-//! Claude агент идёт Claude Code на устройстве, а инструменты получает
-//! от приложения сервером MCP (infrastructure/mcp.rs).
+//! Агент: Claude Code на устройстве по подписке Claude, который работает
+//! в папке проекта своими инструментами, как в терминале. Разговор идёт
+//! сессиями, у каждой своя история и своя сессия Claude Code. Вопросы
+//! агента и разрешения на вызовы доходят до окна через сервер MCP
+//! приложения (infrastructure/mcp.rs).
 
 mod domain;
 mod infrastructure;
@@ -13,7 +13,6 @@ mod use_case;
 // командой скрытые функции, которые переэкспорт через `pub use` не уносит.
 pub mod transport;
 
-pub use infrastructure::anthropic::Anthropic;
 #[cfg(unix)]
 pub use infrastructure::mcp::bridge;
 pub use transport::Running;

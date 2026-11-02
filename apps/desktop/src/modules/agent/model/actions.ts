@@ -1,23 +1,10 @@
-import { frontmatterList, frontmatterValue, splitFrontmatter } from "@/core/markdown/frontmatter";
+import { frontmatterValue, splitFrontmatter } from "@/core/markdown/frontmatter";
 import { hasModKey, isMac } from "@/core/ui/keys";
 
-// Действие это заметка в папке «Действия» корня хранилища, как шаблон:
-// имя файла это название, текст под шапкой это задание агенту, в шапке
-// нужные ему интеграции и горячая клавиша. Вложенные папки не в счёт.
-export const ACTIONS_FOLDER = "Действия";
-
-export const INTEGRATIONS = ["youtrack"] as const;
-
-export type Integration = (typeof INTEGRATIONS)[number];
-
-export type ActionProblem =
-  | "emptyTask"
-  | "unknownIntegration"
-  | "badHotkey"
-  | "reservedHotkey"
-  | "takenHotkey"
-  | "badSchedule"
-  | "emptyValue";
+// Действие это файл .md в папке действий приложения, общий для всех
+// проектов: имя файла это название, текст под шапкой это задание агенту,
+// в шапке горячая клавиша и расписание.
+export type ActionProblem = "emptyTask" | "badHotkey" | "reservedHotkey" | "takenHotkey" | "badSchedule";
 
 // Расписание: дни недели (0 воскресенье, пусто значит каждый день)
 // и время в минутах от полуночи по часам устройства.
@@ -26,10 +13,8 @@ export type Schedule = { days: number[]; minutes: number };
 export type Action = {
   path: string;
   name: string;
-  // Задание с подставленными значениями шапки. {{since}} и {{today}}
-  // подставляются при запуске.
+  // Задание агенту. {{since}} и {{today}} подставляются при запуске.
   task: string;
-  integrations: Integration[];
   // Сочетание, на которое действие запускается, «Mod+Shift+Y». Кривое,
   // занятое приложением или другим действием сочетание здесь null,
   // а причина в problems.
@@ -113,14 +98,6 @@ export function hotkeyLabel(hotkey: string) {
   return ["Ctrl", alt && "Alt", shift && "Shift", key].filter(Boolean).join("+");
 }
 
-function unquote(value: string) {
-  return value.replace(/^(["'])(.*)\1$/, "$2");
-}
-
-function isIntegration(name: string): name is Integration {
-  return INTEGRATIONS.some((integration) => integration === name);
-}
-
 const DAYS = [
   ["sun", "вс"],
   ["mon", "пн"],
@@ -200,44 +177,21 @@ export function taskAt(action: Action, run: Run | undefined, now: Date) {
   return action.task.replaceAll("{{since}}", dateOf(since)).replaceAll("{{today}}", dateOf(now));
 }
 
-const RUN_VALUES = new Set(["since", "today"]);
-
 function parseAction({ path, text }: Note): Action {
   const { yaml, body } = splitFrontmatter(text);
-  const names = frontmatterList(yaml, "integrations").map(({ raw }) => unquote(raw).toLowerCase());
   const hotkeyText = frontmatterValue(yaml, "hotkey") ?? "";
   const scheduleText = frontmatterValue(yaml, "schedule") ?? "";
   const schedule = parseSchedule(scheduleText);
   const problems: ActionProblem[] = [];
-  let empty = false;
-  // {{epic}} в задании это значение epic из шапки.
-  const task = body.trim().replaceAll(/\{\{(\w+)\}\}/g, (placeholder, key: string) => {
-    if (RUN_VALUES.has(key)) {
-      return placeholder;
-    }
-
-    const value = frontmatterValue(yaml, key) ?? "";
-
-    empty ||= value === "";
-
-    return value;
-  });
+  const task = body.trim();
   let hotkey = parseHotkey(hotkeyText);
 
   if (task === "") {
     problems.push("emptyTask");
   }
 
-  if (empty) {
-    problems.push("emptyValue");
-  }
-
   if (scheduleText !== "" && schedule === null) {
     problems.push("badSchedule");
-  }
-
-  if (!names.every(isIntegration)) {
-    problems.push("unknownIntegration");
   }
 
   if (hotkeyText !== "" && hotkey === null) {
@@ -251,9 +205,8 @@ function parseAction({ path, text }: Note): Action {
 
   return {
     path,
-    name: path.slice(ACTIONS_FOLDER.length + 1).replace(/\.md$/, ""),
+    name: path.replace(/\.md$/, ""),
     task,
-    integrations: names.filter(isIntegration),
     hotkey,
     hotkeyText,
     schedule,
@@ -262,7 +215,7 @@ function parseAction({ path, text }: Note): Action {
   };
 }
 
-// Действия из заметок папки по алфавиту. Одно сочетание у двух действий
+// Действия из файлов папки по алфавиту. Одно сочетание у двух действий
 // не срабатывает ни у одного: какое из них имели в виду, не угадать.
 export function actionsOf(notes: Note[]): Action[] {
   const actions = notes.map(parseAction).toSorted((a, b) => a.name.localeCompare(b.name, "ru"));
@@ -278,13 +231,12 @@ export function actionsOf(notes: Note[]): Action[] {
   });
 }
 
-// Без задания агенту нечего делать, а без значения из шапки задание
-// неполное.
+// Без задания агенту нечего делать.
 export function isRunnable(action: Action) {
-  return action.task !== "" && !action.problems.includes("emptyValue");
+  return action.task !== "";
 }
 
-// Коды те же, что у check_name в domain.rs хранилища: окно подсказывает
+// Коды те же, что у проверки имени действия в Rust: окно подсказывает
 // заранее, Rust отвечает теми же.
 const NAME_PROBLEMS = ["name_empty", "name_forbidden", "name_hidden", "name_taken"] as const;
 
@@ -323,46 +275,26 @@ export function nameProblemOf(error: unknown): ActionNameProblem | null {
   return NAME_PROBLEMS.find((problem) => problem === code) ?? null;
 }
 
-export function hotkeyProblem(hotkey: string, actions: Action[]): "reservedHotkey" | "takenHotkey" | null {
+// Сочетание, которое не занято приложением и другими действиями. Своё
+// сочетание у правленого действия (self) не в счёт.
+export function hotkeyProblem(
+  hotkey: string,
+  actions: Action[],
+  self: string | null = null,
+): "reservedHotkey" | "takenHotkey" | null {
   if (RESERVED.has(hotkey)) {
     return "reservedHotkey";
   }
 
-  if (actions.some((action) => action.hotkey === hotkey)) {
+  if (actions.some((action) => action.path !== self && action.hotkey === hotkey)) {
     return "takenHotkey";
   }
 
   return null;
 }
 
-// Готовое действие: по понедельникам в 10:00 агент собирает, что случилось
-// с подзадачами эпика с прошлой сводки, и кладёт заметку в «Сводки». Эпик
-// человек вписывает в шапку сам, до этого действие не запускается.
-export const DIGEST_ACTION = {
-  name: "Сводка по эпику",
-  text: `---
-integrations: [youtrack]
-hotkey:
-schedule: Mon 10:00
-epic:
----
-Собери сводку по эпику {{epic}} за период с {{since}} по {{today}}. Изменения возьми инструментом youtrack_epic_changes с эпиком {{epic}} и датой {{since}}.
-
-Запиши сводку заметкой «Сводки/{{epic}} {{today}}.md». Первая строка «# {{epic}} <название эпика>: {{since}} — {{today}}», дальше разделы:
-
-- Закрыто;
-- Сдвинулось по статусу: какой статус был и какой стал;
-- Встало и почему: ждёт незакрытую задачу, нет исполнителя, прошёл срок;
-- Новые задачи и связи.
-
-Раздел, в который нечего написать, пропусти. Если за период ничего не изменилось, напиши под заголовком одной строкой, что изменений нет. Номера задач пиши как есть, например SAP-12, без ссылок: приложение само покажет их статус.
-
-Если эпика нет в YouTrack, заметку не создавай, а скажи, что эпик {{epic}} не найден.
-`,
-};
-
-// Текст файла нового действия. Шапка с обоими ключами, даже пустыми:
-// так их видно, когда действие правят в редакторе.
-export function actionText(task: string, integrations: Integration[], hotkey: string | null) {
-  return `---\nintegrations: [${integrations.join(", ")}]\nhotkey: ${hotkey ?? ""}\n---\n${task.trim()}\n`;
+// Текст файла действия. Шапка с обоими ключами, даже пустыми: так их
+// видно, если файл откроют руками.
+export function actionText(task: string, hotkey: string | null, schedule: string) {
+  return `---\nhotkey: ${hotkey ?? ""}\nschedule: ${schedule.trim()}\n---\n${task.trim()}\n`;
 }

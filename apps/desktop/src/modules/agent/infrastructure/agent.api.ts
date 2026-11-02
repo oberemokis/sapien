@@ -1,31 +1,52 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
-import type { Answer, ChatContext, ChatEntry, ChatEvent, Oversight } from "../model/chat";
-import type { MeetingTask } from "../model/meeting";
-import type { AgentMethod, ClaudeStatus } from "../model/method";
+import type { Answer, ChatEntry, ChatEvent, ClaudeStatus, Oversight } from "../model/chat";
+import type { Project, SessionInfo } from "../model/sessions";
 
-// У подписки и ключа API своя история чата.
-export function agentHistory(method: AgentMethod) {
-  return invoke<ChatEntry[]>("agent_history", { method });
+export function projectsList() {
+  return invoke<Project[]>("projects_list");
+}
+
+// Папку выбирает системный диалог в Rust. null: человек передумал.
+export function projectsAdd() {
+  return invoke<Project | null>("projects_add");
+}
+
+// Убирает проект из списка вместе с его сессиями. Папку на диске не трогает.
+export function projectsRemove(id: string) {
+  return invoke<null>("projects_remove", { id });
+}
+
+export function agentSessions() {
+  return invoke<SessionInfo[]>("agent_sessions");
+}
+
+export function agentSessionNew(project: string) {
+  return invoke<SessionInfo>("agent_session_new", { project });
+}
+
+export function agentSessionDelete(id: string) {
+  return invoke<null>("agent_session_delete", { id });
+}
+
+export function agentHistory(session: string) {
+  return invoke<ChatEntry[]>("agent_history", { session });
 }
 
 // Ответ идёт событиями через канал, а обещание кончается вместе с ответом.
-// Ключ модели окно не шлёт: его берёт Rust, а подписку держит Claude Code.
+// Ответ в приложении один на все сессии.
 export function agentSend(
-  method: AgentMethod,
+  session: string,
   model: string,
   text: string,
-  context: ChatContext,
   oversight: Oversight,
   onEvent: (event: ChatEvent) => void,
 ) {
-  return invoke<null>("agent_send", {
-    method,
-    model,
-    text,
-    context,
-    oversight,
-    onEvent: new Channel<ChatEvent>(onEvent),
-  });
+  return invoke<null>("agent_send", { session, model, text, oversight, onEvent: new Channel<ChatEvent>(onEvent) });
+}
+
+// Сессия, чей ответ идёт сейчас, или null.
+export function agentRunning() {
+  return invoke<string | null>("agent_running");
 }
 
 // Окно открылось заново: события идущего ответа приходят сюда, открытый
@@ -42,27 +63,31 @@ export function agentStop() {
   return invoke<null>("agent_stop");
 }
 
-export function agentClear(method: AgentMethod) {
-  return invoke<null>("agent_clear", { method });
-}
-
-export function agentUndo(method: AgentMethod, turn: number) {
-  return invoke<null>("agent_undo", { method, turn });
-}
-
-// Сессия Claude Code чата: её продолжают в терминале. null, пока
-// разговора не было.
-export function agentClaudeSession() {
-  return invoke<string | null>("agent_claude_session");
-}
-
-// Rust сам читает заметку со встречи и спрашивает модель способом method.
-// today нужен, чтобы посчитать срок «к пятнице».
-export function agentMeetingTasks(method: AgentMethod, model: string, path: string, today: string) {
-  return invoke<MeetingTask[]>("agent_meeting_tasks", { method, model, path, today });
+// Сессия Claude Code этого разговора: её продолжают в терминале. null,
+// пока разговора не было.
+export function agentClaudeSession(session: string) {
+  return invoke<string | null>("agent_claude_session", { session });
 }
 
 // Есть ли Claude Code на устройстве, его версия и вход.
 export function agentClaudeStatus() {
   return invoke<ClaudeStatus>("agent_claude_status");
+}
+
+// Действия лежат файлами в папке данных приложения, общие для всех
+// проектов. path это имя файла, например «Сводка.md».
+export function actionsList() {
+  return invoke<{ path: string; text: string }[]>("actions_list");
+}
+
+export function actionsCreate(name: string, text: string) {
+  return invoke<string>("actions_create", { name, text });
+}
+
+export function actionsWrite(path: string, text: string) {
+  return invoke<null>("actions_write", { path, text });
+}
+
+export function actionsDelete(path: string) {
+  return invoke<null>("actions_delete", { path });
 }
