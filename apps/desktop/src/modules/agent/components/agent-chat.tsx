@@ -3,6 +3,7 @@
 // мышь только дублирует их. Родной datalist не показывает клавишу действия
 // и пометку «нет сети».
 /* oxlint-disable jsx-a11y/prefer-tag-over-role, jsx-a11y/click-events-have-key-events */
+import Alert02Icon from "@hugeicons/core-free-icons/Alert02Icon";
 import ArrowUp02Icon from "@hugeicons/core-free-icons/ArrowUp02Icon";
 import Cancel01Icon from "@hugeicons/core-free-icons/Cancel01Icon";
 import ComputerTerminal01Icon from "@hugeicons/core-free-icons/ComputerTerminal01Icon";
@@ -51,16 +52,24 @@ type Props = {
   actions?: ActionLauncher;
 };
 
-const OPTION = "flex h-7 cursor-default items-center gap-2 rounded-md px-2 text-[13px] aria-selected:bg-selection";
+const OPTION =
+  "flex h-7 cursor-default items-center gap-2 rounded-sm pr-1.5 pl-3 text-[13px] aria-disabled:opacity-50 aria-selected:bg-overlay-pressed";
 
-const LINK = "shrink-0 text-[13px] font-medium underline-offset-2 hover:underline";
+// Действие внутри строки, как link-action дизайн-системы.
+const LINK =
+  "shrink-0 text-[13px] font-medium underline decoration-text-base/40 underline-offset-2 hover:decoration-text-base";
 
-const BUBBLE = "max-w-[85%] self-end rounded-lg bg-selection px-3 py-2 text-[13px] break-words whitespace-pre-wrap";
+const BUBBLE =
+  "max-w-[82%] self-end rounded-xl bg-bg-layer-02 px-3 py-2 text-[14px]/[21px] font-[400] break-words whitespace-pre-wrap";
 
 // Квадратные кнопки под полем ввода: «+», отправка и «Стоп».
-const SQUARE = "grid size-7 shrink-0 place-items-center rounded-lg transition-colors duration-120";
+const SQUARE =
+  "grid size-7 shrink-0 place-items-center rounded-md transition-colors duration-120 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus";
 
-const SEND = `${SQUARE} bg-content text-background-base disabled:bg-selection disabled:text-content/40`;
+const SEND = `${SQUARE} bg-bg-submit text-text-submit shadow-button-contrast enabled:hover:bg-[image:linear-gradient(rgb(0_0_0/0.08),rgb(0_0_0/0.08))] disabled:opacity-40`;
+
+// Рамка вопроса и разрешения: карточка над лентой, как доки opencode.
+const DOCK = "flex flex-col gap-3 bg-bg-dock p-3 shadow-raised";
 
 function Line({ entry }: { entry: Exclude<ChatEntry, ChangedEntry | QuestionEntry | PermissionEntry | NoticeEntry> }) {
   const { t } = useTranslation();
@@ -72,7 +81,7 @@ function Line({ entry }: { entry: Exclude<ChatEntry, ChangedEntry | QuestionEntr
   // ponytail: ответ показан исходным markdown, без разметки. Рисовать его
   // разметкой можно редактором заметок только для чтения, когда понадобится.
   if (entry.kind === "assistant") {
-    return <p className="text-[13px] leading-relaxed break-words whitespace-pre-wrap">{entry.text}</p>;
+    return <p className="text-[14px]/[22.4px] font-[400] break-words whitespace-pre-wrap">{entry.text}</p>;
   }
 
   let action: string = entry.name;
@@ -86,8 +95,9 @@ function Line({ entry }: { entry: Exclude<ChatEntry, ChangedEntry | QuestionEntr
   }
 
   return (
-    <p className="truncate text-[12px] text-content/50" title={entry.target}>
-      {action} <span className="text-content/70">{entry.target}</span>
+    <p className="flex h-7 min-w-0 items-center gap-1.5 text-[13px]/4" title={entry.target}>
+      <span className={`shrink-0 font-medium ${entry.ok ? "" : "text-state-fg-danger"}`}>{action}</span>
+      <span className="truncate text-text-muted">{entry.target}</span>
     </p>
   );
 }
@@ -113,16 +123,17 @@ function Asked({ entry, waiting, answer }: AskedProps) {
     }
 
     return (
-      <div
-        role="group"
-        aria-label={t("agent.chat.permissionLabel")}
-        className="flex flex-col gap-2 rounded-md bg-selection px-3 py-2 text-[13px]"
-      >
-        <p className="break-words">{ask}</p>
+      <div role="group" aria-label={t("agent.chat.permissionLabel")} className={`${DOCK} rounded-dock`}>
+        <p className="flex items-start gap-2 text-[14px]/[21px] font-[500] break-words">
+          <Icon icon={Shield01Icon} size={16} className="mt-0.5 shrink-0 text-state-fg-warning" />
+          {ask}
+        </p>
         {waiting && (
-          <div className="flex gap-2">
-            <Button onClick={() => answer(entry.id, { kind: "allow" })}>{t("agent.chat.allow")}</Button>
+          <div className="flex justify-end gap-2">
             <Button onClick={() => answer(entry.id, { kind: "deny" })}>{t("agent.chat.deny")}</Button>
+            <Button variant="submit" onClick={() => answer(entry.id, { kind: "allow" })}>
+              {t("agent.chat.allow")}
+            </Button>
           </div>
         )}
       </div>
@@ -131,18 +142,27 @@ function Asked({ entry, waiting, answer }: AskedProps) {
 
   return (
     <div role="group" aria-label={t("agent.chat.questionLabel")} className="flex flex-col gap-2">
-      <p className="text-[13px] leading-relaxed break-words whitespace-pre-wrap">{entry.question}</p>
-      {waiting && (
-        <div className="flex flex-wrap gap-2">
-          {entry.options.map((option) => (
-            <Button key={option} onClick={() => answer(entry.id, { kind: "text", text: option })}>
-              {option}
-            </Button>
-          ))}
-        </div>
-      )}
+      <div className={`${DOCK} rounded-xl`}>
+        <p className="text-[13px]/5 font-medium break-words whitespace-pre-wrap">{entry.question}</p>
+        {waiting && (
+          <div className="flex flex-col gap-1.5">
+            {entry.options.map((option) => (
+              <button
+                key={option}
+                type="button"
+                className="w-full rounded-md bg-bg-layer-01 p-2.5 text-left text-[13px]/5 shadow-[inset_0_0_0_0.5px_var(--border-border-base)] outline-none transition-colors duration-120 hover:bg-bg-layer-02 focus-visible:shadow-[inset_0_0_0_1px_var(--border-border-focus)]"
+                onClick={() => answer(entry.id, { kind: "text", text: option })}
+              >
+                {option}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
       {!waiting && entry.answer !== null && <p className={BUBBLE}>{entry.answer}</p>}
-      {!waiting && entry.answer === null && <p className="text-[12px] text-content/50">{t("agent.chat.noAnswer")}</p>}
+      {!waiting && entry.answer === null && (
+        <p className="text-[13px]/4 text-text-faint">{t("agent.chat.noAnswer")}</p>
+      )}
     </div>
   );
 }
@@ -164,9 +184,9 @@ function Changed({ entry, later, disabled }: ChangedProps) {
 
   if (asking) {
     return (
-      <div className="flex flex-col gap-2 rounded-md bg-selection px-3 py-2 text-[12px]">
+      <div className="flex flex-col gap-2 rounded-md bg-bg-layer-01 px-3 py-2 text-[13px]/5 shadow-[inset_0_0_0_0.5px_var(--border-border-muted)]">
         <p>{t("agent.chat.undoWith")}</p>
-        <ul aria-label={t("agent.chat.undoLater")} className="pl-2 text-content/70">
+        <ul aria-label={t("agent.chat.undoLater")} className="pl-2 text-text-muted">
           {later.map((question) => (
             <li key={question.turn} className="truncate">
               {question.text}
@@ -189,7 +209,7 @@ function Changed({ entry, later, disabled }: ChangedProps) {
   }
 
   return (
-    <div className="flex items-center gap-2 text-[12px] text-content/50">
+    <div className="flex items-center gap-2 text-[13px]/5 text-text-muted">
       <span title={entry.paths.join("\n")}>
         {entry.undone ? t("agent.chat.undone", { count }) : t("agent.chat.changed", { count })}
       </span>
@@ -197,7 +217,7 @@ function Changed({ entry, later, disabled }: ChangedProps) {
         <button
           type="button"
           disabled={disabled || undo.isPending}
-          className="font-medium text-content underline-offset-2 hover:underline disabled:opacity-50"
+          className={`${LINK} text-text-base disabled:opacity-50`}
           onClick={() => (entry.with.length > 0 ? setAsking(true) : undo.mutate(entry.turn))}
         >
           {t("agent.chat.undo")}
@@ -215,7 +235,7 @@ function Noticed({ entry, retry }: { entry: NoticeEntry; retry: (() => void) | n
   const { t } = useTranslation();
 
   if (entry.code === "claude_session_new") {
-    return <p className="text-[12px] text-content/50">{t("agent.chat.sessionNew")}</p>;
+    return <p className="text-[13px]/4 text-text-faint">{t("agent.chat.sessionNew")}</p>;
   }
 
   let reason: string = t(`agent.problems.${problemOf(entry.code)}`);
@@ -224,21 +244,44 @@ function Noticed({ entry, retry }: { entry: NoticeEntry; retry: (() => void) | n
     reason = `${reason} ${t("agent.chat.resets", resetsAt(entry.resets))}`;
   }
 
+  // Отказ хода строкой ленты, а не плашкой: значок даёт цвет, текст остаётся
+  // читаемым.
   return (
-    <div className="flex items-center gap-3 rounded-md bg-diff-del-bg px-3 py-2 text-[12px]">
-      <p className="flex-1">{reason}</p>
-      {retry !== null && (
-        <button type="button" className={LINK} onClick={retry}>
-          {t("agent.chat.retry")}
-        </button>
-      )}
+    <div className="flex items-start gap-2 text-[13px]/5">
+      <Icon icon={Alert02Icon} size={16} className="mt-0.5 shrink-0 text-state-fg-danger" />
+      <p className="flex-1">
+        <span>{reason}</span>
+        {retry !== null && (
+          <>
+            {" "}
+            <button type="button" className={LINK} onClick={retry}>
+              {t("agent.chat.retry")}
+            </button>
+          </>
+        )}
+      </p>
     </div>
   );
 }
 
-function Notice({ children, action }: { children: string; action?: ReactNode }) {
+const TONE = {
+  danger: "bg-state-bg-danger shadow-[inset_0_0_0_0.5px_var(--state-border-danger)]",
+  warning: "bg-state-bg-warning shadow-[inset_0_0_0_0.5px_var(--state-border-warning)]",
+};
+
+// Плашка под лентой, как Banner дизайн-системы: ошибка красная, то, что
+// ждёт сети или настройки, жёлтое.
+function Notice({
+  children,
+  action,
+  tone = "danger",
+}: {
+  children: string;
+  action?: ReactNode;
+  tone?: keyof typeof TONE;
+}) {
   return (
-    <div role="alert" className="mx-3 mb-2 flex items-center gap-3 rounded-md bg-diff-del-bg px-3 py-2 text-[13px]">
+    <div role="alert" className={`mx-3 mb-2 flex items-center gap-3 rounded-md px-3 py-2 text-[13px]/5 ${TONE[tone]}`}>
       <p className="flex-1">{children}</p>
       {action}
     </div>
@@ -461,7 +504,7 @@ export function AgentChat({ context, actions }: Props) {
   const session = chat.method === "subscription" ? chat.session : null;
   let header = (
     <>
-      <p className="flex-1 truncate text-[12px] text-content/50">{t(`agent.chat.methods.${chat.method}`)}</p>
+      <p className="flex-1 truncate text-[12px] text-text-muted">{t(`agent.chat.methods.${chat.method}`)}</p>
       {session !== null && !chat.running && (
         <IconButton icon={ComputerTerminal01Icon} label={t("agent.chat.terminal")} onClick={() => toTerminal(session)} />
       )}
@@ -474,7 +517,7 @@ export function AgentChat({ context, actions }: Props) {
   if (switching !== null) {
     header = (
       <>
-        <p className="min-w-0 flex-1 text-[12px] leading-snug">{t("agent.chat.switchAsk")}</p>
+        <p className="min-w-0 flex-1 text-[13px]/4">{t("agent.chat.switchAsk")}</p>
         <Button
           onClick={() => {
             setSwitching(null);
@@ -492,7 +535,7 @@ export function AgentChat({ context, actions }: Props) {
   if (clearing) {
     header = (
       <>
-        <p className="flex-1 truncate text-[12px]">{t("agent.chat.clearAsk")}</p>
+        <p className="flex-1 truncate text-[13px]/4">{t("agent.chat.clearAsk")}</p>
         <Button
           onClick={() => {
             setClearing(false);
@@ -542,7 +585,7 @@ export function AgentChat({ context, actions }: Props) {
         className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 pb-3 *:shrink-0"
       >
         {chat.loaded && chat.entries.length === 0 && (
-          <p className="m-auto text-center text-sm text-content/50">{t("agent.chat.empty")}</p>
+          <p className="m-auto text-center text-[13px]/5 text-text-muted">{t("agent.chat.empty")}</p>
         )}
         {chat.entries.map(({ id, entry }) => {
           if (entry.kind === "changed") {
@@ -573,37 +616,37 @@ export function AgentChat({ context, actions }: Props) {
           return <Line key={id} entry={entry} />;
         })}
         {chat.running && !answering && last?.kind !== "assistant" && (
-          <p className="text-[12px] text-content/50">{t("agent.chat.thinking")}</p>
+          <p className="text-[14px]/5 font-[500] text-text-faint motion-safe:animate-pulse">{t("agent.chat.thinking")}</p>
         )}
       </div>
-      {!online && <Notice>{t("agent.chat.offline")}</Notice>}
+      {!online && <Notice tone="warning">{t("agent.chat.offline")}</Notice>}
       {online && blocked}
       {online && chat.problem !== null && <Notice action={fix}>{t(`agent.problems.${chat.problem}`)}</Notice>}
       {actions !== undefined && actions.deferred.length > 0 && (
-        <Notice>{t("agent.actions.deferred", { names: actions.deferred.join(", ") })}</Notice>
+        <Notice tone="warning">{t("agent.actions.deferred", { names: actions.deferred.join(", ") })}</Notice>
       )}
       {copied !== null && (
-        <p role="status" className="mx-3 mb-2 text-[12px] break-all text-content/60">
+        <p role="status" className="mx-3 mb-2 text-[12px] break-all text-text-muted">
           {copied.ok
             ? t("agent.chat.copied", { command: copied.command })
             : t("agent.chat.copyFailed", { command: copied.command })}
         </p>
       )}
       <div className="p-3 pt-0">
-        <div className="rounded-xl border border-stroke bg-card focus-within:border-content/20">
+        <div className="rounded-xl bg-bg-dock shadow-raised">
           {chips.length > 0 && (
-            <ul aria-label={t("agent.chat.context")} className="flex flex-wrap gap-1 px-2 pt-2">
+            <ul aria-label={t("agent.chat.context")} className="flex flex-wrap gap-2 px-2 pt-2">
               {chips.map((chip) => (
                 <li
                   key={chip.label}
                   title={chip.title}
-                  className="flex h-6 max-w-40 items-center gap-1 rounded-md bg-selection pr-0.5 pl-2 text-[12px] text-content/70"
+                  className="flex h-6 max-w-55 items-center gap-1.5 rounded-md bg-overlay-hover pr-0.5 pl-2 text-[13px]/4 text-text-muted shadow-[inset_0_0_0_0.5px_var(--border-border-base)]"
                 >
                   <span className="truncate">{chip.label}</span>
                   <button
                     type="button"
                     aria-label={t("agent.chat.drop", { what: chip.label })}
-                    className="grid size-5 shrink-0 place-items-center rounded text-content/50 transition-colors duration-120 hover:bg-selection-hover hover:text-content"
+                    className="grid size-5 shrink-0 place-items-center rounded-sm text-icon-muted transition-colors duration-120 hover:bg-overlay-hover hover:text-icon-base focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-border-focus"
                     onClick={chip.remove}
                   >
                     <Icon icon={Cancel01Icon} size={12} />
@@ -613,8 +656,8 @@ export function AgentChat({ context, actions }: Props) {
             </ul>
           )}
           {slash && (
-            <div className="max-h-48 overflow-y-auto border-b border-hairline p-1">
-              {noMatch !== null && <p className="px-2 py-1 text-[12px] text-content/50">{noMatch}</p>}
+            <div className="max-h-48 overflow-y-auto border-b-[0.5px] border-border-base p-0.5">
+              {noMatch !== null && <p className="px-3 py-1.5 text-[12px] text-text-muted">{noMatch}</p>}
               <div id={listId} role="listbox" aria-label={t("agent.actions.title")}>
                 {matches.map((action, index) => (
                   <div
@@ -624,14 +667,14 @@ export function AgentChat({ context, actions }: Props) {
                     tabIndex={-1}
                     aria-selected={index === active}
                     aria-disabled={!canRun}
-                    className={`${OPTION} aria-disabled:text-content/40`}
+                    className={OPTION}
                     onMouseMove={() => setPicked(index)}
                     onClick={() => run(action)}
                   >
                     <span className="min-w-0 flex-1 truncate">{action.name}</span>
                     {!online && <span className="text-[12px]">{t("agent.actions.offline")}</span>}
                     {online && action.hotkey !== null && (
-                      <kbd className="font-sans text-[11px] text-content/40">{hotkeyLabel(action.hotkey)}</kbd>
+                      <kbd className="font-sans text-[11px] text-text-faint">{hotkeyLabel(action.hotkey)}</kbd>
                     )}
                   </div>
                 ))}
@@ -649,7 +692,7 @@ export function AgentChat({ context, actions }: Props) {
             placeholder={answering ? t("agent.chat.answerPlaceholder") : t("agent.chat.placeholder")}
             value={draft}
             rows={3}
-            className="block w-full resize-none bg-transparent px-3 pt-2.5 text-[13px] outline-none"
+            className="block w-full resize-none bg-transparent px-4 pt-3 pb-1 text-[13px]/5 outline-none placeholder:text-text-faint"
             onChange={(event) => {
               setDraft(event.target.value);
               setPicked(0);
@@ -673,13 +716,13 @@ export function AgentChat({ context, actions }: Props) {
             }}
           />
           {/* Узкой панели обе подписи не влезают: доступ остаётся значком. */}
-          <div className="@container flex items-center gap-1.5 px-2 pb-2">
+          <div className="@container flex h-11 items-center gap-0.5 px-2">
             {actions !== undefined && (
               <button
                 type="button"
                 aria-label={t("agent.actions.title")}
                 title={t("agent.actions.title")}
-                className={`${SQUARE} bg-selection text-content/70 hover:bg-selection-hover hover:text-content`}
+                className={`${SQUARE} text-icon-muted hover:bg-overlay-hover hover:text-icon-base`}
                 onClick={() => {
                   setDraft("/");
                   setPicked(0);
@@ -691,7 +734,6 @@ export function AgentChat({ context, actions }: Props) {
             )}
             <MenuButton
               icon={SparklesIcon}
-              tint="text-claude"
               label={t("agent.chat.model")}
               value={MODEL_NAMES[model]}
               items={models}
@@ -699,7 +741,7 @@ export function AgentChat({ context, actions }: Props) {
             />
             <MenuButton
               icon={chat.askEdits ? Shield01Icon : SquareUnlock01Icon}
-              tint="text-caution"
+              tint={chat.askEdits ? undefined : "text-state-fg-warning"}
               label={t("agent.chat.access")}
               value={chat.askEdits ? t("agent.chat.accessAsk") : t("agent.chat.accessFull")}
               items={access}
@@ -723,7 +765,7 @@ export function AgentChat({ context, actions }: Props) {
                 type="button"
                 aria-label={t("agent.chat.stop")}
                 title={t("agent.chat.stop")}
-                className={`${SQUARE} bg-content text-background-base`}
+                className={SEND}
                 onClick={() => void chat.stop()}
               >
                 <Icon icon={StopIcon} size={14} />
