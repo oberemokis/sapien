@@ -514,7 +514,7 @@ async fn listen(
 mod tests {
     use super::*;
     use crate::modules::agent::domain::{
-        AgentCommand, AgentModel, ClaudeState, ClaudeStatus, Stamp,
+        AgentCommand, AgentModel, ClaudeState, ClaudeStatus, Stamp, Usage,
     };
     use std::collections::{BTreeMap, HashMap, VecDeque};
     use std::path::{Path, PathBuf};
@@ -747,6 +747,10 @@ mod tests {
                 }],
                 agents: vec![],
             })
+        }
+
+        async fn usage(&self) -> Result<Usage, AppError> {
+            Err(AppError::unavailable("claude_failed"))
         }
 
         async fn converse(&self, run: &Run<'_>) -> Result<FakeTalk, AppError> {

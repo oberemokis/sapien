@@ -2,6 +2,7 @@ import { Channel, invoke } from "@tauri-apps/api/core";
 import type { Choice, Commands, Provider } from "../model/agents";
 import type { Answer, ChatEntry, ChatEvent, ClaudeStatus, Oversight } from "../model/chat";
 import type { Project, SessionInfo } from "../model/sessions";
+import type { Usage } from "../model/usage";
 
 export function projectsList() {
   return invoke<Project[]>("projects_list");
@@ -62,6 +63,11 @@ export function agentProviders() {
 // Команды, скилы и субагенты агента в папке проекта.
 export function agentCommands(provider: string, project: string) {
   return invoke<Commands>("agent_commands", { provider, project });
+}
+
+// Лимиты подписки Claude. Их спрашивает Claude Code своим входом.
+export function agentUsage() {
+  return invoke<Usage>("agent_usage");
 }
 
 // Сессии, чьи ответы идут сейчас.

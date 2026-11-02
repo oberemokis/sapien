@@ -1,6 +1,6 @@
 use super::domain::{
     ANSWER_WAIT, Answer, ClaudeState, ClaudeStatus, Commands, Entry, Event, Oversight, Provider,
-    Question, SessionInfo,
+    Question, SessionInfo, Usage,
 };
 use super::infrastructure::claude_code::ClaudeCode;
 use super::infrastructure::neighbours::ProjectFolders;
@@ -364,6 +364,17 @@ pub async fn agent_commands(
         &project,
     )
     .await
+}
+
+/// Лимиты подписки Claude за пять часов и за неделю. Их спрашивает
+/// Claude Code своим входом, токен sapien не видит.
+#[tauri::command]
+pub async fn agent_usage(app: AppHandle) -> Result<Usage, AppError> {
+    if !CLAUDE_SUPPORTED {
+        return Err(AppError::invalid("claude_unsupported"));
+    }
+
+    claude(&app)?.usage().await
 }
 
 /// Есть ли Claude Code, какой версии и как выполнен вход.

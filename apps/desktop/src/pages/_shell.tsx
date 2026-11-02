@@ -1,6 +1,6 @@
 import { Outlet, createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useCallback } from "react";
-import { SessionList, SessionSearch, SessionTabs, useActionTriggers, useAttach } from "@/modules/agent";
+import { ClaudeUsage, SessionList, SessionSearch, SessionTabs, useActionTriggers, useAttach } from "@/modules/agent";
 import { Workspace } from "@/modules/layout";
 import { SettingsButton } from "@/modules/settings";
 
@@ -23,6 +23,7 @@ function Shell() {
         main={<Outlet />}
         title={<SessionTabs />}
         actions={<SettingsButton />}
+        footer={<ClaudeUsage />}
       />
       <SessionSearch />
     </>

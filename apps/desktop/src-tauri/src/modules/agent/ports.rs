@@ -1,5 +1,6 @@
 use super::domain::{
     AgentModel, Answer, ClaudeStatus, Commands, Oversight, Question, Session, SessionInfo, Stamp,
+    Usage,
 };
 use crate::error::AppError;
 use serde_json::Value;
@@ -25,6 +26,9 @@ pub trait Claude {
     /// Команды, скилы и субагенты Claude Code в папке проекта `dir`:
     /// у проекта свои команды и плагины.
     fn commands(&self, dir: &Path) -> impl Future<Output = Result<Commands, AppError>> + Send;
+    /// Лимиты подписки за пять часов и за неделю. Их считает claude.ai,
+    /// а Claude Code спрашивает своим входом.
+    fn usage(&self) -> impl Future<Output = Result<Usage, AppError>> + Send;
     /// Запускает ответ на сообщение в сессии Claude Code с сервером
     /// MCP sapien. Ответ идёт событиями `Conversation`.
     fn converse(&self, run: &Run<'_>) -> impl Future<Output = Result<Self::Talk, AppError>> + Send;

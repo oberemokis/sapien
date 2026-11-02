@@ -1,7 +1,7 @@
 use crate::error::AppError;
 use crate::modules::agent::domain::{
     AgentModel, ClaudeState, ClaudeStatus, Commands, INIT_REQUEST, Init, Oversight, Stamp,
-    init_reply,
+    USAGE_REQUEST, Usage, init_reply, usage_reply,
 };
 use crate::modules::agent::ports::{Claude, Run};
 use serde_json::{Value, json};
@@ -162,13 +162,18 @@ impl ClaudeCode {
             .map_err(|_| AppError::unavailable("claude_failed"))
     }
 
-    /// Модели, команды и субагенты Claude Code отдаёт в ответ на запрос
-    /// `initialize` протокола stream-json, как Agent SDK в
-    /// `supportedModels()`. Запуск идёт в папке `dir`: команды и плагины
-    /// у проекта свои. Сообщения ему не уходит, поэтому ни ответа модели,
-    /// ни расхода подписки нет. Ввод открыт до ответа: закрытый ввод
-    /// Claude Code понял бы как конец.
-    async fn initialize(&self, dir: &Path) -> Result<Init, AppError> {
+    /// Управляющие запросы протокола stream-json, как их шлёт Agent SDK:
+    /// первым `initialize`, за ним `then`, если он есть. Ответ на последний
+    /// разбирает `reply`. Запуск идёт в папке `dir`: команды и плагины
+    /// у проекта свои. Сообщения Claude Code не уходит, поэтому ни ответа
+    /// модели, ни расхода подписки нет. Ввод открыт до ответа: закрытый
+    /// ввод Claude Code понял бы как конец.
+    async fn control<T>(
+        &self,
+        dir: &Path,
+        then: Option<(&str, Value)>,
+        reply: fn(&Value) -> Option<Result<T, AppError>>,
+    ) -> Result<T, AppError> {
         let failed = || AppError::unavailable("claude_failed");
         let mut child = self.spawn(
             dir,
@@ -184,35 +189,44 @@ impl ClaudeCode {
         )?;
         let mut stdin = child.stdin.take().ok_or_else(failed)?;
         let stdout = child.stdout.take().ok_or_else(failed)?;
-        let request = json!({
-            "type": "control_request",
-            "request_id": INIT_REQUEST,
-            "request": { "subtype": "initialize" },
-        });
+        let requests = [
+            Some((INIT_REQUEST, json!({ "subtype": "initialize" }))),
+            then,
+        ];
 
-        stdin
-            .write_all(format!("{request}\n").as_bytes())
-            .await
-            .map_err(|_| failed())?;
+        for (id, request) in requests.into_iter().flatten() {
+            let line = json!({ "type": "control_request", "request_id": id, "request": request });
+
+            stdin
+                .write_all(format!("{line}\n").as_bytes())
+                .await
+                .map_err(|_| failed())?;
+        }
 
         // ponytail: stderr не читается. Короткий запуск в трубу почти
         // ничего не пишет, а Claude Code снимается вместе с `child`.
         let mut lines = BufReader::new(stdout).lines();
-        let reply = async {
+        let answer = async {
             while let Ok(Some(line)) = lines.next_line().await {
                 let Ok(line) = serde_json::from_str::<Value>(&line) else {
                     continue;
                 };
 
-                if let Some(reply) = init_reply(&line) {
-                    return reply;
+                if let Some(answer) = reply(&line) {
+                    return answer;
                 }
             }
 
             Err(failed())
         };
 
-        timeout(INIT_WAIT, reply).await.map_err(|_| failed())?
+        timeout(INIT_WAIT, answer).await.map_err(|_| failed())?
+    }
+
+    /// Модели, команды и субагенты Claude Code отдаёт в ответ на
+    /// `initialize`, как Agent SDK в `supportedModels()`.
+    async fn initialize(&self, dir: &Path) -> Result<Init, AppError> {
+        self.control(dir, None, init_reply).await
     }
 }
 
@@ -245,6 +259,16 @@ impl Claude for ClaudeCode {
 
     async fn commands(&self, dir: &Path) -> Result<Commands, AppError> {
         Ok(self.initialize(dir).await?.commands)
+    }
+
+    /// Запрос `get_usage`, как `/usage` в терминале. Разбор расхода
+    /// по скилам и плагинам не нужен, а без него Claude Code не читает
+    /// журналы сессий за неделю.
+    async fn usage(&self) -> Result<Usage, AppError> {
+        let request = json!({ "subtype": "get_usage", "skip_behaviors": true });
+
+        self.control(&self.data, Some((USAGE_REQUEST, request)), usage_reply)
+            .await
     }
 
     /// К инструментам Claude Code добавляется сервер sapien: Claude Code
@@ -607,7 +631,7 @@ mod talk {
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
-    use crate::modules::agent::domain::{AgentCommand, Subagent};
+    use crate::modules::agent::domain::{AgentCommand, Limit, Subagent};
     use crate::modules::agent::ports::{Conversation, Incoming};
     use std::collections::HashSet;
     use std::fs;
@@ -858,6 +882,77 @@ echo '{"type":"control_response","response":{"subtype":"error","request_id":"sap
         assert_eq!(
             block_on(claude.models()),
             Err(AppError::not_found("claude_missing"))
+        );
+    }
+
+    /// Claude Code отвечает на `initialize` вместе с аккаунтом, а за ним
+    /// на `get_usage` с расходом сессии и окнами лимитов.
+    const USAGE: &str = r#"
+pwd -P > "$here/pwd"
+read -r first
+read -r second
+printf '%s\n%s\n' "$first" "$second" > "$here/request"
+echo '{"type":"control_response","response":{"subtype":"success","request_id":"sapien-init","response":{"account":{"email":"me@example.com"}}}}'
+echo '{"type":"control_response","response":{"subtype":"success","request_id":"sapien-usage","response":{"session":{"total_cost_usd":1},"subscription_type":"max","rate_limits_available":true,"rate_limits":{"five_hour":{"utilization":15,"resets_at":"2026-11-02T16:00:00Z"},"seven_day":{"utilization":24.5,"resets_at":null},"seven_day_opus":{"utilization":3,"resets_at":null}},"behaviors":null}}}'
+while true; do sleep 0.02; done"#;
+
+    #[test]
+    fn лимиты_подписки_claude_code_отдаёт_на_get_usage_после_initialize() {
+        let _one = ONE_AT_A_TIME
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let (dir, claude) = fake(USAGE);
+
+        assert_eq!(
+            block_on(claude.usage()),
+            Ok(Usage {
+                available: true,
+                five_hour: Some(Limit {
+                    used: 15.0,
+                    resets: Some("2026-11-02T16:00:00Z".into()),
+                }),
+                seven_day: Some(Limit {
+                    used: 24.5,
+                    resets: None,
+                }),
+            })
+        );
+        assert_eq!(
+            written(&dir, "request")
+                .lines()
+                .map(|line| serde_json::from_str::<Value>(line).unwrap())
+                .collect::<Vec<_>>(),
+            [
+                json!({ "type": "control_request", "request_id": "sapien-init", "request": { "subtype": "initialize" } }),
+                json!({ "type": "control_request", "request_id": "sapien-usage", "request": { "subtype": "get_usage", "skip_behaviors": true } }),
+            ]
+        );
+        assert_eq!(written(&dir, "pwd").trim(), real(&dir.path().join("data")));
+
+        // Вход не по подписке: лимитов подписки нет.
+        let (_dir, api) = fake(
+            r#"read -r first
+read -r second
+echo '{"type":"control_response","response":{"subtype":"success","request_id":"sapien-usage","response":{"rate_limits_available":false,"rate_limits":null}}}'"#,
+        );
+        assert_eq!(
+            block_on(api.usage()),
+            Ok(Usage {
+                available: false,
+                five_hour: None,
+                seven_day: None,
+            })
+        );
+
+        // Claude Code, который не знает `get_usage`, отказывает на него.
+        let (_dir, old) = fake(
+            r#"read -r first
+read -r second
+echo '{"type":"control_response","response":{"subtype":"error","request_id":"sapien-usage","error":"Unknown subtype"}}'"#,
+        );
+        assert_eq!(
+            block_on(old.usage()).err(),
+            Some(AppError::unavailable("claude_failed"))
         );
     }
 
