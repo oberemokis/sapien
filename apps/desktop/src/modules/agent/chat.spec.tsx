@@ -202,7 +202,10 @@ function fakeRust({
 
           const { provider, model, effort } = sent;
 
-          return { ...session, provider, model, effort, title: session.title || (sent.text.split("\n")[0] ?? "") };
+          // Как title в domain.rs: первая строка без пробелов по краям.
+          const title = session.title || (sent.text.trim().split("\n")[0]?.trim() ?? "");
+
+          return { ...session, provider, model, effort, title };
         });
 
         return new Promise((resolve, reject) => {
@@ -248,7 +251,8 @@ function Reopened() {
   return <Shell />;
 }
 
-function open({ reopened = false } = {}) {
+// client: кеш запросов окна, по умолчанию обычный.
+function open({ reopened = false, client = new QueryClient() } = {}) {
   const root = createRootRoute({ component: reopened ? Reopened : Shell });
   const chat = createRoute({ getParentRoute: () => root, path: "/", component: SessionView });
   const router = createRouter({
@@ -257,10 +261,15 @@ function open({ reopened = false } = {}) {
   });
 
   render(
-    <QueryClientProvider client={new QueryClient()}>
+    <QueryClientProvider client={client}>
       <RouterProvider router={router} />
     </QueryClientProvider>,
   );
+}
+
+// Даёт окну время сделать то, чего делать не должно.
+function settle() {
+  return new Promise((resolve) => setTimeout(resolve, 20));
 }
 
 function panel() {
@@ -369,7 +378,7 @@ describe("левая панель", () => {
     await screen.findByLabelText("Сообщение агенту");
     expect(screen.queryByRole("log")).toBeNull();
 
-    await ask("Сверстай шапку\nи подвал");
+    await ask("\n  Сверстай шапку\nи подвал");
 
     await waitFor(() => expect(rust.sent).toHaveLength(1));
     expect(rust.sent[0]?.session).toBe(rust.created[0]?.id);
@@ -377,6 +386,11 @@ describe("левая панель", () => {
     expect(sessionTitles("сайт")).toEqual(["Сверстай шапку", "Лендинг"]);
     expect(opened()).toMatch(/^Сверстай шапку/);
     expect(screen.getByRole("log", { name: "Чат с агентом" })).toBeDefined();
+
+    // Rust записал то же название: после ответа оно не меняется.
+    rust.finish([]);
+    await waitFor(() => expect(opened()).toBe("Сверстай шапку"));
+    expect(sessionTitles("сайт")).toEqual(["Сверстай шапку", "Лендинг"]);
   });
 
   it("«Добавить проект» заводит проект и сразу открывает сессию в нём", async () => {
@@ -633,6 +647,44 @@ describe("чат сессии", () => {
 
     rust.runs.s2?.finish([]);
     await waitFor(() => expect(isRunning("Тесты окна")).toBe(false));
+  });
+
+  it("вкладка, которая долго отвечала в фоне, не повторяет строк ответа, когда к ней вернулись", async () => {
+    const rust = fakeRust();
+    // Кеш сразу забывает то, что никто не показывает: так выглядят
+    // несколько минут в фоне.
+    open({ client: new QueryClient({ defaultOptions: { queries: { gcTime: 0 } } }) });
+    await openSession("Рефакторинг парсера");
+    await ask("Почини парсер");
+    await waitFor(() => expect(rust.sent).toHaveLength(1));
+
+    // Rust пишет сообщение в историю в начале ответа.
+    rust.history.s1 = [{ kind: "user", text: "Почини парсер" }];
+    await openSession("Тесты окна");
+    await settle();
+    await openSession("Рефакторинг парсера");
+    rust.emit({ kind: "text", text: "Чиню." });
+
+    const log = within(await screen.findByRole("log", { name: "Чат с агентом" }));
+    expect(await log.findByText("Чиню.")).toBeDefined();
+    expect(log.getAllByText("Почини парсер")).toHaveLength(1);
+  });
+
+  it("отказ, который Rust записал в историю фоновой вкладки, после возвращения стоит в ней один раз", async () => {
+    const rust = fakeRust();
+    open();
+    await openSession("Рефакторинг парсера");
+    await ask("Привет");
+    await waitFor(() => expect(rust.sent).toHaveLength(1));
+    await openSession("Тесты окна");
+
+    rust.history.s1 = [{ kind: "user", text: "Привет" }, { kind: "notice", code: "claude_limit", resets: 1_793_448_000 }];
+    rust.fail("claude_limit");
+    await waitFor(() => expect(isRunning("Рефакторинг парсера")).toBe(false));
+    await openSession("Рефакторинг парсера");
+
+    expect(await screen.findByText(/Лимит подписки Claude исчерпан/)).toBeDefined();
+    expect(screen.getAllByText(/Лимит подписки Claude исчерпан/)).toHaveLength(1);
   });
 
   it("папки проекта больше нет: история видна, отправить нельзя, новую сессию не начать", async () => {
