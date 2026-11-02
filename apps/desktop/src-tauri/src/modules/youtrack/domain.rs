@@ -1,6 +1,6 @@
 use crate::error::AppError;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Value, json};
 use url::Url;
 
 /// Адрес сервера YouTrack, как его ввёл человек: облачный
@@ -49,7 +49,7 @@ pub fn parse_issue_id(id: &str) -> Option<&str> {
 }
 
 /// Почему YouTrack не ответил тем, кем назвался токен.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ApiError {
     /// Нет сети, сервер не отвечает или сломался.
     Unreachable,
@@ -57,19 +57,20 @@ pub enum ApiError {
     NotYoutrack,
     /// Токен неверный, истёк или отозван.
     TokenRejected,
-    /// YouTrack не принял запрос: нет такого значения поля, команды и т. п.
-    Rejected,
+    /// YouTrack не принял запрос: нет такого значения поля, обязательного
+    /// поля, команды и т. п. Внутри объяснение YouTrack, если он его дал.
+    Rejected(Option<String>),
     /// Нет того, к чему обратились: задачи, проекта.
     Missing,
 }
 
 impl ApiError {
-    pub fn code(self) -> &'static str {
+    pub fn code(&self) -> &'static str {
         match self {
             Self::Unreachable => "youtrack_unreachable",
             Self::NotYoutrack => "youtrack_not_youtrack",
             Self::TokenRejected => "youtrack_token_rejected",
-            Self::Rejected => "youtrack_rejected",
+            Self::Rejected(_) => "youtrack_rejected",
             Self::Missing => "youtrack_missing",
         }
     }
@@ -77,12 +78,16 @@ impl ApiError {
 
 impl From<ApiError> for AppError {
     fn from(error: ApiError) -> Self {
+        let code = error.code();
+
         match error {
-            ApiError::Unreachable => AppError::unavailable(error.code()),
-            ApiError::Missing => AppError::not_found(error.code()),
-            ApiError::NotYoutrack | ApiError::TokenRejected | ApiError::Rejected => {
-                AppError::invalid(error.code())
-            }
+            ApiError::Unreachable => AppError::unavailable(code),
+            ApiError::Missing => AppError::not_found(code),
+            ApiError::Rejected(detail) => AppError {
+                detail,
+                ..AppError::invalid(code)
+            },
+            ApiError::NotYoutrack | ApiError::TokenRejected => AppError::invalid(code),
         }
     }
 }
@@ -148,10 +153,9 @@ pub fn link_command(link: &Link) -> String {
     format!("{kind} {}", link.id.trim())
 }
 
-/// Обязательные поля проекта, которым черновик не дал значения. Поле
-/// обязательно, когда оно не может быть пустым и у него нет значения
-/// по умолчанию. Имена сравниваются без регистра, как в YouTrack.
-pub fn missing_fields(project_fields: &Value, draft: &Draft) -> Vec<String> {
+/// Обязательные поля проекта: поле не может быть пустым, и у него нет
+/// значения по умолчанию.
+fn required_in(project_fields: &Value) -> impl Iterator<Item = &Value> {
     project_fields
         .as_array()
         .into_iter()
@@ -162,14 +166,86 @@ pub fn missing_fields(project_fields: &Value, draft: &Draft) -> Vec<String> {
                 .as_array()
                 .is_none_or(|values| values.is_empty())
         })
+}
+
+/// Поле черновика с непустым значением. Имена сравниваются без регистра,
+/// как в YouTrack.
+fn filled<'a>(draft: &'a Draft, name: &str) -> Option<&'a Field> {
+    draft.fields.iter().find(|field| {
+        field.name.trim().eq_ignore_ascii_case(name) && !field.value.trim().is_empty()
+    })
+}
+
+/// Обязательные поля проекта, которым черновик не дал значения.
+pub fn missing_fields(project_fields: &Value, draft: &Draft) -> Vec<String> {
+    required_in(project_fields)
         .filter_map(|field| field["field"]["name"].as_str())
-        .filter(|name| {
-            !draft.fields.iter().any(|field| {
-                field.name.trim().eq_ignore_ascii_case(name) && !field.value.trim().is_empty()
-            })
-        })
+        .filter(|name| filled(draft, name).is_none())
         .map(str::to_owned)
         .collect()
+}
+
+/// Обязательные поля черновика для запроса на создание задачи: YouTrack
+/// проверяет их при создании, до любых команд. Рядом поле черновика,
+/// которое этим уже поставлено. Поле простого типа (строка, число, дата,
+/// период, текст) остаётся командам: такие поля редко делают
+/// обязательными, а отказ YouTrack объяснит, чего не хватило.
+pub fn required_values(project_fields: &Value, draft: &Draft) -> Vec<(Field, Value)> {
+    required_in(project_fields)
+        .filter_map(|field| {
+            let name = field["field"]["name"].as_str()?;
+            let kind = field["field"]["fieldType"]["id"].as_str()?;
+            let draft_field = filled(draft, name)?;
+            let value = issue_field(name, kind, &draft_field.value)?;
+
+            Some((draft_field.clone(), value))
+        })
+        .collect()
+}
+
+/// Поле задачи в теле запроса по типу поля проекта: `enum[1]` одно
+/// значение из набора, `enum[*]` несколько через запятую. Таблица типов
+/// в документации YouTrack, «$type Mapping for Custom Fields».
+fn issue_field(name: &str, kind: &str, value: &str) -> Option<Value> {
+    let (bundle, multi) = match kind.strip_suffix("[*]") {
+        Some(bundle) => (bundle, true),
+        None => (kind.strip_suffix("[1]")?, false),
+    };
+    let key = if bundle == "user" { "login" } else { "name" };
+    let item = |value: &str| json!({ key: value });
+
+    if bundle == "state" {
+        return Some(
+            json!({ "name": name, "$type": "StateIssueCustomField", "value": item(value.trim()) }),
+        );
+    }
+
+    let bundle = match bundle {
+        "enum" => "Enum",
+        "user" => "User",
+        "version" => "Version",
+        "build" => "Build",
+        "ownedField" => "Owned",
+        "group" => "Group",
+        _ => return None,
+    };
+
+    if multi {
+        let values: Vec<Value> = value
+            .split(',')
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(item)
+            .collect();
+
+        return Some(
+            json!({ "name": name, "$type": format!("Multi{bundle}IssueCustomField"), "value": values }),
+        );
+    }
+
+    Some(
+        json!({ "name": name, "$type": format!("Single{bundle}IssueCustomField"), "value": item(value.trim()) }),
+    )
 }
 
 /// Итог публикации для окна.
@@ -1271,6 +1347,112 @@ mod tests {
                 edge("SAP-10", "SAP-5", EdgeKind::Relates),
                 edge("SAP-5", "WEB-1", EdgeKind::Relates),
             ]
+        );
+    }
+
+    fn required(name: &str, kind: &str) -> Value {
+        json!({
+            "field": { "name": name, "fieldType": { "id": kind } },
+            "canBeEmpty": false,
+            "defaultValues": [],
+        })
+    }
+
+    #[test]
+    fn обязательные_поля_уходят_при_создании_по_типу_поля() {
+        let project = json!([
+            required("Type", "enum[1]"),
+            required("Tags", "enum[*]"),
+            required("State", "state[1]"),
+            required("Assignee", "user[1]"),
+            required("Reviewers", "user[*]"),
+            required("Subsystem", "ownedField[1]"),
+            required("Fix versions", "version[*]"),
+            required("Estimation", "period"),
+            required("Team", "group[1]"),
+            {
+                "field": { "name": "Priority", "fieldType": { "id": "enum[1]" } },
+                "canBeEmpty": false,
+                "defaultValues": [{ "name": "Normal" }],
+            },
+            { "field": { "name": "Sprint", "fieldType": { "id": "version[1]" } }, "canBeEmpty": true },
+        ]);
+        let fields = [
+            ("type", "Bug"),
+            ("Tags", "UI, Backend,"),
+            ("State", "Open"),
+            ("Assignee", "ilya"),
+            ("Reviewers", "anna, ilya"),
+            ("Subsystem", "Backend"),
+            ("Fix versions", "1.0"),
+            ("Estimation", "2d"),
+            ("Team", " "),
+            ("Priority", "Major"),
+            ("Sprint", "Sprint 5"),
+        ];
+        let draft = Draft {
+            project: "SAP".into(),
+            summary: "Вход по ссылке".into(),
+            description: String::new(),
+            fields: fields
+                .iter()
+                .map(|(name, value)| Field {
+                    name: (*name).into(),
+                    value: (*value).into(),
+                })
+                .collect(),
+            links: vec![],
+        };
+
+        let body: Vec<Value> = required_values(&project, &draft)
+            .into_iter()
+            .map(|(_, value)| value)
+            .collect();
+
+        // Estimation простого типа остаётся командам, у Team нет значения,
+        // у Priority есть значение по умолчанию, Sprint не обязателен.
+        assert_eq!(
+            body,
+            [
+                json!({ "name": "Type", "$type": "SingleEnumIssueCustomField", "value": { "name": "Bug" } }),
+                json!({
+                    "name": "Tags",
+                    "$type": "MultiEnumIssueCustomField",
+                    "value": [{ "name": "UI" }, { "name": "Backend" }],
+                }),
+                json!({ "name": "State", "$type": "StateIssueCustomField", "value": { "name": "Open" } }),
+                json!({ "name": "Assignee", "$type": "SingleUserIssueCustomField", "value": { "login": "ilya" } }),
+                json!({
+                    "name": "Reviewers",
+                    "$type": "MultiUserIssueCustomField",
+                    "value": [{ "login": "anna" }, { "login": "ilya" }],
+                }),
+                json!({
+                    "name": "Subsystem",
+                    "$type": "SingleOwnedIssueCustomField",
+                    "value": { "name": "Backend" },
+                }),
+                json!({
+                    "name": "Fix versions",
+                    "$type": "MultiVersionIssueCustomField",
+                    "value": [{ "name": "1.0" }],
+                }),
+            ]
+        );
+    }
+
+    #[test]
+    fn отказ_youtrack_уходит_в_окно_кодом_и_объяснением() {
+        let rejected = AppError::from(ApiError::Rejected(Some("Type is required".into())));
+        let missing = AppError::from(ApiError::Missing);
+
+        assert_eq!(
+            serde_json::to_value(rejected).unwrap(),
+            json!({ "kind": "invalid", "code": "youtrack_rejected", "detail": "Type is required" })
+        );
+        assert_eq!(
+            serde_json::to_value(missing).unwrap(),
+            json!({ "kind": "not_found", "code": "youtrack_missing" })
         );
     }
 }

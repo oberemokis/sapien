@@ -24,13 +24,15 @@ import {
   type TaskDraft,
 } from "../model/draft";
 import {
+  youtrackFailureOf,
   youtrackProblemOf,
   type Checked,
   type Published,
   type Similar,
-  type YoutrackProblem,
+  type YoutrackFailure,
 } from "../model/youtrack";
 import { Alert, AlertAction } from "./alert";
+import { failureText } from "./failure-text";
 import { PublishAll } from "./publish-all";
 
 const FIELD =
@@ -183,7 +185,7 @@ function DraftForm({
   const checking = useCheck();
   const searching = useSimilar();
   const [result, setResult] = useState<Published | null>(null);
-  const [problem, setProblem] = useState<YoutrackProblem | null>(null);
+  const [problem, setProblem] = useState<YoutrackFailure | null>(null);
   // Ответ YouTrack на последнюю проверку и найденные кандидаты в дубли.
   // Находки по ним считаются заново с каждой правкой: поправленное уходит
   // из списка без новой проверки.
@@ -233,7 +235,7 @@ function DraftForm({
 
       return remoteFindings(path, draftNow, notes, answer);
     } catch (error) {
-      setProblem(youtrackProblemOf(error));
+      setProblem(youtrackFailureOf(error));
 
       return null;
     }
@@ -243,7 +245,7 @@ function DraftForm({
     setProblem(null);
     searching.mutate(
       { project: draft.project, summary: draft.summary },
-      { onSuccess: setSimilar, onError: (error) => setProblem(youtrackProblemOf(error)) },
+      { onSuccess: setSimilar, onError: (error) => setProblem(youtrackFailureOf(error)) },
     );
   }
 
@@ -289,7 +291,7 @@ function DraftForm({
 
           setResult(published);
         },
-        onError: (error) => setProblem(youtrackProblemOf(error)),
+        onError: (error) => setProblem(youtrackFailureOf(error)),
       },
     );
   }
@@ -488,7 +490,7 @@ function DraftForm({
           </ul>
         </Alert>
       )}
-      {problem !== null && <Alert>{t(`youtrack.problems.${problem}`)}</Alert>}
+      {problem !== null && <Alert>{failureText(t, problem)}</Alert>}
       {result?.kind === "missing" && (
         <Alert>{t("youtrack.draft.missing", { fields: result.fields.join(", ") })}</Alert>
       )}

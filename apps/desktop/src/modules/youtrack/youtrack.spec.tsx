@@ -126,10 +126,13 @@ type Sent = { text: string; draft: DraftRequest; id: string | null; force: boole
 // Что YouTrack ответит на проверку и на поиск похожих.
 type Server = { checked?: Checked; similar?: Similar[] };
 
+// Отказ команды, как AppError из error.rs.
+type Refusal = { kind: "invalid"; code: string; detail?: string };
+
 // Подключённый YouTrack. Публикация отвечает по очереди заданными ответами,
 // потом созданной задачей SAP-12. Строка вместо ответа это отказ с таким
-// кодом, как AppError из error.rs.
-function fakeYoutrack(answers: (Published | string)[] = [], server: Server = {}) {
+// кодом.
+function fakeYoutrack(answers: (Published | Refusal | string)[] = [], server: Server = {}) {
   const sent: Sent[] = [];
 
   mockIPC((command, args) => {
@@ -146,6 +149,10 @@ function fakeYoutrack(answers: (Published | string)[] = [], server: Server = {})
 
         if (typeof answer === "string") {
           throw { kind: "invalid", code: answer };
+        }
+
+        if (answer.kind === "invalid") {
+          throw answer;
         }
 
         return answer;
@@ -277,6 +284,18 @@ describe("черновик задачи", () => {
     fireEvent.click(await ready("Опубликовать в YouTrack"));
 
     expect(await screen.findByText(/нет проекта с таким коротким именем/)).toBeDefined();
+    expect(note.text).toBe(DRAFT);
+  });
+
+  it("отказ YouTrack виден его объяснением, черновик не меняется", async () => {
+    fakeYoutrack([{ kind: "invalid", code: "youtrack_rejected", detail: "Subsystem is required" }]);
+    const note = openDraft(DRAFT);
+
+    fireEvent.click(await ready("Опубликовать в YouTrack"));
+
+    expect(
+      await screen.findByText("YouTrack отклонил запрос. Ответ YouTrack: «Subsystem is required»."),
+    ).toBeDefined();
     expect(note.text).toBe(DRAFT);
   });
 

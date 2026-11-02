@@ -125,3 +125,22 @@ export function youtrackProblemOf(errorOrCode: unknown): YoutrackProblem {
 
   return "failed";
 }
+
+// Отказ для окна: код и объяснение самого YouTrack, если он его дал.
+// Объяснение приходит в AppError полем detail на языке сервера.
+export type YoutrackFailure = { problem: YoutrackProblem; detail: string | null };
+
+export function youtrackFailureOf(errorOrCode: unknown): YoutrackFailure {
+  let detail = null;
+
+  if (
+    typeof errorOrCode === "object" &&
+    errorOrCode !== null &&
+    "detail" in errorOrCode &&
+    typeof errorOrCode.detail === "string"
+  ) {
+    detail = errorOrCode.detail;
+  }
+
+  return { problem: youtrackProblemOf(errorOrCode), detail };
+}

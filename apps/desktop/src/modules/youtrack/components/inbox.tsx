@@ -22,6 +22,7 @@ import { IconButton } from "@/core/ui/icon-button";
 import { markRead, useIssueDetail, type InboxState } from "../interactions/inbox";
 import { ago, filterEvents } from "../model/inbox";
 import { youtrackProblemOf, type FeedEvent } from "../model/youtrack";
+import { failureText } from "./failure-text";
 
 const KIND_ICONS: Record<FeedEvent["kind"], IconSvgElement> = {
   state: ArrowDataTransferHorizontalIcon,
@@ -185,7 +186,7 @@ function Status({ inbox }: { inbox: InboxState }) {
   if (!inbox.connected) {
     problem = t("youtrack.inbox.none");
   } else if (inbox.problem !== null) {
-    problem = t(`youtrack.problems.${inbox.problem}`);
+    problem = failureText(t, inbox.problem);
   }
 
   return (
