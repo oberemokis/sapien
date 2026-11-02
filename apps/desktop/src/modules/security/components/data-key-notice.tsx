@@ -21,21 +21,21 @@ function UnreadableDialog({ state }: { state: DataState }) {
     <dialog
       ref={dialogRef}
       aria-labelledby={titleId}
-      className="fixed inset-x-0 top-[20vh] mx-auto flex w-[min(520px,calc(100vw-32px))] flex-col gap-3 rounded-xl border border-content/8 bg-shell/95 p-5 text-[13px] text-content shadow-float backdrop-blur-xl backdrop:bg-scrim"
+      className="fixed inset-x-0 top-[20vh] mx-auto flex w-[min(480px,calc(100vw-32px))] flex-col gap-2 rounded-md bg-bg-layer-01 p-4 text-[13px]/5 text-text-base shadow-overlay backdrop:bg-overlay-scrim"
       onCancel={(event) => event.preventDefault()}
     >
-      <h2 id={titleId} className="text-sm font-semibold">
+      <h2 id={titleId} className="mb-1 text-[15px]/5 font-medium">
         {t("security.unreadable.title")}
       </h2>
-      <p className="text-content/70">{t(`security.unreadable.${state === "lost" ? "lost" : "locked"}`)}</p>
-      <p className="text-content/70">{t("security.unreadable.notes")}</p>
+      <p className="text-text-muted">{t(`security.unreadable.${state === "lost" ? "lost" : "locked"}`)}</p>
+      <p className="text-text-muted">{t("security.unreadable.notes")}</p>
       {failed && (
-        <p role="alert" className="text-diff-del-fg">
+        <p role="alert" className="text-state-fg-danger">
           {t("security.unreadable.failed")}
         </p>
       )}
-      <div className="flex justify-end">
-        <Button disabled={resetting} onClick={reset}>
+      <div className="flex justify-end pt-2">
+        <Button variant="submit" disabled={resetting} onClick={reset}>
           {t("security.unreadable.reset")}
         </Button>
       </div>

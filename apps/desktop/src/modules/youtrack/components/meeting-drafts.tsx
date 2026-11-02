@@ -3,14 +3,14 @@ import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/core/ui/button";
 import { IconButton } from "@/core/ui/icon-button";
+import { FIELD as INPUT } from "@/core/ui/settings";
 import { useAssignees } from "../interactions/meeting";
 import { useDefaultProject } from "../interactions/project";
 import { draftNames, noteTitle } from "../model/draft";
 import { MEETING_FOLDER, meetingDraftOf, meetingDraftText, type MeetingDraft, type MeetingTask } from "../model/meeting";
 import type { Person } from "../model/youtrack";
 
-const FIELD =
-  "h-7 min-w-0 rounded-md border border-stroke bg-transparent px-2 outline-none focus:border-accent aria-invalid:border-diff-del";
+const FIELD = `${INPUT} min-w-0 aria-invalid:outline-state-border-danger`;
 
 export type NewNote = { name: string; text: string };
 
@@ -48,10 +48,11 @@ function DraftRow({ row, unchecked, onChange }: RowProps) {
   const hint = unchecked ? "youtrack.meeting.assigneeUnchecked" : "youtrack.meeting.assigneeUnknown";
 
   return (
-    <li className="flex flex-col gap-1.5 border-b border-hairline px-4 py-3 last:border-b-0">
+    <li className="flex flex-col gap-2 border-t border-border-muted py-3">
       <div className="flex items-center gap-2">
         <input
           type="checkbox"
+          className="accent-bg-accent"
           checked={row.checked}
           aria-label={t("youtrack.meeting.take", { title: row.summary })}
           onChange={(event) => onChange({ ...row, checked: event.target.checked })}
@@ -67,7 +68,7 @@ function DraftRow({ row, unchecked, onChange }: RowProps) {
       </div>
       <div className="ml-6 flex flex-wrap gap-x-4 gap-y-1.5">
         <label className="flex items-center gap-2">
-          <span className="text-content/60">{t("youtrack.meeting.assignee")}</span>
+          <span className="text-[12px] text-text-muted">{t("youtrack.meeting.assignee")}</span>
           <input
             value={row.assignee}
             aria-invalid={unknown || undefined}
@@ -79,7 +80,7 @@ function DraftRow({ row, unchecked, onChange }: RowProps) {
           />
         </label>
         <label className="flex items-center gap-2">
-          <span className="text-content/60">{t("youtrack.meeting.due")}</span>
+          <span className="text-[12px] text-text-muted">{t("youtrack.meeting.due")}</span>
           <input
             type="date"
             value={row.due}
@@ -88,7 +89,7 @@ function DraftRow({ row, unchecked, onChange }: RowProps) {
           />
         </label>
         <label className="flex min-w-48 flex-1 items-center gap-2">
-          <span className="text-content/60">{t("youtrack.meeting.links")}</span>
+          <span className="text-[12px] text-text-muted">{t("youtrack.meeting.links")}</span>
           <input
             value={row.links}
             autoComplete="off"
@@ -99,7 +100,7 @@ function DraftRow({ row, unchecked, onChange }: RowProps) {
         </label>
       </div>
       {unknown && (
-        <p id={hintId} className="ml-6 text-diff-del">
+        <p id={hintId} className="ml-6 text-[12px] text-state-fg-danger">
           {t(hint, { name: row.named })}
         </p>
       )}
@@ -107,11 +108,11 @@ function DraftRow({ row, unchecked, onChange }: RowProps) {
         value={row.description}
         rows={2}
         aria-label={t("youtrack.meeting.description")}
-        className="ml-6 resize-y rounded-md border border-stroke bg-transparent px-2 py-1 outline-none focus:border-accent"
+        className={`${INPUT} ml-6 h-auto resize-y py-1.5 leading-5`}
         onChange={(event) => onChange({ ...row, description: event.target.value })}
       />
       {row.quote !== "" && (
-        <blockquote className="ml-6 border-l-2 border-stroke pl-2 text-content/60">{row.quote}</blockquote>
+        <blockquote className="ml-6 border-l-2 border-border-base pl-2 text-text-muted">{row.quote}</blockquote>
       )}
     </li>
   );
@@ -157,7 +158,7 @@ function DraftRows({ source, paths, onCreate, tasks, people, project, unchecked 
 
   return (
     <>
-      <ul className="min-h-0 flex-1 overflow-y-auto">
+      <ul className="min-h-0 flex-1 overflow-y-auto px-4">
         {rows.map((row, index) => (
           <DraftRow
             // Строки не переставляются и не удаляются: номер их держит.
@@ -169,14 +170,14 @@ function DraftRows({ source, paths, onCreate, tasks, people, project, unchecked 
           />
         ))}
       </ul>
-      <footer className="flex shrink-0 items-center gap-3 border-t border-stroke px-4 py-2">
-        <p className="flex-1 text-[12px] text-content/50">{t("youtrack.meeting.folder", { folder: MEETING_FOLDER })}</p>
+      <footer className="flex shrink-0 items-center gap-3 border-t border-border-muted p-4">
+        <p className="flex-1 text-[12px] text-text-muted">{t("youtrack.meeting.folder", { folder: MEETING_FOLDER })}</p>
         {failed && (
-          <p role="alert" className="text-[12px] text-diff-del">
+          <p role="alert" className="text-[12px] text-state-fg-danger">
             {t("youtrack.meeting.failed")}
           </p>
         )}
-        <Button disabled={chosen.length === 0 || creating} onClick={() => void create()}>
+        <Button variant="submit" disabled={chosen.length === 0 || creating} onClick={() => void create()}>
           {t("youtrack.meeting.create", { number: chosen.length })}
         </Button>
       </footer>
@@ -215,16 +216,16 @@ export function MeetingDrafts({ source, tasks, problem, paths, onCreate, onClose
 
   if (problem !== null) {
     body = (
-      <p role="alert" className="px-4 py-3 text-diff-del">
+      <p role="alert" className="px-4 pb-4 text-state-fg-danger">
         {problem}
       </p>
     );
   } else if (tasks === null) {
-    body = <output className="px-4 py-3 text-content/60">{t("youtrack.meeting.reading")}</output>;
+    body = <output className="px-4 pb-4 text-text-muted">{t("youtrack.meeting.reading")}</output>;
   } else if (tasks.length === 0) {
-    body = <p className="px-4 py-3">{t("youtrack.meeting.empty")}</p>;
+    body = <p className="px-4 pb-4">{t("youtrack.meeting.empty")}</p>;
   } else if (!unchecked && people.isPending) {
-    body = <output className="px-4 py-3 text-content/60">{t("youtrack.meeting.people")}</output>;
+    body = <output className="px-4 pb-4 text-text-muted">{t("youtrack.meeting.people")}</output>;
   } else {
     body = (
       <DraftRows
@@ -243,14 +244,14 @@ export function MeetingDrafts({ source, tasks, problem, paths, onCreate, onClose
     <dialog
       ref={dialogRef}
       aria-label={title}
-      className="fixed inset-x-0 top-[10vh] mx-auto flex max-h-[80vh] w-[min(760px,calc(100vw-32px))] flex-col overflow-hidden rounded-xl border border-content/8 bg-shell/95 p-0 text-[13px] text-content shadow-float backdrop-blur-xl backdrop:bg-scrim"
+      className="fixed inset-x-0 top-[10vh] mx-auto flex max-h-[80vh] w-[min(760px,calc(100vw-32px))] flex-col overflow-hidden rounded-md bg-bg-layer-01 p-0 text-[13px] text-text-base shadow-overlay backdrop:bg-overlay-scrim"
       onCancel={(event) => {
         event.preventDefault();
         close();
       }}
     >
-      <header className="flex h-11 shrink-0 items-center gap-2 border-b border-stroke pr-2 pl-4">
-        <h2 className="min-w-0 flex-1 truncate font-medium">{title}</h2>
+      <header className="flex shrink-0 items-start gap-2 p-4 pr-3">
+        <h2 className="min-w-0 flex-1 truncate text-[15px]/5 font-medium">{title}</h2>
         <IconButton icon={Cancel01Icon} label={t("youtrack.meeting.close")} onClick={close} />
       </header>
       {body}

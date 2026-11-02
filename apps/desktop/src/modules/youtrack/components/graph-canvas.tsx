@@ -166,8 +166,8 @@ export function GraphCanvas({ points, lines, center, colorOf, chain, cycles, onO
     }
 
     const colors = {
-      content: themeColor(canvas, "--color-content"),
-      accent: themeColor(canvas, "--color-accent"),
+      content: themeColor(canvas, "--text-text-base"),
+      accent: themeColor(canvas, "--icon-icon-accent"),
     };
 
     state.draw = () => {
@@ -510,13 +510,13 @@ export function GraphCanvas({ points, lines, center, colorOf, chain, cycles, onO
       {hovered !== null && (
         <div
           role="tooltip"
-          className="pointer-events-none absolute z-10 max-w-72 rounded-md border border-stroke bg-shell px-2.5 py-1.5 text-[12px] shadow-float"
+          className="pointer-events-none absolute z-10 max-w-72 rounded-md bg-bg-layer-01 px-2.5 py-1.5 text-[12px]/4 text-text-base shadow-floating"
           style={{ left: hovered.x + 14, top: hovered.y + 14 }}
         >
           <p className="font-medium">
             {labelOf(hovered.point)} {hovered.point.summary}
           </p>
-          <p className="text-content/60">
+          <p className="text-text-muted">
             {[
               hovered.point.state ?? (hovered.point.id === null ? t("youtrack.graph.draft") : t("youtrack.graph.noState")),
               hovered.point.assignee ?? t("youtrack.graph.noAssignee"),

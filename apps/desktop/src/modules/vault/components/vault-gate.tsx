@@ -8,11 +8,11 @@ import { useChooseVault, useVaultStatus } from "../interactions/vault";
 function Prompt({ title, description, children }: { title: string; description?: string; children: ReactNode }) {
   return (
     <div className="grid flex-1 place-items-center p-6">
-      <div className="flex max-w-sm flex-col items-center gap-3 text-center">
-        <Icon icon={Folder01Icon} size={20} className="text-content/50" />
-        <div className="flex flex-col gap-1">
-          <h1 className="text-sm font-medium">{title}</h1>
-          {description !== undefined && <p className="text-[13px] text-content/50">{description}</p>}
+      <div className="flex max-w-md flex-col items-center gap-4 text-center">
+        <Icon icon={Folder01Icon} size={20} className="text-icon-muted" />
+        <div className="flex flex-col items-center gap-1">
+          <h1 className="text-[16px]/7 font-medium">{title}</h1>
+          {description !== undefined && <p className="text-[13px]/5 text-text-muted">{description}</p>}
         </div>
         {children}
       </div>

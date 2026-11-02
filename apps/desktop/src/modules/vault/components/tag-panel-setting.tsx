@@ -14,7 +14,7 @@ export function TagPanelSetting() {
       <input
         type="checkbox"
         aria-label={t("vault.tags.panel.show")}
-        className="accent-accent"
+        className="accent-bg-accent"
         checked={panel !== "hidden"}
         onChange={(event) => setTagPanel(event.target.checked ? "open" : "hidden")}
       />

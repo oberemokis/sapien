@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { openLink } from "@/core/links/open-link";
 import { IconButton } from "@/core/ui/icon-button";
 import { Segmented } from "@/core/ui/segmented";
+import { FIELD } from "@/core/ui/settings";
 import { closeTaskGraph, useTaskGraph, useTaskGraphPath } from "../interactions/graph";
 import { noteTitle, type LinkedNote } from "../model/draft";
 import {
@@ -26,8 +27,7 @@ const DEPTHS = ["1", "2", "3"] as const;
 // Точка без статуса: черновик или задача, о которой YouTrack не ответил.
 const NO_STATE_COLOR = "#9ca3af";
 
-const SELECT =
-  "h-7 rounded-md border border-stroke bg-transparent px-1.5 text-[12px] text-content outline-none focus:border-accent";
+const SELECT = `${FIELD} pr-1`;
 
 // Как линия выглядит в легенде: подзадача сплошная, «блокирует» со
 // стрелкой, «связана с» пунктиром.
@@ -134,7 +134,7 @@ function GraphDialog({ path, notes, onOpenNote }: Props & { path: string }) {
     <dialog
       ref={dialogRef}
       aria-label={title}
-      className="fixed inset-x-0 top-[6vh] mx-auto flex h-[min(720px,88vh)] w-[min(1100px,calc(100vw-32px))] flex-col overflow-hidden rounded-xl border border-content/8 bg-shell/95 p-0 text-content shadow-float backdrop-blur-xl backdrop:bg-scrim"
+      className="fixed inset-x-0 top-[6vh] mx-auto flex h-[min(720px,88vh)] w-[min(1100px,calc(100vw-32px))] flex-col overflow-hidden rounded-md bg-bg-layer-01 p-0 text-text-base shadow-overlay backdrop:bg-overlay-scrim"
       onCancel={(event) => {
         event.preventDefault();
         close();
@@ -145,11 +145,11 @@ function GraphDialog({ path, notes, onOpenNote }: Props & { path: string }) {
         }
       }}
     >
-      <header className="flex h-11 shrink-0 items-center gap-2 border-b border-stroke pr-2 pl-4">
-        <h2 className="min-w-0 flex-1 truncate text-[13px] font-medium">{title}</h2>
+      <header className="flex h-12 shrink-0 items-center gap-2 pr-3 pl-4">
+        <h2 className="min-w-0 flex-1 truncate text-[15px]/5 font-medium">{title}</h2>
         <IconButton icon={Cancel01Icon} label={t("youtrack.graph.close")} onClick={close} />
       </header>
-      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-stroke px-4 py-2">
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border-muted px-4 pb-3">
         <Segmented
           label={t("youtrack.graph.depth")}
           value={depth}
@@ -187,7 +187,7 @@ function GraphDialog({ path, notes, onOpenNote }: Props & { path: string }) {
           {EDGE_KINDS.map((kind) => (
             <label
               key={kind}
-              className="flex h-7 items-center gap-1.5 rounded-md px-2 text-[12px] text-content/50 has-checked:bg-selection has-checked:text-content has-focus-visible:outline-2 has-focus-visible:outline-accent"
+              className="flex h-7 items-center gap-1.5 rounded-md px-2 text-[13px] text-text-muted transition-colors duration-120 hover:bg-overlay-hover has-checked:bg-overlay-pressed has-checked:text-text-base has-focus-visible:outline-2 has-focus-visible:outline-border-focus"
             >
               <input type="checkbox" checked={filter.kinds.includes(kind)} className="sr-only" onChange={() => toggleKind(kind)} />
               <span aria-hidden>{KIND_SIGNS[kind]}</span>
@@ -197,7 +197,7 @@ function GraphDialog({ path, notes, onOpenNote }: Props & { path: string }) {
         </fieldset>
       </div>
       {notice !== null && (
-        <output className="block shrink-0 px-4 pt-2 text-[12px] text-content/60">{notice}</output>
+        <output className="block shrink-0 px-4 pt-2 text-[12px] text-text-muted">{notice}</output>
       )}
       <GraphCanvas
         points={shown.points}
@@ -220,7 +220,7 @@ function GraphDialog({ path, notes, onOpenNote }: Props & { path: string }) {
           </li>
         ))}
       </ul>
-      <footer className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1 border-t border-stroke px-4 py-2 text-[12px] text-content/60">
+      <footer className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1 border-t border-border-muted px-4 py-2.5 text-[12px] text-text-muted">
         {states.map((state) => (
           <span key={state} className="flex items-center gap-1.5">
             <span
@@ -237,11 +237,11 @@ function GraphDialog({ path, notes, onOpenNote }: Props & { path: string }) {
           </span>
         ))}
         <span className="flex items-center gap-1.5">
-          <span aria-hidden className="size-2 rounded-full border border-dashed border-content/60" />
+          <span aria-hidden className="size-2 rounded-full border border-dashed border-text-muted" />
           {t("youtrack.graph.draft")}
         </span>
         <span className="flex items-center gap-1.5">
-          <span aria-hidden className="h-0.5 w-3 bg-accent" />
+          <span aria-hidden className="h-0.5 w-3 bg-icon-accent" />
           {t("youtrack.graph.chain")}
         </span>
         <span className="flex items-center gap-1.5">

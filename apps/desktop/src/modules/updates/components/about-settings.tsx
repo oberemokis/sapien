@@ -52,7 +52,7 @@ export function AboutSettings() {
           title={
             <>
               {t("updates.version")}
-              <span className="ml-2 font-mono text-content/50">{version}</span>
+              <span className="ml-2 font-mono font-normal text-text-muted">{version}</span>
             </>
           }
           description={status}

@@ -1,5 +1,10 @@
 import type { ReactNode } from "react";
 
+// Поле ввода в строке настроек, как TextInput дизайн-системы: край даёт
+// тень-кольцо, фокус обводит синим. Ширину задаёт место, где поле стоит.
+export const FIELD =
+  "h-7 rounded-md bg-bg-base px-2 text-[13px] text-text-base shadow-input outline-1 -outline-offset-1 outline-transparent transition-[outline-color] duration-120 placeholder:text-text-faint focus:outline-border-focus";
+
 // Раздел настроек: заголовок с пояснением и колонка групп под ним.
 // Общий для разделов из разных модулей.
 export function SettingsSection({

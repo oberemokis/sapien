@@ -16,14 +16,14 @@ function ProgressLine({ progress }: { progress: UpdateProgress | null }) {
   }
 
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className="flex flex-col gap-2">
       <progress
         aria-label={label}
         value={percent ?? undefined}
         max={100}
-        className="h-1 w-full appearance-none overflow-hidden rounded-full [&::-webkit-progress-bar]:bg-stroke [&::-webkit-progress-value]:bg-accent"
+        className="h-1 w-full appearance-none overflow-hidden rounded-full [&::-webkit-progress-bar]:bg-bg-layer-02 [&::-webkit-progress-value]:rounded-full [&::-webkit-progress-value]:bg-icon-base"
       />
-      <p className="text-content/50">{label}</p>
+      <p className="text-[12px]/[18px] text-text-muted tabular-nums">{label}</p>
     </div>
   );
 }
@@ -45,17 +45,15 @@ export function UpdateOffer() {
   return (
     <section
       aria-label={t("updates.offer.label")}
-      className="fixed right-4 bottom-4 z-30 flex w-96 flex-col gap-3 rounded-[10px] border border-content/8 bg-shell/95 p-4 text-[13px] text-content shadow-float backdrop-blur-xl"
+      className="fixed right-4 bottom-4 z-30 flex w-96 flex-col gap-3 rounded-lg bg-bg-layer-01 p-3 text-[13px]/5 text-text-base shadow-floating"
     >
-      <header className="flex flex-col gap-1">
-        <h2 className="text-sm font-semibold">{t("updates.offer.title", { version: update.version })}</h2>
-        {current !== undefined && (
-          <p className="text-content/50">{t("updates.offer.current", { version: current })}</p>
-        )}
+      <header className="flex flex-col">
+        <h2 className="font-medium">{t("updates.offer.title", { version: update.version })}</h2>
+        {current !== undefined && <p className="text-text-muted">{t("updates.offer.current", { version: current })}</p>}
       </header>
 
       {items.length > 0 && (
-        <ul className="flex max-h-48 list-disc flex-col gap-1 overflow-y-auto pl-4 text-content/70">
+        <ul className="flex max-h-48 list-disc flex-col gap-1 overflow-y-auto pl-[18px] text-text-muted marker:text-text-faint">
           {items.map((item) => (
             <li key={item}>{item}</li>
           ))}
@@ -63,7 +61,7 @@ export function UpdateOffer() {
       )}
       <button
         type="button"
-        className="self-start text-link underline-offset-2 hover:underline"
+        className="self-start rounded-xs font-medium text-text-accent hover:text-text-accent-hover hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
         onClick={() => openLink(releaseUrl(update.version))}
       >
         {t("updates.offer.release")}
@@ -71,7 +69,7 @@ export function UpdateOffer() {
 
       {installing && <ProgressLine progress={progress} />}
       {problem !== null && (
-        <p role="alert" className="text-diff-del-fg">
+        <p role="alert" className="text-state-fg-danger">
           {t(`updates.problems.${problem}`)}
         </p>
       )}
@@ -80,7 +78,7 @@ export function UpdateOffer() {
         <Button disabled={installing} onClick={defer}>
           {t("updates.offer.later")}
         </Button>
-        <Button disabled={installing} onClick={install}>
+        <Button variant="submit" disabled={installing} onClick={install}>
           {t("updates.offer.install")}
         </Button>
       </div>

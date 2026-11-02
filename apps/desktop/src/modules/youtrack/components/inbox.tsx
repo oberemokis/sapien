@@ -17,11 +17,13 @@ import type { TFunction } from "i18next";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { openLink } from "@/core/links/open-link";
+import { Button } from "@/core/ui/button";
 import { Icon } from "@/core/ui/icon";
 import { IconButton } from "@/core/ui/icon-button";
 import { markRead, useIssueDetail, type InboxState } from "../interactions/inbox";
 import { ago, filterEvents } from "../model/inbox";
 import { youtrackProblemOf, type FeedEvent } from "../model/youtrack";
+import { Alert, ALERT_ACTION } from "./alert";
 import { failureText } from "./failure-text";
 
 const KIND_ICONS: Record<FeedEvent["kind"], IconSvgElement> = {
@@ -33,9 +35,6 @@ const KIND_ICONS: Record<FeedEvent["kind"], IconSvgElement> = {
   due_soon: Clock01Icon,
   overdue: Alert02Icon,
 };
-
-const ACTION =
-  "flex items-center gap-1.5 rounded-md border border-stroke px-2.5 py-1 text-[13px] whitespace-nowrap transition-colors duration-120 hover:bg-selection-hover disabled:opacity-50";
 
 function useAgo() {
   const { i18n } = useTranslation();
@@ -74,26 +73,26 @@ function EventRow({ event, unread, selected, onSelect }: { event: FeedEvent; unr
       <button
         type="button"
         aria-current={selected || undefined}
-        className="flex w-full flex-col gap-0.5 rounded-md px-2.5 py-2 text-left transition-colors duration-120 hover:bg-selection-hover aria-current:bg-selection"
+        className="flex w-full flex-col gap-0.5 rounded-md p-2 text-left transition-colors duration-120 hover:bg-overlay-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-border-focus aria-current:bg-overlay-pressed"
         onClick={onSelect}
       >
-        <span className="flex w-full items-center gap-1.5 text-[12px] text-content/50">
-          <Icon icon={KIND_ICONS[event.kind]} size={13} className="shrink-0" />
+        <span className="flex w-full items-center gap-1.5 text-[12px]/4 text-text-muted">
+          <Icon icon={KIND_ICONS[event.kind]} size={14} className="shrink-0" />
           <span className="min-w-0 flex-1 truncate">
             {t(`youtrack.inbox.kinds.${event.kind}`)} · {event.project}
           </span>
           <span className="shrink-0">{since(event.at)}</span>
           {unread && (
             <>
-              <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-accent" />
+              <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-bg-accent" />
               <span className="sr-only">{t("youtrack.inbox.new")}</span>
             </>
           )}
         </span>
-        <span className="w-full truncate text-[13px] font-medium">
+        <span className="w-full truncate text-[13px]/4 font-medium">
           {event.issue} {event.summary}
         </span>
-        {detail !== null && <span className="w-full truncate text-[12px] text-content/50">{detail}</span>}
+        {detail !== null && <span className="w-full truncate text-[12px]/4 text-text-muted">{detail}</span>}
       </button>
     </li>
   );
@@ -109,16 +108,16 @@ function IssuePane({ event, online, onAsk }: { event: FeedEvent; online: boolean
   if (issue.data !== undefined) {
     body = (
       <>
-        <p className="text-[13px] whitespace-pre-wrap">{issue.data.description || t("youtrack.inbox.noDescription")}</p>
-        <h3 className="mt-6 mb-2 text-[13px] font-medium text-content/60">{t("youtrack.inbox.comments")}</h3>
-        {issue.data.comments.length === 0 && <p className="text-[13px] text-content/50">{t("youtrack.inbox.noComments")}</p>}
-        <ul className="flex flex-col gap-3">
+        <p className="text-[14px]/[1.6] whitespace-pre-wrap">{issue.data.description || t("youtrack.inbox.noDescription")}</p>
+        <h3 className="mt-6 mb-3 text-[13px]/4 font-medium">{t("youtrack.inbox.comments")}</h3>
+        {issue.data.comments.length === 0 && <p className="text-[13px] text-text-muted">{t("youtrack.inbox.noComments")}</p>}
+        <ul className="flex flex-col gap-2">
           {issue.data.comments.map((comment) => (
-            <li key={`${comment.created}-${comment.author}`} className="rounded-md border border-stroke px-3 py-2">
-              <p className="mb-1 text-[12px] text-content/50">
+            <li key={`${comment.created}-${comment.author}`} className="rounded-lg border border-border-muted p-3">
+              <p className="mb-1 text-[12px]/4 text-text-muted">
                 {comment.author ?? "?"} · {date.format(comment.created)}
               </p>
-              <p className="text-[13px] whitespace-pre-wrap">{comment.text}</p>
+              <p className="text-[13px]/5 whitespace-pre-wrap">{comment.text}</p>
             </li>
           ))}
         </ul>
@@ -126,47 +125,38 @@ function IssuePane({ event, online, onAsk }: { event: FeedEvent; online: boolean
     );
   } else if (issue.error !== null) {
     body = (
-      <p role="alert" className="text-[13px] text-diff-del-fg">
+      <p role="alert" className="text-[13px] text-state-fg-danger">
         {t("youtrack.inbox.detailFailed", { problem: t(`youtrack.problems.${youtrackProblemOf(issue.error)}`) })}
       </p>
     );
   } else if (!online) {
-    body = <p className="text-[13px] text-content/50">{t("youtrack.inbox.detailOffline")}</p>;
+    body = <p className="text-[13px] text-text-muted">{t("youtrack.inbox.detailOffline")}</p>;
   }
 
   const meta = [issue.data?.state, issue.data?.reporter && t("youtrack.inbox.reporter", { name: issue.data.reporter })];
 
   return (
     <article className="mx-auto w-full max-w-3xl px-8 py-6">
-      <p className="flex items-center gap-1.5 text-[13px] text-content/50">
-        <Icon icon={KIND_ICONS[event.kind]} size={14} />
+      <p className="flex items-center gap-1.5 text-[13px] text-text-muted">
+        <Icon icon={KIND_ICONS[event.kind]} size={16} className="text-icon-muted" />
         {t(`youtrack.inbox.kinds.${event.kind}`)} · {event.issue} · {event.project}
       </p>
-      <h2 className="mt-2 text-[20px] font-semibold">{event.summary}</h2>
-      <p className="mt-1 text-[13px] text-content/50">{meta.filter(Boolean).join(" · ")}</p>
+      <h2 className="mt-1 text-[20px]/7 font-[640]">{event.summary}</h2>
+      <p className="text-[13px] text-text-muted">{meta.filter(Boolean).join(" · ")}</p>
       <div className="mt-4 flex flex-wrap gap-2">
-        <button
-          type="button"
-          className={ACTION}
-          onClick={() => onAsk(t("youtrack.inbox.askPrompt", { id: event.issue, summary: event.summary }))}
-        >
-          <Icon icon={AiChat02Icon} size={14} />
+        <Button onClick={() => onAsk(t("youtrack.inbox.askPrompt", { id: event.issue, summary: event.summary }))}>
+          <Icon icon={AiChat02Icon} size={16} className="text-icon-muted" />
           {t("youtrack.inbox.ask")}
-        </button>
-        <button
-          type="button"
-          disabled={issue.data === undefined}
-          className={ACTION}
-          onClick={() => issue.data !== undefined && openLink(issue.data.url)}
-        >
-          <Icon icon={LinkSquare02Icon} size={14} />
+        </Button>
+        <Button disabled={issue.data === undefined} onClick={() => issue.data !== undefined && openLink(issue.data.url)}>
+          <Icon icon={LinkSquare02Icon} size={16} className="text-icon-muted" />
           {t("youtrack.inbox.open")}
-        </button>
+        </Button>
       </div>
       {detail !== null && (
-        <blockquote className="mt-6 rounded-md bg-selection-subtle px-3 py-2 text-[13px] whitespace-pre-wrap">{detail}</blockquote>
+        <blockquote className="mt-4 rounded-md bg-bg-layer-01 px-3 py-2 text-[13px]/5 whitespace-pre-wrap">{detail}</blockquote>
       )}
-      <div className="mt-6 border-t border-hairline pt-6">{body}</div>
+      <div className="mt-6 border-t border-border-muted pt-6">{body}</div>
     </article>
   );
 }
@@ -190,14 +180,16 @@ function Status({ inbox }: { inbox: InboxState }) {
   }
 
   return (
-    <div className="flex flex-col gap-1 px-3 pb-2 text-[12px] text-content/50">
+    <div className="flex flex-col gap-1 px-4 pb-2 text-[12px]/4 text-text-muted">
       {problem !== null && (
-        <div role="alert" className="flex flex-col items-start gap-1 rounded-md bg-diff-del-bg px-2.5 py-2 text-content">
-          <span>{problem}</span>
-          <Link to="/settings/integrations" className="font-medium underline-offset-2 hover:underline">
-            {t("youtrack.inbox.settings")}
-          </Link>
-        </div>
+        <Alert>
+          <span className="flex flex-col items-start gap-1">
+            {problem}
+            <Link to="/settings/integrations" className={ALERT_ACTION}>
+              {t("youtrack.inbox.settings")}
+            </Link>
+          </span>
+        </Alert>
       )}
       {!inbox.online && <span>{t("youtrack.inbox.offline")}</span>}
       <span>{updated}</span>
@@ -238,16 +230,16 @@ export function Inbox({ inbox, onAsk }: Props) {
 
   return (
     <div className="flex h-full min-h-0">
-      <section aria-label={t("youtrack.inbox.title")} className="flex w-[280px] shrink-0 flex-col border-r border-hairline">
-        <div className="flex h-11 shrink-0 items-center gap-1 px-2">
-          <label className="flex h-8 min-w-0 flex-1 items-center gap-1.5 rounded-md border border-stroke px-2 text-content/50">
-            <Icon icon={FilterIcon} size={13} className="shrink-0" />
+      <section aria-label={t("youtrack.inbox.title")} className="flex w-[280px] shrink-0 flex-col border-r border-border-muted">
+        <div className="flex h-11 shrink-0 items-center gap-0.5 px-2">
+          <label className="flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-md px-2 text-icon-muted transition-colors duration-120 focus-within:bg-overlay-hover hover:bg-overlay-hover">
+            <Icon icon={FilterIcon} size={16} className="shrink-0" />
             <input
               aria-label={t("youtrack.inbox.filter")}
               placeholder={t("youtrack.inbox.filter")}
               value={filter}
               spellCheck={false}
-              className="min-w-0 flex-1 bg-transparent text-[13px] text-content outline-none"
+              className="min-w-0 flex-1 bg-transparent text-[13px] text-text-base outline-none placeholder:text-text-faint"
               onChange={(event) => setFilter(event.target.value)}
             />
           </label>
@@ -259,8 +251,8 @@ export function Inbox({ inbox, onAsk }: Props) {
           <IconButton icon={RefreshIcon} label={t("youtrack.inbox.refresh")} onClick={inbox.refresh} />
         </div>
         <Status inbox={inbox} />
-        {empty !== null && <p className="px-3 py-2 text-[13px] text-content/50">{empty}</p>}
-        <ul className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-2">
+        {empty !== null && <p className="px-4 py-2 text-[13px] text-text-muted">{empty}</p>}
+        <ul className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-2 pb-2">
           {events.map((event) => (
             <EventRow
               key={event.id}
@@ -274,9 +266,9 @@ export function Inbox({ inbox, onAsk }: Props) {
       </section>
       <div className="min-w-0 flex-1 overflow-y-auto">
         {selected === undefined ? (
-          <div className="grid h-full place-items-center text-[13px] text-content/50">
+          <div className="grid h-full place-items-center text-[13px] text-text-muted">
             <span className="flex flex-col items-center gap-2">
-              <Icon icon={InboxIcon} size={28} />
+              <Icon icon={InboxIcon} size={28} className="text-icon-faint" />
               {t("youtrack.inbox.pick")}
             </span>
           </div>
@@ -296,14 +288,14 @@ export function InboxLink({ inbox, active, onOpen }: { inbox: InboxState; active
     <button
       type="button"
       aria-current={active || undefined}
-      className="mx-1.5 mt-1 flex h-8 shrink-0 items-center gap-2 rounded-md px-2 text-[13px] text-content/80 transition-colors duration-120 hover:bg-selection-hover aria-current:bg-selection aria-current:text-content"
+      className="mx-1.5 mt-1 flex h-7 shrink-0 items-center gap-1.5 rounded-md pr-2 pl-1.5 text-[13px]/4 text-text-muted transition-colors duration-120 hover:bg-overlay-hover hover:text-text-base focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-border-focus aria-current:bg-overlay-pressed aria-current:text-text-base [&_svg]:text-icon-muted"
       onClick={onOpen}
     >
-      <Icon icon={InboxIcon} size={15} className="shrink-0" />
+      <Icon icon={InboxIcon} size={16} className="shrink-0" />
       <span className="flex-1 text-left">{t("youtrack.inbox.title")}</span>
       {inbox.unread > 0 && (
         <>
-          <span aria-hidden className="size-2 rounded-full bg-accent" />
+          <span aria-hidden className="size-2 rounded-full bg-bg-accent" />
           <span className="sr-only">{t("youtrack.inbox.unread", { count: inbox.unread })}</span>
         </>
       )}

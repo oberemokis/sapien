@@ -103,7 +103,7 @@ function DraftRow({ draft, siblings, depth }: { draft: Draft; siblings: VaultEnt
           aria-invalid={hint !== null}
           aria-describedby={hint === null ? undefined : hintId}
           readOnly={create.isPending}
-          className="h-6 min-w-0 flex-1 rounded-sm bg-bg-base px-1.5 text-[13px] text-text-base shadow-[inset_0_0_0_1px_var(--border-border-focus)] outline-none selection:bg-accent/35 aria-invalid:shadow-[inset_0_0_0_1px_var(--state-fg-danger)]"
+          className="h-6 min-w-0 flex-1 rounded-sm bg-bg-base px-1.5 text-[13px] text-text-base shadow-[inset_0_0_0_1px_var(--border-border-focus)] outline-none selection:bg-bg-accent/35 aria-invalid:shadow-[inset_0_0_0_1px_var(--state-fg-danger)]"
           onChange={(event) => {
             setName(event.target.value);
             create.reset();

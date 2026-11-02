@@ -4,7 +4,9 @@ import { useSecurityStatus } from "../interactions/security";
 import { diskState } from "../model/security";
 import { LockSettings } from "./lock-settings";
 
-const BADGE = "rounded-md border border-stroke px-2 py-1 text-[13px]";
+// Метка состояния, как Tag дизайн-системы. Красная, когда защиты нет.
+const BADGE = "inline-flex h-5 items-center rounded-xs bg-bg-layer-03 px-1.5 text-[11px] font-medium text-text-muted";
+const DANGER = "inline-flex h-5 items-center rounded-xs bg-state-bg-danger px-1.5 text-[11px] font-medium text-state-fg-danger";
 
 // Раздел «Безопасность»: что закрывает данные, если ноутбук украли или
 // скопировали диск. Данные приложения шифрует оно само, заметки только
@@ -16,7 +18,7 @@ export function SecuritySettings() {
   if (status === undefined) {
     return (
       <SettingsSection title={t("security.title")} description={t("security.description")}>
-        <p className="text-sm text-content/50">{t("security.checking")}</p>
+        <p className="text-[13px] text-text-muted">{t("security.checking")}</p>
       </SettingsSection>
     );
   }
@@ -34,12 +36,12 @@ export function SecuritySettings() {
     <SettingsSection title={t("security.title")} description={t("security.description")}>
       <SettingsGroup>
         <SettingsRow title={t("security.data.title")} description={t(`security.data.${status.data}`)}>
-          <span className={status.data === "sealed" ? BADGE : `${BADGE} text-diff-del-fg`}>
+          <span className={status.data === "sealed" ? BADGE : DANGER}>
             {t(`security.data.badge.${status.data}`)}
           </span>
         </SettingsRow>
         <SettingsRow title={t("security.disk.title")} description={diskText}>
-          <span className={disk === "on" ? BADGE : `${BADGE} text-diff-del-fg`}>{t(`security.disk.badge.${disk}`)}</span>
+          <span className={disk === "on" ? BADGE : DANGER}>{t(`security.disk.badge.${disk}`)}</span>
         </SettingsRow>
       </SettingsGroup>
       <LockSettings system={status.system} />

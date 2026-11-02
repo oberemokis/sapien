@@ -26,21 +26,21 @@ function LockScreen() {
     <dialog
       ref={dialogRef}
       aria-labelledby={titleId}
-      className="fixed inset-0 m-0 flex h-full max-h-none w-full max-w-none flex-col bg-shell text-content backdrop:bg-shell"
+      className="fixed inset-0 m-0 flex h-full max-h-none w-full max-w-none flex-col bg-bg-deep text-text-base backdrop:bg-bg-deep"
       onCancel={(event) => event.preventDefault()}
     >
       {/* За шапку окно двигается и закрытым. */}
       <div data-tauri-drag-region className="h-10 shrink-0" />
       <div className="flex flex-1 flex-col items-center justify-center gap-4 pb-10 text-[13px]">
-        <Icon icon={SquareLock02Icon} size={28} className="text-content/50" />
-        <h2 id={titleId} className="text-sm font-semibold">
+        <Icon icon={SquareLock02Icon} size={28} className="text-icon-muted" />
+        <h2 id={titleId} className="text-[16px]/7 font-medium">
           {t("security.lock.screen.title")}
         </h2>
         <Button disabled={checking} onClick={unlock}>
           {t("security.lock.screen.unlock")}
         </Button>
         {failure === "failed" && (
-          <p role="alert" className="text-diff-del-fg">
+          <p role="alert" className="text-state-fg-danger">
             {t("security.lock.screen.failed")}
           </p>
         )}

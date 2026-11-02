@@ -1,13 +1,12 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/core/ui/button";
-import { SettingsGroup, SettingsRow, SettingsSection } from "@/core/ui/settings";
+import { FIELD as INPUT, SettingsGroup, SettingsRow, SettingsSection } from "@/core/ui/settings";
 import { useYoutrack } from "../interactions/connection";
 import { changeTracked, useTracked } from "../interactions/inbox";
 import { changeDefaultProject, useDefaultProject } from "../interactions/project";
 import { youtrackProblemOf, type YoutrackProblem } from "../model/youtrack";
 
-const INPUT = "h-8 rounded-md border border-stroke bg-transparent px-2 text-[13px] outline-none focus:border-accent";
 const FIELD = `${INPUT} w-48`;
 
 // Запрос отслеживаемых задач применяется, когда поле теряет фокус или по
@@ -123,7 +122,7 @@ export function YoutrackSettings() {
   if (status?.kind === "connected" || status?.kind === "broken") {
     controls = (
       <>
-        <span className="text-[13px] text-content/60">{status.host}</span>
+        <span className="text-[13px] text-text-muted">{status.host}</span>
         {status.kind === "broken" && (
           <Button disabled={youtrack.checking} onClick={() => void youtrack.recheck()}>
             {t("youtrack.settings.recheck")}

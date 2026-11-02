@@ -9,7 +9,7 @@ import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { FileTypeIcon } from "@/core/ui/file-type-icon";
 import { Icon } from "@/core/ui/icon";
-import { hasModKey } from "@/core/ui/keys";
+import { hasModKey, shortcutLabel } from "@/core/ui/keys";
 import { openHistory, useDeletedNotes } from "../interactions/history";
 import { closeSearch, openSearch, useSearchMode, useSearchOpen, useSearchStartQuery } from "../interactions/search";
 import { useNoteTags } from "../interactions/tags";
@@ -46,14 +46,14 @@ function useSearchShortcut(enabled: boolean) {
 
 function Title({ note }: { note: Found }) {
   return (
-    <span className="min-w-0 shrink truncate">
+    <span className="min-w-0 shrink truncate font-medium">
       {highlight(note.title, note.hits).map((part) => {
         if (!part.hit) {
           return <span key={part.start}>{part.text}</span>;
         }
 
         return (
-          <mark key={part.start} className="bg-transparent font-semibold text-content">
+          <mark key={part.start} className="bg-transparent text-text-accent">
             {part.text}
           </mark>
         );
@@ -62,7 +62,21 @@ function Title({ note }: { note: Found }) {
   );
 }
 
-const OPTION = "flex h-8 cursor-default items-center gap-2 rounded-md px-2 text-[13px] aria-selected:bg-selection";
+// Подсказка клавиши в подвале, как Keybind дизайн-системы.
+function Key({ label, children }: { label: string; children: string }) {
+  return (
+    <span className="flex items-center gap-1.5">
+      <kbd className="inline-flex h-3.5 min-w-3.5 items-center justify-center rounded-xs bg-bg-layer-03 px-1 font-sans text-[11px] font-medium text-text-muted">
+        {label}
+      </kbd>
+      {children}
+    </span>
+  );
+}
+
+const OPTION =
+  "flex h-8 cursor-default items-center gap-2 rounded-md px-2 text-[13px]/4 text-text-base aria-selected:bg-overlay-hover [&_svg]:text-icon-muted";
+const NOTE = "px-2 py-1.5 text-[13px]/4 text-text-muted";
 
 function SearchDialog() {
   const { t } = useTranslation();
@@ -209,7 +223,7 @@ function SearchDialog() {
     <dialog
       ref={dialogRef}
       aria-label={title}
-      className="fixed inset-x-0 top-[12vh] mx-auto w-[min(560px,calc(100vw-32px))] overflow-hidden rounded-xl border border-content/8 bg-shell/95 p-0 text-content shadow-float backdrop-blur-xl backdrop:bg-scrim"
+      className="fixed inset-x-0 top-[12vh] mx-auto w-[min(560px,calc(100vw-32px))] overflow-hidden rounded-dock bg-bg-base p-0 text-text-base shadow-overlay backdrop:bg-overlay-scrim"
       onKeyDown={onKeyDown}
       onCancel={(event) => {
         event.preventDefault();
@@ -221,8 +235,8 @@ function SearchDialog() {
         }
       }}
     >
-      <div className="flex h-11 items-center gap-2 border-b border-stroke px-3">
-        <Icon icon={Search01Icon} size={15} className="shrink-0 text-content/50" />
+      <div className="flex h-12 items-center gap-2 border-b border-border-muted px-3">
+        <Icon icon={Search01Icon} size={16} className="shrink-0 text-icon-muted" />
         <input
           ref={inputRef}
           role="combobox"
@@ -232,7 +246,7 @@ function SearchDialog() {
           aria-autocomplete="list"
           aria-activedescendant={count > 0 ? `${listId}-${active}` : undefined}
           placeholder={placeholder}
-          className="h-full min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-content/40"
+          className="h-full min-w-0 flex-1 bg-transparent text-[14px] outline-none placeholder:text-text-faint"
           value={query}
           onChange={(event) => {
             setQuery(event.target.value);
@@ -241,17 +255,15 @@ function SearchDialog() {
           }}
         />
       </div>
-      <div className="max-h-[360px] overflow-y-auto p-1">
+      <div className="max-h-[360px] overflow-y-auto p-1.5">
         {!picking && empty && found.length > 0 && (
-          <p className="px-2 pt-1 pb-1.5 text-[12px] text-content/50">{t("vault.search.recent")}</p>
+          <p className="flex h-7 items-center px-2 text-[13px] text-text-muted">{t("vault.search.recent")}</p>
         )}
-        {picking && choices.length === 0 && !deleted.isLoading && (
-          <p className="px-2 py-1.5 text-[13px] text-content/50">{noChoices}</p>
-        )}
+        {picking && choices.length === 0 && !deleted.isLoading && <p className={NOTE}>{noChoices}</p>}
         {!empty && found.length === 0 && (!picking || choices.length > 0) && (
-          <p className="px-2 pt-1 pb-1.5 text-[13px] text-content/50">{t("vault.search.nothing")}</p>
+          <p className={NOTE}>{t("vault.search.nothing")}</p>
         )}
-        <div id={listId} role="listbox" aria-label={title}>
+        <div id={listId} role="listbox" aria-label={title} className="flex flex-col gap-0.5">
           {found.map((note, index) => (
             <div
               key={note.path}
@@ -265,7 +277,7 @@ function SearchDialog() {
             >
               <FileTypeIcon name={note.path} />
               <Title note={note} />
-              {note.folder !== "" && <span className="min-w-0 flex-1 truncate text-content/40">{note.folder}</span>}
+              {note.folder !== "" && <span className="min-w-0 flex-1 truncate text-text-muted">{note.folder}</span>}
             </div>
           ))}
           {offerCreate && (
@@ -276,7 +288,7 @@ function SearchDialog() {
               aria-selected={active === 0}
               aria-disabled={problem !== null}
               aria-describedby={createHint === null ? undefined : `${listId}-hint`}
-              className={`${OPTION} aria-disabled:text-content/40`}
+              className={`${OPTION} aria-disabled:text-text-faint`}
               onMouseMove={() => setActive(0)}
               onClick={createNote}
             >
@@ -286,10 +298,18 @@ function SearchDialog() {
           )}
         </div>
         {createHint !== null && (
-          <p id={`${listId}-hint`} className="px-2 pt-1 text-[12px] text-diff-del-fg">
+          <p id={`${listId}-hint`} className="px-2 pt-1 text-[12px] text-state-fg-danger">
             {createHint}
           </p>
         )}
+      </div>
+      <div
+        aria-hidden
+        className="flex items-center gap-4 border-t border-border-muted px-3 py-2 text-[12px]/[18px] text-text-muted"
+      >
+        <Key label="↵">{t("vault.search.keys.open")}</Key>
+        {mode.kind === "files" && <Key label={shortcutLabel("↵")}>{t("vault.search.keys.newTab")}</Key>}
+        <Key label="esc">{t("vault.search.keys.close")}</Key>
       </div>
     </dialog>
   );

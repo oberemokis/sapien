@@ -4,6 +4,7 @@ import { openLink } from "@/core/links/open-link";
 import { withFrontmatterList, withFrontmatterMap, withFrontmatterValue } from "@/core/markdown/frontmatter";
 import { useOnline } from "@/core/network/online";
 import { Button } from "@/core/ui/button";
+import { FIELD as INPUT } from "@/core/ui/settings";
 import { useYoutrack } from "../interactions/connection";
 import { useCheck, useIssueState, usePublish, useSimilar } from "../interactions/draft";
 import { openTaskGraph } from "../interactions/graph";
@@ -35,8 +36,7 @@ import { Alert, AlertAction } from "./alert";
 import { failureText } from "./failure-text";
 import { PublishAll } from "./publish-all";
 
-const FIELD =
-  "h-7 min-w-0 flex-1 rounded-md border border-stroke bg-transparent px-2 outline-none focus:border-accent aria-invalid:border-diff-del read-only:opacity-60";
+const FIELD = `${INPUT} min-w-0 flex-1 aria-invalid:outline-state-border-danger read-only:opacity-60`;
 
 type Props = {
   path: string;
@@ -91,7 +91,7 @@ function HeaderField({ id, label, value, invalid = false, readOnly, hint, onComm
 
   return (
     <label className="flex items-center gap-2">
-      <span className="w-24 shrink-0 truncate text-content/60">{label}</span>
+      <span className="w-24 shrink-0 truncate text-text-muted">{label}</span>
       <input
         id={id}
         value={typed}
@@ -136,7 +136,7 @@ function FindingItem({ finding, path, onField, onOpen, onNotDuplicate }: Finding
 
   return (
     <li className="flex items-start gap-2">
-      <span className={finding.blocking ? "w-28 shrink-0 text-diff-del" : "w-28 shrink-0 text-content/60"}>
+      <span className={finding.blocking ? "w-28 shrink-0 text-state-fg-danger" : "w-28 shrink-0 text-state-fg-warning"}>
         {finding.blocking ? t("youtrack.check.error") : t("youtrack.check.warning")}
       </span>
       <div className="flex min-w-0 flex-1 flex-col items-start gap-1">
@@ -344,22 +344,25 @@ function DraftForm({
   return (
     <section
       aria-label={t("youtrack.draft.title")}
-      className="mx-4 mb-2 flex shrink-0 flex-col gap-2 rounded-md border border-stroke px-3 py-2 text-[13px]"
+      className="mx-4 mb-2 flex shrink-0 flex-col gap-2 rounded-lg bg-bg-layer-01 p-3 text-[13px] shadow-[inset_0_0_0_0.5px_var(--border-border-muted)]"
     >
       <div className="flex flex-wrap items-center gap-2">
         <h2 className="font-medium">{draft.id ?? t("youtrack.draft.draft")}</h2>
         {issue.data !== undefined && (
           <>
             {issue.data.state !== null && (
-              <span className="rounded bg-selection px-1.5 py-0.5" title={t("youtrack.draft.state")}>
+              <span
+                className="inline-flex h-5 items-center rounded-xs bg-bg-layer-03 px-1.5 text-[11px] font-medium text-text-muted"
+                title={t("youtrack.draft.state")}
+              >
                 {issue.data.state}
               </span>
             )}
-            <span className="text-content/60">{issue.data.assignee ?? t("youtrack.draft.noAssignee")}</span>
+            <span className="text-text-muted">{issue.data.assignee ?? t("youtrack.draft.noAssignee")}</span>
           </>
         )}
         {issue.isError && (
-          <span className="text-content/60">{t(`youtrack.problems.${youtrackProblemOf(issue.error)}`)}</span>
+          <span className="text-text-muted">{t(`youtrack.problems.${youtrackProblemOf(issue.error)}`)}</span>
         )}
         <div className="ml-auto flex gap-2">
           {issue.data !== undefined && (
@@ -373,6 +376,7 @@ function DraftForm({
             </Button>
           )}
           <Button
+            variant="submit"
             disabled={
               readOnly || !remoteReady || publishing.isPending || checking.isPending || unpublished.length > 0 || blocked
             }
@@ -382,7 +386,7 @@ function DraftForm({
           </Button>
         </div>
       </div>
-      {hint !== null && <p className="text-content/60">{hint}</p>}
+      {hint !== null && <p className="text-text-muted">{hint}</p>}
       <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
         <HeaderField
           id={fieldId("project")}
@@ -435,10 +439,10 @@ function DraftForm({
           />
         ))}
       </div>
-      <section aria-label={t("youtrack.check.title")} className="flex flex-col gap-1.5 border-t border-hairline pt-2">
+      <section aria-label={t("youtrack.check.title")} className="flex flex-col gap-1.5 border-t border-border-muted pt-2">
         <div className="flex flex-wrap items-center gap-2">
           <h3 className="font-medium">{t("youtrack.check.title")}</h3>
-          <span className="text-content/60">
+          <span className="text-text-muted">
             {findings.length === 0
               ? t("youtrack.check.clean")
               : t("youtrack.check.count", { errors, warnings: findings.length - errors })}
@@ -461,7 +465,7 @@ function DraftForm({
             </Button>
           </div>
         </div>
-        {!online && <p className="text-content/60">{t("youtrack.check.offline")}</p>}
+        {!online && <p className="text-text-muted">{t("youtrack.check.offline")}</p>}
         {findings.length > 0 && (
           <ul className="flex flex-col gap-1">
             {findings.map((finding) => (
@@ -498,7 +502,7 @@ function DraftForm({
         <Alert>{t("youtrack.draft.failed", { id: result.id, commands: result.failed.join("; ") })}</Alert>
       )}
       {result?.kind === "done" && result.failed.length === 0 && (
-        <output className="text-content/60">{t("youtrack.draft.published", { id: result.id })}</output>
+        <output className="text-state-fg-success">{t("youtrack.draft.published", { id: result.id })}</output>
       )}
       {result?.kind === "diverged" && (
         <Alert
@@ -514,7 +518,7 @@ function DraftForm({
           <p>{t("youtrack.draft.diverged")}</p>
           <section
             aria-label={t("youtrack.draft.theirs")}
-            className="mt-2 max-h-40 overflow-auto rounded-md border border-stroke px-2 py-1"
+            className="mt-2 max-h-40 overflow-auto rounded-md bg-bg-base px-2 py-1 shadow-[inset_0_0_0_0.5px_var(--border-border-base)]"
           >
             <p className="font-medium">{result.summary}</p>
             <pre className="font-mono text-[12px] whitespace-pre-wrap">{result.description}</pre>

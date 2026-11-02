@@ -295,7 +295,7 @@ function Task({ node, cx }: { node: Node; cx: Context }) {
     <div className="-ml-6 flex items-baseline gap-2">
       <input
         type="checkbox"
-        className="accent-accent"
+        className="accent-bg-accent"
         checked={checked}
         disabled={cx.readOnly}
         aria-label={cx.text.slice(marker.to, node.to).trim()}
