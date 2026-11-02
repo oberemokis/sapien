@@ -29,6 +29,8 @@
   --color-bg-contrast: var(--background-bg-contrast);
   --color-bg-accent: var(--background-bg-accent);
   --color-bg-button-neutral: var(--background-bg-button-neutral);
+  /* Подложка блока кода. */
+  --color-bg-stronger: var(--background-stronger);
 
   --color-text-base: var(--text-text-base);
   --color-text-muted: var(--text-text-muted);
@@ -124,7 +126,7 @@
     monospace;
   --font-weight-normal: 440;
   --font-weight-medium: 530;
-  --text-code: 12.5px;
+  --text-code: 13px;
 
   /* Кривая всех анимаций. Длительности: отклик duration-120, перестановка
      duration-160, закрытие вкладки duration-200. */
@@ -186,6 +188,7 @@
   --background-bg-contrast: var(--grey-700);
   --background-bg-accent: var(--blue-600);
   --background-bg-button-neutral: rgb(255 255 255 / 0.06);
+  --background-stronger: #151515;
 
   --text-text-base: var(--grey-100);
   --text-text-muted: var(--grey-500);
@@ -252,6 +255,7 @@ html.theme-light {
   --background-bg-inverse: var(--grey-1100);
   --background-bg-contrast: var(--grey-1000);
   --background-bg-button-neutral: var(--grey-50);
+  --background-stronger: #fcfcfc;
 
   --text-text-base: var(--grey-1100);
   --text-text-muted: var(--grey-700);

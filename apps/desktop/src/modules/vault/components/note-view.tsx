@@ -47,7 +47,10 @@ type Props = {
 
 function Notice({ children, action }: { children: ReactNode; action?: ReactNode }) {
   return (
-    <div role="alert" className="mx-4 mb-2 flex items-center gap-3 rounded-md bg-diff-del-bg px-3 py-2 text-[13px]">
+    <div
+      role="alert"
+      className="mx-4 mb-2 flex items-center gap-3 rounded-md bg-state-bg-danger px-3 py-2 text-[13px]/5 text-text-base shadow-[inset_0_0_0_0.5px_var(--state-border-danger)]"
+    >
       <p className="flex-1">{children}</p>
       {action}
     </div>
@@ -56,7 +59,11 @@ function Notice({ children, action }: { children: ReactNode; action?: ReactNode 
 
 function NoticeAction({ children, onClick }: { children: ReactNode; onClick: () => void }) {
   return (
-    <button type="button" className="shrink-0 underline underline-offset-2" onClick={onClick}>
+    <button
+      type="button"
+      className="shrink-0 font-medium underline decoration-text-base/40 underline-offset-2 hover:decoration-text-base"
+      onClick={onClick}
+    >
       {children}
     </button>
   );
@@ -90,16 +97,16 @@ function LeftUnsaved() {
   );
 }
 
-// Ничего не открыто: подсказка и два пути дальше, как пустые экраны MonoCode.
+// Ничего не открыто: подсказка и два пути дальше, как EmptyState системы.
 function NoNote({ showFiles }: Pick<Props, "showFiles">) {
   const { t } = useTranslation();
 
   return (
     <div className="grid flex-1 place-items-center p-4">
-      <div className="flex flex-col items-center gap-3 text-center text-content/50">
-        <Icon icon={Note01Icon} size={20} />
-        <p className="text-sm">{t("editor.empty")}</p>
-        <div className="flex gap-2 text-content">
+      <div className="flex flex-col items-center gap-3 text-center text-text-muted">
+        <Icon icon={Note01Icon} size={20} className="text-icon-muted" />
+        <p className="text-[13px]/5">{t("editor.empty")}</p>
+        <div className="flex gap-2">
           <Button
             onClick={() => {
               startCreate("note");
@@ -209,12 +216,12 @@ function OpenNote({
       <nav aria-label={t("editor.path")} className="flex h-10 shrink-0 items-center gap-1.5 px-4 text-[13px]">
         {folders.map((folder, index) => (
           <Fragment key={folders.slice(0, index + 1).join("/")}>
-            <span className="truncate text-content/50">{folder}</span>
-            <span className="text-content/30">/</span>
+            <span className="truncate text-text-muted">{folder}</span>
+            <span className="text-text-faint">/</span>
           </Fragment>
         ))}
         <h1 className="truncate font-medium">{title}</h1>
-        <div className="ml-auto flex gap-0.5">
+        <div className="ml-auto flex gap-1">
           {!note.missing && !reading && (
             <IconButton
               icon={FilePasteIcon}
@@ -257,9 +264,9 @@ function OpenNote({
           </Notice>
           <section
             aria-label={t("editor.diskVersion")}
-            className="mx-4 mb-2 max-h-48 shrink-0 overflow-auto rounded-md border border-stroke px-3 py-2"
+            className="mx-4 mb-2 max-h-48 shrink-0 overflow-auto rounded-md border-[0.5px] border-border-base bg-bg-stronger px-3 py-2"
           >
-            <pre className="font-mono text-[12px] whitespace-pre-wrap">{note.disk}</pre>
+            <pre className="font-mono text-[12px] whitespace-pre-wrap text-text-muted">{note.disk}</pre>
           </section>
         </>
       )}

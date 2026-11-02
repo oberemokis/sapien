@@ -148,7 +148,7 @@ function Tab({ path, title, folder, active, missing }: TabProps) {
       aria-selected={active}
       tabIndex={active ? 0 : -1}
       title={missing ? t("tabs.missing") : path}
-      className="group flex h-7 w-48 min-w-28 cursor-default touch-none items-center gap-1.5 rounded-md pr-1 pl-2 text-[13px] text-content/60 select-none transition-colors duration-120 hover:bg-selection-hover aria-selected:bg-selection aria-selected:text-content"
+      className="group flex h-7 w-48 min-w-28 cursor-default touch-none items-center gap-1.5 rounded-md pr-1 pl-1.5 text-[13px]/4 font-[500] text-text-faint outline-none select-none transition-colors duration-120 hover:bg-overlay-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-border-focus aria-selected:bg-overlay-pressed aria-selected:text-text-base"
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
@@ -169,15 +169,15 @@ function Tab({ path, title, folder, active, missing }: TabProps) {
       onKeyDown={onKeyDown}
     >
       <FileTypeIcon name={path} />
-      <span className={`min-w-0 truncate ${missing ? "text-content/40 line-through" : ""}`}>{title}</span>
+      <span className={`min-w-0 truncate ${missing ? "text-text-faint line-through" : ""}`}>{title}</span>
       {/* Папке достаётся место, что осталось после имени: тесно, и режется она. */}
-      {folder !== "" && <span className="min-w-0 flex-1 truncate text-content/40">{folder}</span>}
+      {folder !== "" && <span className="min-w-0 flex-1 truncate font-normal text-text-faint">{folder}</span>}
       <button
         type="button"
         tabIndex={-1}
         aria-label={t("tabs.close", { title })}
         title={`${t("tabs.close", { title })} (${shortcutLabel("W")})`}
-        className="ml-auto grid size-5 shrink-0 place-items-center rounded text-content/50 opacity-0 transition-opacity duration-120 group-hover:opacity-100 group-aria-selected:opacity-100 hover:bg-selection-hover hover:text-content"
+        className="ml-auto grid size-5 shrink-0 place-items-center rounded-sm text-icon-muted opacity-0 transition-opacity duration-120 group-hover:opacity-100 group-aria-selected:opacity-100 hover:bg-overlay-hover hover:text-icon-base"
         onPointerDown={(event) => event.stopPropagation()}
         onClick={(event) => {
           event.stopPropagation();
@@ -207,7 +207,7 @@ type Props = {
   onCreateStart: () => void;
 };
 
-// Вкладки открытых заметок в верхней полосе окна, как в MonoCode: иконка
+// Вкладки открытых заметок в верхней полосе окна, как в opencode: иконка
 // и имя, у активной плашка светлее, справа «+».
 export function NoteTabs({ onCreateStart }: Props) {
   const { t } = useTranslation();
@@ -231,12 +231,12 @@ export function NoteTabs({ onCreateStart }: Props) {
   }
 
   return (
-    <div className="flex min-w-0 items-center gap-1">
+    <div className="flex min-w-0 items-center gap-1.5">
       <div
         ref={keepActiveInView}
         role="tablist"
         aria-label={t("tabs.list")}
-        className="flex min-w-0 items-center gap-1 overflow-x-auto [scrollbar-width:none]"
+        className="flex min-w-0 items-center gap-1.5 overflow-x-auto [scrollbar-width:none]"
       >
         {tabLabels(tabs).map((tab) => (
           <Tab

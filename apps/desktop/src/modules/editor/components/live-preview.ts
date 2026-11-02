@@ -279,28 +279,32 @@ function decorations(view: EditorView, taskLabel: string): DecorationSet {
 
 const theme = EditorView.theme({
   ".cm-lp-code": {
-    backgroundColor: "color-mix(in srgb, var(--color-content) 8%, transparent)",
+    backgroundColor: "color-mix(in srgb, var(--text-text-base) 8%, transparent)",
     borderRadius: "4px",
-    padding: "1px 3px",
+    padding: "1px 4px",
+    fontWeight: "500",
   },
   ".cm-lp-codeblock": {
-    backgroundColor: "color-mix(in srgb, var(--color-content) 5%, transparent)",
+    backgroundColor: "var(--background-stronger)",
+    color: "var(--text-text-muted)",
     fontFamily: "var(--font-mono)",
     fontSize: "var(--text-code)",
   },
   ".cm-line.cm-lp-codeblock": { padding: "0 12px" },
   ".cm-line.cm-lp-quote": {
-    borderLeft: "3px solid color-mix(in srgb, var(--color-content) 25%, transparent)",
-    paddingLeft: "12px",
+    borderLeft: "1px solid var(--border-border-strong)",
+    paddingLeft: "8px",
+    color: "var(--text-text-muted)",
   },
-  ".cm-lp-link": { color: "var(--color-link)", textDecoration: "underline", textUnderlineOffset: "2px" },
-  ".cm-lp-bullet": { color: "color-mix(in srgb, var(--color-content) 55%, transparent)" },
-  ".cm-lp-task": { margin: "0 4px 0 0", verticalAlign: "-2px", accentColor: "var(--color-accent)" },
+  ".cm-lp-link": { color: "var(--text-text-accent)", textUnderlineOffset: "2px" },
+  ".cm-lp-link:hover": { color: "var(--text-text-accent-hover)", textDecoration: "underline" },
+  ".cm-lp-bullet": { color: "var(--text-text-muted)" },
+  ".cm-lp-task": { margin: "0 4px 0 0", verticalAlign: "-2px", accentColor: "var(--background-bg-accent)" },
   ".cm-lp-hr": {
     display: "inline-block",
     width: "100%",
     verticalAlign: "middle",
-    borderTop: "1px solid var(--color-stroke)",
+    borderTop: "1px solid var(--border-border-muted)",
   },
 });
 

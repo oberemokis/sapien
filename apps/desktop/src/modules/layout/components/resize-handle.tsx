@@ -68,7 +68,7 @@ export function ResizeHandle({ panel, width, min, max, edge, label }: Props) {
         aria-valuemax={max}
         tabIndex={0}
         data-dragging={dragging || undefined}
-        className={`absolute inset-y-0 z-10 m-0 h-auto w-1.5 cursor-col-resize border-0 touch-none outline-none transition-colors duration-120 hover:bg-selection-hover focus-visible:bg-selection-emphasis data-dragging:bg-selection-emphasis ${
+        className={`absolute inset-y-0 z-10 m-0 h-auto w-1.5 cursor-col-resize border-0 touch-none outline-none transition-colors duration-120 hover:bg-overlay-hover focus-visible:bg-border-focus data-dragging:bg-overlay-pressed ${
           edge === "right" ? "-right-0.75" : "-left-0.75"
         }`}
         onPointerDown={onPointerDown}

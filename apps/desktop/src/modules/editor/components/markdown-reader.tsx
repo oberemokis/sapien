@@ -24,7 +24,15 @@ const MARKS = new Set([
   "TableDelimiter",
 ]);
 
-const HEADINGS = ["text-[1.6em]", "text-[1.35em]", "text-[1.15em]", "text-[1em]", "text-[1em]", "text-[1em]"];
+// Заголовки как в Markdown дизайн-системы: шаг небольшой, вес держит иерархию.
+const HEADINGS = [
+  "text-[17px]/[25.5px] font-semibold",
+  "text-[15px]/[22.5px] font-semibold",
+  "text-[14px]/[21px] font-[670]",
+  "text-[14px]/[21px] font-[500] text-text-muted",
+  "text-[14px]/[21px] font-[500] text-text-muted",
+  "text-[14px]/[21px] font-[500] text-text-muted",
+];
 
 type Props = {
   value: string;
@@ -60,7 +68,7 @@ function NoteLink({ cx, target, label }: { cx: Context; target: string; label: s
 
   if (path === null) {
     return (
-      <span title={cx.missing} className="text-content/50 underline decoration-dashed underline-offset-2">
+      <span title={cx.missing} className="text-text-muted underline decoration-dashed underline-offset-2">
         {label}
       </span>
     );
@@ -69,7 +77,7 @@ function NoteLink({ cx, target, label }: { cx: Context; target: string; label: s
   return (
     <button
       type="button"
-      className="cursor-pointer text-link underline underline-offset-2"
+      className="cursor-pointer text-text-accent underline-offset-2 hover:text-text-accent-hover hover:underline"
       onClick={() => cx.onNoteClick(path)}
     >
       {label}
@@ -89,7 +97,7 @@ function WebLink({ cx, url, children }: { cx: Context; url: string; children: Re
   return (
     <a
       href={href}
-      className="text-link underline underline-offset-2"
+      className="text-text-accent underline-offset-2 hover:text-text-accent-hover hover:underline"
       onClick={(event) => {
         event.preventDefault();
         cx.onLinkClick(url);
@@ -153,12 +161,16 @@ function span(node: Node, cx: Context): ReactNode {
     case "Emphasis":
       return <em key={key}>{inline(node, cx)}</em>;
     case "StrongEmphasis":
-      return <strong key={key}>{inline(node, cx)}</strong>;
+      return (
+        <strong key={key} className="font-[670]">
+          {inline(node, cx)}
+        </strong>
+      );
     case "Strikethrough":
       return <s key={key}>{inline(node, cx)}</s>;
     case "InlineCode":
       return (
-        <code key={key} className="rounded bg-content/8 px-1 py-px font-mono text-code">
+        <code key={key} className="rounded-sm bg-text-base/8 px-1 font-mono text-code font-[500]">
           {inline(node, cx)}
         </code>
       );
@@ -195,7 +207,7 @@ function span(node: Node, cx: Context): ReactNode {
         <button
           key={key}
           type="button"
-          className="cursor-pointer rounded bg-mention/14 px-[3px] py-px text-mention"
+          className="cursor-pointer rounded-sm bg-bg-layer-02 px-[5px] py-px font-[500] text-text-accent shadow-[inset_0_0_0_1px_var(--border-border-base)] hover:text-text-accent-hover"
           onClick={() => cx.onTagClick(tag.replace(/^#/, ""))}
         >
           {tag}
@@ -289,7 +301,7 @@ function Task({ node, cx }: { node: Node; cx: Context }) {
         aria-label={cx.text.slice(marker.to, node.to).trim()}
         onChange={toggle}
       />
-      <span className={checked ? "whitespace-pre-line text-content/50 line-through" : "whitespace-pre-line"}>
+      <span className={checked ? "whitespace-pre-line text-text-muted line-through" : "whitespace-pre-line"}>
         {inline(node, cx, ...trimmed(cx, marker.to, node.to))}
       </span>
     </div>
@@ -342,7 +354,7 @@ function block(node: Node, cx: Context): ReactNode {
     const Tag = `h${level}` as "h1";
 
     return (
-      <Tag key={key} className={`mt-6 mb-2 font-semibold text-markdown-heading first:mt-0 ${HEADINGS[level - 1]}`}>
+      <Tag key={key} className={`mt-6 mb-2 text-text-base first:mt-0 ${HEADINGS[level - 1]}`}>
         {headingText(node, cx)}
       </Tag>
     );
@@ -357,13 +369,13 @@ function block(node: Node, cx: Context): ReactNode {
       );
     case "Blockquote":
       return (
-        <blockquote key={key} className="my-3 border-l-[3px] border-content/25 pl-3 text-content/80 italic">
+        <blockquote key={key} className="my-4 border-l border-border-strong pl-2 text-text-muted">
           {blocks(node, cx)}
         </blockquote>
       );
     case "BulletList":
       return (
-        <ul key={key} className="my-3 list-disc pl-6">
+        <ul key={key} className="my-3 list-disc pl-6 marker:text-text-muted">
           {blocks(node, cx)}
         </ul>
       );
@@ -372,7 +384,7 @@ function block(node: Node, cx: Context): ReactNode {
       const start = Number.parseInt(cx.text.slice(first?.from ?? 0, first?.to ?? 0), 10);
 
       return (
-        <ol key={key} start={Number.isNaN(start) ? 1 : start} className="my-3 list-decimal pl-6">
+        <ol key={key} start={Number.isNaN(start) ? 1 : start} className="my-3 list-decimal pl-6 marker:text-text-muted">
           {blocks(node, cx)}
         </ol>
       );
@@ -391,22 +403,28 @@ function block(node: Node, cx: Context): ReactNode {
     case "FencedCode":
     case "CodeBlock":
       return (
-        <pre key={key} className="my-3 overflow-x-auto rounded-md bg-content/5 px-3 py-2 font-mono text-code">
+        <pre
+          key={key}
+          className="my-3 overflow-x-auto rounded-md border-[0.5px] border-border-base bg-bg-stronger p-3 font-mono text-[13px]/5 text-text-muted"
+        >
           <code>{codeText(node, cx)}</code>
         </pre>
       );
     case "HorizontalRule":
-      return <hr key={key} className="my-6 border-stroke" />;
+      return <hr key={key} className="my-6 border-border-muted" />;
     case "Table": {
       const [head, ...rows] = node.getChildren("TableHeader").concat(node.getChildren("TableRow"));
 
       return (
-        <table key={key} className="my-3 border-collapse text-[14px]">
+        <table key={key} className="my-4 border-collapse text-[13px]/4 tabular-nums">
           {head !== undefined && (
             <thead>
               <tr>
                 {head.getChildren("TableCell").map((cell) => (
-                  <th key={cell.from} className="border border-stroke px-3 py-1 text-left font-semibold">
+                  <th
+                    key={cell.from}
+                    className="border-[0.5px] border-border-base bg-bg-layer-01 px-3 py-2 text-left font-medium text-text-muted"
+                  >
                     {inline(cell, cx)}
                   </th>
                 ))}
@@ -417,7 +435,7 @@ function block(node: Node, cx: Context): ReactNode {
             {rows.map((row) => (
               <tr key={row.from}>
                 {row.getChildren("TableCell").map((cell) => (
-                  <td key={cell.from} className="border border-stroke px-3 py-1">
+                  <td key={cell.from} className="border-[0.5px] border-border-base px-3 py-2.5">
                     {inline(cell, cx)}
                   </td>
                 ))}
@@ -433,11 +451,11 @@ function block(node: Node, cx: Context): ReactNode {
       return (
         <dl
           key={key}
-          className="mb-4 grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 rounded-md border border-stroke px-3 py-2 text-[13px]"
+          className="mb-4 grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 rounded-md bg-bg-layer-01 px-3 py-2 text-[13px] shadow-[inset_0_0_0_0.5px_var(--border-border-muted)]"
         >
           {properties(yaml).map(({ key: name, value }) => (
             <div key={name} className="contents">
-              <dt className="text-content/50">{name}</dt>
+              <dt className="text-text-muted">{name}</dt>
               <dd>{value}</dd>
             </div>
           ))}
@@ -511,7 +529,7 @@ export function MarkdownReader({
       role="document"
       className="min-h-0 flex-1 overflow-auto outline-none"
     >
-      <article className="mx-auto w-full max-w-[760px] px-8 pt-2 pb-[40vh] text-[15px] leading-[1.65] break-words">
+      <article className="mx-auto w-full max-w-[760px] px-8 pt-2 pb-[40vh] text-[14px] leading-[1.6] break-words">
         {content}
       </article>
     </div>

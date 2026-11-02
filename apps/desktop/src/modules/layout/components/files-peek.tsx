@@ -119,14 +119,14 @@ export function FilesPeek({ width, children }: Props) {
       <div
         aria-hidden
         data-open={open || undefined}
-        className="pointer-events-none fixed inset-0 z-20 bg-scrim opacity-0 transition-opacity duration-200 ease-out data-open:opacity-100 motion-reduce:transition-none"
+        className="pointer-events-none fixed inset-0 z-20 bg-overlay-scrim opacity-0 transition-opacity duration-200 ease-out data-open:opacity-100 motion-reduce:transition-none"
       />
       <aside
         ref={panelRef}
         data-open={open || undefined}
         inert={!open}
         style={{ width }}
-        className="invisible fixed top-10 bottom-1.5 left-1.5 z-20 flex -translate-x-3 flex-col overflow-hidden rounded-[10px] border border-content/8 bg-shell/85 opacity-0 shadow-float backdrop-blur-xl transition-[opacity,translate,visibility] duration-200 ease-out data-open:visible data-open:translate-x-0 data-open:opacity-100 data-open:duration-240 motion-reduce:transition-none"
+        className="invisible fixed top-10 bottom-2 left-2 z-20 flex -translate-x-3 flex-col overflow-hidden rounded-xl bg-bg-deep opacity-0 shadow-overlay transition-[opacity,translate,visibility] duration-200 ease-out data-open:visible data-open:translate-x-0 data-open:opacity-100 data-open:duration-240 motion-reduce:transition-none"
       >
         {children}
       </aside>
