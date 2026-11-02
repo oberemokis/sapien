@@ -125,7 +125,9 @@ function fakeRust({
 
         rust.created.push(session);
         rust.sessions = [...rust.sessions, session];
-        return session;
+        // Ответ Tauri приходит отдельной задачей, и окно успевает
+        // перерисоваться, пока его ждёт.
+        return new Promise((resolve) => setTimeout(() => resolve(session), 0));
       }
       case "agent_history":
         return [];
@@ -470,6 +472,23 @@ describe("действия в чате", () => {
     expect(panel().getByRole("button", { current: "page" })).toBeDefined();
   });
 
+  it("клавиша, пока открытая сессия отвечает, начинает новую в её проекте и шлёт задание туда", async () => {
+    const rust = fakeRust();
+    open();
+    await openSession("Рефакторинг парсера");
+    act(() => {
+      chatStore.setState((state) => ({ ...state, runs: { s1: { entries: [], open: null } } }));
+    });
+
+    hotkey("KeyJ");
+
+    await waitFor(() => expect(rust.sent).toHaveLength(1));
+    expect(rust.created.map((session) => session.project)).toEqual(["p1"]);
+    expect(rust.sent[0]).toMatchObject({ session: rust.created[0]?.id, text: "Посмотри изменения" });
+    // Открыта новая сессия: название у неё из задания или пока пустое.
+    await waitFor(() => expect(opened()).toMatch(/^(Посмотри изменения|Новая сессия)/));
+  });
+
   it("без сети действия помечены и не запускаются ни списком, ни клавишей", async () => {
     const rust = fakeRust();
     vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
@@ -491,11 +510,17 @@ const DAY = 24 * 60 * 60 * 1000;
 // Обзор каждый день в полночь: срок прошёл сегодня, что бы ни показывали часы.
 const DAILY: File = { path: "Обзор за день.md", text: "---\nschedule: 0:00\n---\nИзменения с {{since}} по {{today}}\n" };
 
+// Второе действие в тот же срок.
+const REPORT: File = { path: "Отчёт.md", text: "---\nschedule: 0:00\n---\nОтчёт за {{today}}\n" };
+
 // Прошлый запуск неделю с лишним назад: окно запомнило его в своём хранилище.
-function ranLongAgo() {
+function ranLongAgo(files = [DAILY]) {
   const at = Date.now() - 8 * DAY;
 
-  localStorage.setItem("sapien.actions.runs", JSON.stringify({ [DAILY.path]: { at, ran: true } }));
+  localStorage.setItem(
+    "sapien.actions.runs",
+    JSON.stringify(Object.fromEntries(files.map((file) => [file.path, { at, ran: true }]))),
+  );
 
   return new Date(at).toLocaleDateString("sv-SE");
 }
@@ -522,6 +547,19 @@ describe("действия по расписанию", () => {
     await screen.findByRole("heading", { name: "Нет открытых вкладок" });
     await settle();
     expect(rust.sent).toHaveLength(1);
+  });
+
+  it("два срока сразу уходят каждый в свою сессию, пустых сессий не остаётся", async () => {
+    const rust = fakeRust({ actions: [DAILY, REPORT] });
+    ranLongAgo([DAILY, REPORT]);
+    open();
+
+    await waitFor(() => expect(rust.sent).toHaveLength(2));
+    await settle();
+
+    expect(rust.sent).toHaveLength(2);
+    expect(rust.sent.map((sent) => sent.session).toSorted()).toEqual(rust.created.map((session) => session.id).toSorted());
+    expect(rust.sent.map((sent) => sent.text.split(" ")[0]).toSorted()).toEqual(["Изменения", "Отчёт"]);
   });
 
   it("без сети срок ждёт, окно говорит, что отложено, а с сетью действие уходит в проект открытой сессии", async () => {

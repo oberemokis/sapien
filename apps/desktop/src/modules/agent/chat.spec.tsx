@@ -96,6 +96,9 @@ function fakeRust({
     // Сессии, которые Rust начал по просьбе окна.
     created: [] as SessionInfo[],
     removed: [] as string[],
+    deleted: [] as string[],
+    // Сессии, по которым Rust считает ответ идущим, хотя окно его не видит.
+    busy: [] as string[],
     sent: [] as Sent[],
     answers: [] as { session: string; id: string; answer: Answer }[],
     stops: [] as string[],
@@ -147,6 +150,18 @@ function fakeRust({
       }
       case "agent_sessions":
         return rust.sessions;
+      case "agent_session_delete": {
+        const { id } = args as { id: string };
+
+        // Как delete_session в use_case.rs: по сессии идёт ответ, отказ.
+        if (rust.busy.includes(id)) {
+          throw { kind: "conflict", code: "agent_busy" };
+        }
+
+        rust.deleted.push(id);
+        rust.sessions = rust.sessions.filter((session) => session.id !== id);
+        return null;
+      }
       case "agent_session_new": {
         const { project } = args as { project: string };
 
@@ -309,11 +324,22 @@ function opened() {
   return panel().queryByRole("button", { current: "page" })?.textContent ?? null;
 }
 
-// Вкладки открытого проекта слева направо, у активной звёздочка.
+const TAB_STRIP = { name: /^Вкладки проекта/ };
+
+// Вкладки открытого проекта слева направо, у активной звёздочка. Первая
+// кнопка вкладки открывает её, вторая закрывает.
 function tabs() {
-  return screen
-    .queryAllByRole("tab")
-    .map((tab) => `${tab.getAttribute("title")}${tab.getAttribute("aria-selected") === "true" ? "*" : ""}`);
+  const strip = screen.queryByRole("navigation", TAB_STRIP);
+
+  return (strip === null ? [] : within(strip).queryAllByRole("listitem")).map((item) => {
+    const [show] = within(item).getAllByRole("button");
+
+    return `${show?.title}${show?.getAttribute("aria-current") === "page" ? "*" : ""}`;
+  });
+}
+
+function tab(name: string | RegExp) {
+  return within(screen.getByRole("navigation", TAB_STRIP)).getByRole("button", { name });
 }
 
 function closeTab(title: string) {
@@ -427,6 +453,51 @@ describe("левая панель", () => {
     expect(panel().queryByText("Лендинг")).toBeNull();
     expect(rust.removed).toEqual(["p2"]);
   });
+
+  it("сессию с идущим ответом удалить нельзя, отказ Rust виден, остальные удаляются", async () => {
+    const rust = fakeRust();
+    open();
+    await openSession("Рефакторинг парсера");
+    await ask("Почини парсер");
+    await waitFor(() => expect(rust.sent).toHaveLength(1));
+
+    fireEvent.contextMenu(panel().getByText("Рефакторинг парсера"));
+    const item = screen.getByRole<HTMLButtonElement>("menuitem", { name: /^Удалить сессию/ });
+    expect(item.disabled).toBe(true);
+    expect(item.textContent).toContain("агент отвечает");
+
+    rust.finish([]);
+    await waitFor(() => expect(isRunning("Рефакторинг парсера")).toBe(false));
+
+    rust.busy.push("s2");
+    fireEvent.contextMenu(panel().getByText("Тесты окна"));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Удалить сессию" }));
+    expect(await screen.findByText("Сессия не удалилась.")).toBeDefined();
+    expect(sessionTitles("sapien")).toEqual(["Тесты окна", "Рефакторинг парсера"]);
+
+    fireEvent.contextMenu(panel().getByText("Рефакторинг парсера"));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Удалить сессию" }));
+    await waitFor(() => expect(sessionTitles("sapien")).toEqual(["Тесты окна"]));
+    expect(rust.deleted).toEqual(["s1"]);
+    expect(screen.queryByText("Сессия не удалилась.")).toBeNull();
+  });
+
+  it("новая сессия, которую Rust не завёл, говорит об этом во вкладках и в меню проекта", async () => {
+    const rust = fakeRust();
+    open();
+    await openSession("Лендинг");
+    // Папку проекта убрали с диска, а окно об этом ещё не знает.
+    rust.projects = rust.projects.map((project) => (project.id === "p2" ? { ...project, missing: true } : project));
+
+    fireEvent.click(screen.getByRole("button", { name: "Новая сессия в «сайт»" }));
+    expect(await within(screen.getByRole("navigation", TAB_STRIP)).findByText("Сессия не создалась.")).toBeDefined();
+
+    fireEvent.contextMenu(panel().getByText("сайт"));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Новая сессия" }));
+    expect(await panel().findByText("Сессия не создалась.")).toBeDefined();
+    expect(rust.created).toEqual([]);
+    expect(tabs()).toEqual(["Лендинг*"]);
+  });
 });
 
 describe("вкладки", () => {
@@ -445,7 +516,7 @@ describe("вкладки", () => {
     await openSession("Рефакторинг парсера");
     expect(tabs()).toEqual(["Рефакторинг парсера*", "Тесты окна"]);
 
-    fireEvent.click(screen.getByRole("tab", { name: "Тесты окна" }));
+    fireEvent.click(tab("Тесты окна"));
     await waitFor(() => expect(opened()).toBe("Тесты окна"));
     expect(tabs()).toEqual(["Рефакторинг парсера", "Тесты окна*"]);
   });
@@ -634,7 +705,7 @@ describe("чат сессии", () => {
     expect(screen.queryByText("Починил парсер.")).toBeNull();
 
     // Вкладка, открытая посреди ответа, не повторяет его строк.
-    fireEvent.click(screen.getByRole("tab", { name: /^Рефакторинг парсера/ }));
+    fireEvent.click(tab(/^Рефакторинг парсера/));
     expect(await screen.findByText("Починил парсер.")).toBeDefined();
     expect(screen.queryByText("Дописал тесты.")).toBeNull();
     expect(screen.getAllByText("Почини парсер")).toHaveLength(1);

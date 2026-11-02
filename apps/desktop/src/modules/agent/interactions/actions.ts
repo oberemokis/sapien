@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   actionsCreate,
   actionsDelete,
@@ -11,7 +11,7 @@ import { readRuns, writeRun } from "../infrastructure/agent.device";
 import { actionsOf, dueActions, hotkeyOf, isRunnable, taskAt, type Action } from "../model/actions";
 import { homeProject } from "../model/sessions";
 import { choiceFor } from "./agents";
-import { reportProblem, useOnline, useSend } from "./chat";
+import { reportProblem, useOnline, useRunning, useSend } from "./chat";
 import { openSession, SESSIONS_KEY, useActiveSession, useProjects, useSessions } from "./sessions";
 
 const ACTIONS_KEY = ["agent", "actions"] as const;
@@ -115,18 +115,24 @@ function useFreshSession() {
   }, [projects, sessions, active, queryClient]);
 }
 
-// Запуск по клавише или кнопке: в активной вкладке, а без неё в новой
-// сессии. Сессия открывается, onRun показывает чат. Без сети сессия
+// Запуск по клавише или кнопке: в активной вкладке, а без неё или пока
+// она отвечает в новой сессии: второе сообщение в отвечающую сессию не
+// уходит. Сессия открывается, onRun показывает чат. Без сети сессия
 // открывается, а задание не уходит: причину покажет чат.
 export function useLaunchAction(onRun: () => void) {
   const start = useStart();
   const fresh = useFreshSession();
   const online = useOnline();
   const active = useActiveSession();
+  const running = useRunning();
 
   return useCallback(
     async (action: Action) => {
-      const session = active ?? (await fresh());
+      let session = active;
+
+      if (session === null || running(session.id)) {
+        session = await fresh();
+      }
 
       if (session === null) {
         onRun();
@@ -140,7 +146,7 @@ export function useLaunchAction(onRun: () => void) {
         await start(action, session.id);
       }
     },
-    [active, fresh, online, onRun, start],
+    [active, fresh, online, onRun, running, start],
   );
 }
 
@@ -164,6 +170,9 @@ export function useActionTriggers({ onRun }: Options) {
   const freshSession = useFreshSession();
   const launch = useLaunchAction(onRun);
   const [deferred, setDeferred] = useState<string[]>([]);
+  // Тики идут по одному: следующий читает запуски, когда прошлый их уже
+  // записал, и не заводит второй сессии тому же сроку.
+  const ticking = useRef(Promise.resolve());
   const ready = projects !== undefined && sessions !== undefined;
 
   useEffect(() => {
@@ -171,6 +180,8 @@ export function useActionTriggers({ onRun }: Options) {
       return;
     }
 
+    // Новая сессия меняет список сессий, и эффект перезапускается. Тик
+    // прошлого эффекта доводит начатый срок и уступает следующему.
     let stopped = false;
 
     async function tick() {
@@ -185,6 +196,10 @@ export function useActionTriggers({ onRun }: Options) {
       }
 
       for (const action of dueActions(actions, runs, now)) {
+        if (stopped) {
+          return;
+        }
+
         if (!online) {
           waiting.push(action.name);
           continue;
@@ -193,23 +208,26 @@ export function useActionTriggers({ onRun }: Options) {
         // oxlint-disable-next-line no-await-in-loop -- сессии заводятся по одной: остановка эффекта обрывает цикл между ними
         const session = await freshSession();
 
-        if (stopped) {
-          return;
-        }
-
         if (session === null) {
           waiting.push(action.name);
           continue;
         }
 
+        // Заведённая сессия получает задание и после остановки эффекта,
+        // иначе она осталась бы пустой.
         void start(action, session.id, true);
       }
 
       setDeferred(waiting);
     }
 
-    void tick();
-    const timer = setInterval(() => void tick(), 60_000);
+    // Упавший тик не останавливает следующие.
+    function queue() {
+      ticking.current = ticking.current.then(tick, tick);
+    }
+
+    queue();
+    const timer = setInterval(queue, 60_000);
 
     return () => {
       stopped = true;

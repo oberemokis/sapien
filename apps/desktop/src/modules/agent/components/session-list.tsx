@@ -101,6 +101,16 @@ function ProjectSessions({ project, onMenu }: ProjectProps) {
           {remove.isError && <p className="text-state-fg-danger">{t("agent.projects.removeFailed")}</p>}
         </div>
       )}
+      {newSession.isError && (
+        <p role="alert" className="px-2 pb-1 text-[12px]/[18px] text-state-fg-danger">
+          {t("agent.sessions.newFailed")}
+        </p>
+      )}
+      {deleteSession.isError && (
+        <p role="alert" className="px-2 pb-1 text-[12px]/[18px] text-state-fg-danger">
+          {t("agent.sessions.deleteFailed")}
+        </p>
+      )}
       <ul className="ml-4 flex flex-col gap-0.5">
         {list.map((session) => (
           <li key={session.id} className={SESSION_BRANCH}>
@@ -109,8 +119,17 @@ function ProjectSessions({ project, onMenu }: ProjectProps) {
               aria-current={(onChat && session.project === tabs.project && session.id === tabs.active && "page") || undefined}
               className={SESSION_ROW}
               onClick={() => open(session)}
+              // Сессию с идущим ответом Rust не удалит: пункт недоступен
+              // и говорит почему.
               onContextMenu={(event) =>
-                onMenu(event, [{ label: t("agent.sessions.delete"), onSelect: () => deleteSession.mutate(session) }])
+                onMenu(event, [
+                  {
+                    label: t("agent.sessions.delete"),
+                    disabled: running(session.id),
+                    hint: running(session.id) ? t("agent.sessions.running") : undefined,
+                    onSelect: () => deleteSession.mutate(session),
+                  },
+                ])
               }
             >
               <span className="min-w-0 flex-1 truncate text-left">{session.title || t("agent.sessions.untitled")}</span>

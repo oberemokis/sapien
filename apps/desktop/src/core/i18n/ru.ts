@@ -98,6 +98,8 @@ export const ru = {
       untitled: "Новая сессия",
       running: "агент отвечает",
       delete: "Удалить сессию",
+      newFailed: "Сессия не создалась.",
+      deleteFailed: "Сессия не удалилась.",
     },
     usage: {
       button: "Claude",
