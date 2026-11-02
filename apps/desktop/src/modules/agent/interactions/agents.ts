@@ -27,7 +27,8 @@ export function useProviders() {
 // Команды и скилы агента в папке проекта. Их тоже собирает запуск агента,
 // поэтому список живёт пять минут: новый скил появится без перезапуска
 // окна, а набор «/» не запускает агента каждый раз. Без агента или папки
-// команд нет.
+// команд нет. failed: агент не отдал команды, и это не то же, что проект
+// без команд.
 export function useCommands(provider: string | null, project: Project | undefined) {
   const query = useQuery({
     queryKey: ["agent", "commands", provider, project?.id],
@@ -37,7 +38,11 @@ export function useCommands(provider: string | null, project: Project | undefine
     staleTime: 5 * 60_000,
   });
 
-  return query.data ?? NO_COMMANDS;
+  return {
+    ...(query.data ?? NO_COMMANDS),
+    failed: query.isError && !query.isFetching,
+    retry: query.refetch,
+  };
 }
 
 // Выбор сессии и агенты на выбор. locked: сессия уже отвечала, и её агент

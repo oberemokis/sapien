@@ -71,13 +71,21 @@ const COMMANDS: AgentCommand[] = [
 
 // Rust за командами агента и действий. Ответ агента приходит сразу.
 // refuse это код отказа actions_create. commands это команды агента
-// в папке проекта, по умолчанию их нет.
+// в папке проекта, по умолчанию их нет, refuseCommands: сколько первых
+// запросов команд агент не ответит.
 function fakeRust({
   actions = ACTIONS,
   projects = [SAPIEN, SITE],
   commands = [],
+  refuseCommands = 0,
   refuse,
-}: { actions?: File[]; projects?: Project[]; commands?: AgentCommand[]; refuse?: string } = {}) {
+}: {
+  actions?: File[];
+  projects?: Project[];
+  commands?: AgentCommand[];
+  refuseCommands?: number;
+  refuse?: string;
+} = {}) {
   const rust = {
     projects: [...projects],
     sessions: SESSIONS.filter((session) => projects.some((project) => project.id === session.project)),
@@ -129,6 +137,11 @@ function fakeRust({
         const { provider, project } = args as { provider: string; project: string };
 
         rust.asked.push({ provider, project });
+
+        if (rust.asked.length <= refuseCommands) {
+          throw { kind: "unavailable", code: "claude_failed" };
+        }
+
         return { commands, agents: [] };
       }
       case "agent_send": {
@@ -327,6 +340,7 @@ describe("действия в чате", () => {
     const field = screen.getByLabelText<HTMLTextAreaElement>("Сообщение агенту");
     expect(field.value).toBe("/review ");
     expect(screen.queryByRole("listbox")).toBeNull();
+    await settle();
     expect(rust.sent).toEqual([]);
 
     await type("/review 12");
@@ -334,6 +348,62 @@ describe("действия в чате", () => {
 
     await waitFor(() => expect(rust.sent).toHaveLength(1));
     expect(rust.sent[0]).toMatchObject({ session: "s1", text: "/review 12" });
+  });
+
+  it("стрелки ведут выбор за край списка, и выбранная строка прокручивается на вид", async () => {
+    const scrolled: Element[] = [];
+    vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(function (this: Element) {
+      scrolled.push(this);
+    });
+    fakeRust({ commands: COMMANDS });
+    open();
+    await openSession("Рефакторинг парсера");
+
+    await type("/");
+    await waitFor(() => expect(options()).toHaveLength(4));
+    // С первой строки вверх: выбор уходит на последнюю.
+    press("ArrowUp");
+
+    const selected = screen.getByRole("option", { selected: true });
+    expect(selected.textContent).toBe("/clearНачать разговор заново");
+    expect(scrolled.at(-1)).toBe(selected);
+  });
+
+  it("Escape прячет список, а набранное остаётся и уходит сообщением, следующий набор открывает список снова", async () => {
+    const rust = fakeRust();
+    open();
+    await openSession("Рефакторинг парсера");
+
+    await type("/свод");
+    await waitFor(() => expect(options()).toEqual(["СводкаCtrl+Shift+S"]));
+    press("Escape");
+
+    expect(screen.queryByRole("listbox")).toBeNull();
+    expect(screen.getByLabelText<HTMLTextAreaElement>("Сообщение агенту").value).toBe("/свод");
+
+    await type("/сво");
+    expect(options()).toEqual(["СводкаCtrl+Shift+S"]);
+    press("Escape");
+    press("Enter");
+
+    await waitFor(() => expect(rust.sent).toHaveLength(1));
+    expect(rust.sent[0]).toMatchObject({ session: "s1", text: "/сво" });
+  });
+
+  it("команды не загрузились: список говорит об этом, «Повторить» спрашивает агента снова", async () => {
+    const rust = fakeRust({ commands: COMMANDS, refuseCommands: 1 });
+    open();
+    await openSession("Рефакторинг парсера");
+
+    await type("/");
+    expect(await screen.findByText("Команды агента не загрузились.")).toBeDefined();
+    expect(options()).toEqual(["Обзор измененийCtrl+Shift+J", "СводкаCtrl+Shift+S"]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Повторить" }));
+
+    await waitFor(() => expect(options()).toContain("/reviewПроверить пул-реквест"));
+    expect(screen.queryByText("Команды агента не загрузились.")).toBeNull();
+    expect(rust.asked).toHaveLength(2);
   });
 
   it("команду находит и её другое имя", async () => {
