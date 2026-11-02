@@ -23,28 +23,6 @@ export function homeProject(projects: Project[], sessions: SessionInfo[], select
   return open?.project ?? recent?.project ?? projects.find((project) => !project.missing)?.id ?? null;
 }
 
-const MINUTE = 60_000;
-
-// Сколько прошло от time до now одной крупной единицей, как «2 д» в списке
-// проектов: минуты, часы, дни, недели. Меньше минуты считается минутой.
-export function agoOf(time: number, now: number): { unit: "minutes" | "hours" | "days" | "weeks"; count: number } {
-  const minutes = Math.max(1, Math.floor((now - time) / MINUTE));
-
-  if (minutes < 60) {
-    return { unit: "minutes", count: minutes };
-  }
-
-  if (minutes < 60 * 24) {
-    return { unit: "hours", count: Math.floor(minutes / 60) };
-  }
-
-  if (minutes < 60 * 24 * 7) {
-    return { unit: "days", count: Math.floor(minutes / (60 * 24)) };
-  }
-
-  return { unit: "weeks", count: Math.floor(minutes / (60 * 24 * 7)) };
-}
-
 export type FoundSession = SessionInfo & { projectName: string };
 
 // Поиск сессии по названию и имени проекта: все слова запроса должны

@@ -1,5 +1,5 @@
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
-import { useEffect, useState, type MouseEvent } from "react";
+import { useState, type MouseEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/core/ui/button";
 import { ContextMenu, type MenuItem } from "@/core/ui/context-menu";
@@ -18,7 +18,7 @@ import {
   useSessions,
   useTabs,
 } from "../interactions/sessions";
-import { agoOf, sessionsOf, type Project, type SessionInfo } from "../model/sessions";
+import { sessionsOf, type Project, type SessionInfo } from "../model/sessions";
 
 // Строка панели как строка дерева: 28 px, выбранная на заливке.
 const ROW_SHAPE =
@@ -32,29 +32,13 @@ type Menu = { x: number; y: number; items: MenuItem[] };
 
 type ProjectProps = {
   project: Project;
-  // Текущее время: от него считается давность последней сессии.
-  now: number;
   onMenu: (event: MouseEvent, items: MenuItem[]) => void;
 };
 
-// Текущее время раз в минуту: давность в списке не застывает, пока окно
-// открыто.
-function useMinuteClock() {
-  const [now, setNow] = useState(Date.now);
-
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 60_000);
-
-    return () => clearInterval(timer);
-  }, []);
-
-  return now;
-}
-
 // Проект и его сессии, свежие сверху. Над сессиями мелкая шапка: буква
-// и имя проекта, справа давность последней сессии. Сессия открывается
-// вкладкой своего проекта. Правая кнопка открывает меню проекта или сессии.
-function ProjectSessions({ project, now, onMenu }: ProjectProps) {
+// и имя проекта. Сессия открывается вкладкой своего проекта. Правая кнопка
+// открывает меню проекта или сессии.
+function ProjectSessions({ project, onMenu }: ProjectProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const sessions = useSessions();
@@ -66,7 +50,6 @@ function ProjectSessions({ project, now, onMenu }: ProjectProps) {
   const onChat = useRouterState({ select: (state) => state.location.pathname === "/" });
   const [removing, setRemoving] = useState(false);
   const list = sessionsOf(sessions.data ?? [], project.id);
-  const latest = list[0];
 
   function open(session: SessionInfo) {
     openSession(session);
@@ -82,14 +65,6 @@ function ProjectSessions({ project, now, onMenu }: ProjectProps) {
     { label: t("agent.projects.remove"), separated: true, onSelect: () => setRemoving(true) },
   ];
 
-  let ago: string | null = null;
-
-  if (latest !== undefined) {
-    const { unit, count } = agoOf(latest.updated, now);
-
-    ago = t(`agent.projects.ago.${unit}`, { count });
-  }
-
   return (
     <li className="flex flex-col">
       <div
@@ -102,7 +77,6 @@ function ProjectSessions({ project, now, onMenu }: ProjectProps) {
         </span>
         <span className="min-w-0 flex-1 truncate">{project.name}</span>
         {project.missing && <span className="shrink-0">{t("agent.projects.missing")}</span>}
-        {ago !== null && <span className="shrink-0 tabular-nums">{ago}</span>}
       </div>
       {removing && (
         <div role="alert" className="mx-1 my-1 flex flex-col gap-2 rounded-md bg-bg-layer-01 p-2 text-[13px]/5 shadow-[inset_0_0_0_0.5px_var(--border-border-muted)]">
@@ -154,7 +128,6 @@ export function SessionList({ deferred }: { deferred: string[] }) {
   const navigate = useNavigate();
   const projects = useProjects();
   const add = useAddProject();
-  const now = useMinuteClock();
   const [menu, setMenu] = useState<Menu | null>(null);
 
   function addProject() {
@@ -196,7 +169,7 @@ export function SessionList({ deferred }: { deferred: string[] }) {
         {projects.data?.length === 0 && <p className="p-2 text-[13px]/5 text-text-muted">{t("agent.projects.empty")}</p>}
         <ul className="flex flex-col gap-3">
           {projects.data?.map((project) => (
-            <ProjectSessions key={project.id} project={project} now={now} onMenu={openMenu} />
+            <ProjectSessions key={project.id} project={project} onMenu={openMenu} />
           ))}
         </ul>
       </nav>

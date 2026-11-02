@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { agoOf, homeProject, searchSessions, sessionsOf, type Project, type SessionInfo } from "./sessions";
+import { homeProject, searchSessions, sessionsOf, type Project, type SessionInfo } from "./sessions";
 
 const project = (id: string, name: string): Project => ({ id, name, path: `/Users/me/${name}`, missing: false });
 
@@ -69,20 +69,5 @@ describe("поиск сессии", () => {
 
   it("без запроса отдаёт не больше limit последних", () => {
     expect(searchSessions(SESSIONS, PROJECTS, "", 2).map((found) => found.id)).toEqual(["s2", "s3"]);
-  });
-});
-
-describe("давность сессии одной крупной единицей", () => {
-  const MINUTE = 60_000;
-
-  it.each([
-    [10_000, { unit: "minutes", count: 1 }],
-    [59 * MINUTE, { unit: "minutes", count: 59 }],
-    [60 * MINUTE, { unit: "hours", count: 1 }],
-    [(24 * 60 - 1) * MINUTE, { unit: "hours", count: 23 }],
-    [2 * 24 * 60 * MINUTE + 5 * MINUTE, { unit: "days", count: 2 }],
-    [7 * 24 * 60 * MINUTE, { unit: "weeks", count: 1 }],
-  ])("прошло %i мс", (passed, ago) => {
-    expect(agoOf(1_000_000_000, 1_000_000_000 + passed)).toEqual(ago);
   });
 });

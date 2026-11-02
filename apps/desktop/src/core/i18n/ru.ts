@@ -98,12 +98,6 @@ export const ru = {
       removeYes: "Убрать",
       removeNo: "Отмена",
       removeFailed: "Не удалось убрать проект. Если агент отвечает в нём, остановите ответ.",
-      ago: {
-        minutes: "{{count}} мин",
-        hours: "{{count}} ч",
-        days: "{{count}} д",
-        weeks: "{{count}} нед",
-      },
     },
     search: {
       open: "Поиск",
