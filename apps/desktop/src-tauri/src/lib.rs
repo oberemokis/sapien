@@ -30,7 +30,7 @@ pub fn run() {
     let builder = tauri::Builder::default();
     // Меню по умолчанию Tauri ставит только на macOS, там же его и заменяем.
     #[cfg(target_os = "macos")]
-    let builder = builder.menu(menu::build);
+    let builder = builder.menu(menu::build).on_menu_event(menu::handle);
 
     builder
         // Лог в папке логов приложения и в терминале: туда пишутся отказы
