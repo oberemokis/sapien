@@ -36,14 +36,14 @@ export function TagList() {
   return (
     <section
       aria-labelledby={headingId}
-      className={`flex shrink-0 flex-col border-t border-hairline ${open ? "max-h-[40%]" : ""}`}
+      className={`flex shrink-0 flex-col border-t-[0.5px] border-border-base ${open ? "max-h-[40%]" : ""}`}
     >
       <h2 id={headingId} className="shrink-0">
         <button
           type="button"
           aria-expanded={open}
           aria-controls={listId}
-          className="flex h-9 w-full items-center gap-1 pl-3 text-[12px] font-medium text-content/50 transition-colors duration-120 hover:text-content"
+          className="flex h-9 w-full items-center gap-1 pl-3 text-[12px] font-medium text-text-muted transition-colors duration-120 hover:text-text-base"
           onClick={() => setTagPanel(open ? "collapsed" : "open")}
           onContextMenu={openMenu}
         >
@@ -52,19 +52,19 @@ export function TagList() {
         </button>
       </h2>
       <div id={listId} hidden={!open} className="flex min-h-0 flex-col">
-        {tags.length === 0 && <p className="px-3 pb-3 text-[13px] text-content/50">{t("vault.tags.empty")}</p>}
+        {tags.length === 0 && <p className="px-3 pb-3 text-[13px] text-text-muted">{t("vault.tags.empty")}</p>}
         <ul className="min-h-0 overflow-y-auto p-1 pt-0">
           {tags.map((tag) => (
             <li key={tag.name}>
               <button
                 type="button"
                 aria-label={t("vault.tags.item", { name: tag.name, count: tag.count })}
-                className="flex h-7 w-full items-center gap-1 rounded-md px-2 text-[13px] transition-colors duration-120 hover:bg-selection-hover"
+                className="flex h-7 w-full items-center gap-1.5 rounded-md pr-2 pl-1.5 text-[13px]/4 text-text-muted transition-colors duration-120 hover:bg-overlay-hover hover:text-text-base focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-border-focus"
                 onClick={() => showTag(tag.name)}
               >
-                <span className="text-content/40">#</span>
+                <span className="w-4 shrink-0 text-center text-text-faint">#</span>
                 <span className="min-w-0 truncate">{tag.name}</span>
-                <span className="ml-auto pl-2 text-[12px] text-content/40 tabular-nums">{tag.count}</span>
+                <span className="ml-auto pl-2 text-[12px] text-text-faint tabular-nums">{tag.count}</span>
               </button>
             </li>
           ))}

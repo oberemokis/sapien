@@ -47,13 +47,13 @@ import {
 } from "../model/vault";
 import type { TreeState } from "../store/tree.store";
 
-const ROW = "flex h-7 w-full items-center gap-1.5 rounded-md pr-2 text-[13px]";
+const ROW = "flex h-7 w-full items-center gap-1.5 rounded-md pr-2 text-[13px]/4";
 
-// Отступ строки от вложенности: ступень 12px, как в дереве MonoCode.
+// Отступ строки от вложенности: ступень 12px, как в дереве opencode.
 // У заметки нет стрелки, и её место (12px и зазор 6px) уходит в отступ:
 // значок заметки встаёт под значок папки того же уровня.
 function indent(depth: number, arrow = true) {
-  return { paddingLeft: 8 + depth * 12 + (arrow ? 0 : 18) };
+  return { paddingLeft: 6 + depth * 12 + (arrow ? 0 : 18) };
 }
 
 type Draft = NonNullable<TreeState["draft"]>;
@@ -103,7 +103,7 @@ function DraftRow({ draft, siblings, depth }: { draft: Draft; siblings: VaultEnt
           aria-invalid={hint !== null}
           aria-describedby={hint === null ? undefined : hintId}
           readOnly={create.isPending}
-          className="h-6 min-w-0 flex-1 rounded-[5px] border border-accent bg-card px-1.5 text-[13px] outline-none selection:bg-accent/35 aria-invalid:border-diff-del"
+          className="h-6 min-w-0 flex-1 rounded-sm bg-bg-base px-1.5 text-[13px] text-text-base shadow-[inset_0_0_0_1px_var(--border-border-focus)] outline-none selection:bg-accent/35 aria-invalid:shadow-[inset_0_0_0_1px_var(--state-fg-danger)]"
           onChange={(event) => {
             setName(event.target.value);
             create.reset();
@@ -129,7 +129,7 @@ function DraftRow({ draft, siblings, depth }: { draft: Draft; siblings: VaultEnt
         />
       </div>
       {hint !== null && (
-        <p id={hintId} className="pb-1 pl-5.5 text-[12px] text-diff-del-fg">
+        <p id={hintId} className="pb-1 pl-5.5 text-[12px]/[18px] text-state-fg-danger">
           {hint}
         </p>
       )}
@@ -179,7 +179,7 @@ function Row({
       data-closed={(entry.kind === "folder" && entry.closed) || undefined}
       aria-expanded={expanded}
       aria-current={selected || undefined}
-      className={`${ROW} text-content/80 transition-colors duration-120 hover:bg-selection-hover aria-current:bg-selection aria-current:text-content`}
+      className={`${ROW} text-text-muted outline-none transition-colors duration-120 hover:bg-overlay-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-border-focus aria-current:bg-overlay-pressed aria-current:text-text-base`}
       style={indent(depth, entry.kind === "folder")}
       onClick={onClick}
       onAuxClick={(event) => {
@@ -199,7 +199,7 @@ function ClosedMark() {
 
   return (
     <span title={t("vault.agent.closed")} className="ml-auto">
-      <Icon icon={SquareLock02Icon} size={12} className="text-content/40" />
+      <Icon icon={SquareLock02Icon} size={12} className="text-icon-muted" />
       <span className="sr-only"> {t("vault.agent.closed")}</span>
     </span>
   );
@@ -255,7 +255,7 @@ function Entries({
                 toggleFolder(entry.path);
               }}
             >
-              <Icon icon={ArrowRight01Icon} size={12} className={`shrink-0 text-content/50 ${open ? "rotate-90" : ""}`} />
+              <Icon icon={ArrowRight01Icon} size={12} className={`shrink-0 text-icon-muted ${open ? "rotate-90" : ""}`} />
               <FileTypeIcon name={entry.name} isFolder isOpen={open} />
               <span className="truncate">{entry.name}</span>
               {entry.closed && <ClosedMark />}
@@ -397,19 +397,19 @@ export function VaultTree({ onCreateStart, noteMenu, createMenu, nav }: Props) {
 
   return (
     <>
-      {/* Поле поиска над деревом, как в MonoCode: открывает то же окно, что ⌘K. */}
+      {/* Поле поиска над деревом: открывает то же окно, что ⌘K. */}
       <button
         type="button"
-        className="mx-1.5 mt-0.5 flex h-8 shrink-0 items-center gap-2 rounded-md border border-stroke px-2 text-[13px] text-content/50 transition-colors duration-120 hover:bg-selection-hover"
+        className="mx-1.5 mt-0.5 flex h-7 shrink-0 items-center gap-2 rounded-md px-2 text-[13px] text-text-muted shadow-input transition-colors duration-120 hover:bg-overlay-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
         onClick={() => openSearch()}
       >
-        <Icon icon={Search01Icon} size={14} className="shrink-0" />
+        <Icon icon={Search01Icon} size={14} className="shrink-0 text-icon-muted" />
         <span className="flex-1 text-left">{t("vault.search.open")}</span>
-        <kbd className="font-sans text-[11px] text-content/40">{shortcutLabel("K")}</kbd>
+        <kbd className="font-sans text-[11px] text-text-muted">{shortcutLabel("K")}</kbd>
       </button>
       {nav}
       <div className="flex h-9 shrink-0 items-center gap-1 pr-1.5 pl-3">
-        <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-content/50">
+        <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-text-muted">
           {status.data.path.split(/[/\\]/).at(-1)}
         </span>
         <IconButton
@@ -422,12 +422,12 @@ export function VaultTree({ onCreateStart, noteMenu, createMenu, nav }: Props) {
         <IconButton icon={RestoreBinIcon} label={t("vault.history.deleted")} onClick={showDeleted} />
       </div>
       {trash.isError && (
-        <p role="alert" className="px-3 pb-1 text-[12px] text-diff-del-fg">
+        <p role="alert" className="px-3 pb-1 text-[12px]/[18px] text-state-fg-danger">
           {t("vault.trash.failed")}
         </p>
       )}
       {closeForAgent.isError && (
-        <p role="alert" className="px-3 pb-1 text-[12px] text-diff-del-fg">
+        <p role="alert" className="px-3 pb-1 text-[12px]/[18px] text-state-fg-danger">
           {t("vault.agent.failed")}
         </p>
       )}
@@ -438,7 +438,7 @@ export function VaultTree({ onCreateStart, noteMenu, createMenu, nav }: Props) {
       {/* oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */}
       <nav className="min-h-0 flex-1 overflow-y-auto p-1 pt-0" onContextMenu={openMenu} onKeyDown={onRowKey}>
         {tree.data.length === 0 && state.draft === null && (
-          <p className="p-2 text-[13px] text-content/50">{t("files.empty")}</p>
+          <p className="p-2 text-[13px] text-text-muted">{t("files.empty")}</p>
         )}
         <Entries entries={tree.data} depth={0} parent="" state={state} />
       </nav>

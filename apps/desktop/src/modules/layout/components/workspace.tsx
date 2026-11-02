@@ -63,7 +63,7 @@ export function Workspace({ files, main, chat, title, actions }: Props) {
   useLayoutShortcuts(withChat);
 
   return (
-    <div className="flex h-full flex-col bg-shell">
+    <div className="flex h-full flex-col bg-bg-deep">
       <header data-title-bar data-tauri-drag-region="deep" className="flex h-10 shrink-0 select-none items-center">
         <div
           className="flex shrink-0 items-center"
@@ -84,7 +84,7 @@ export function Workspace({ files, main, chat, title, actions }: Props) {
           </span>
         </div>
         <div className="flex min-w-0 flex-1 items-center px-1.5">{title}</div>
-        <div className="flex shrink-0 items-center gap-0.5 pr-1.5">
+        <div className="flex shrink-0 items-center gap-1 pr-1.5">
           {actions}
           {withChat && (
             <IconButton
@@ -96,7 +96,7 @@ export function Workspace({ files, main, chat, title, actions }: Props) {
           )}
         </div>
       </header>
-      <div className="flex min-h-0 flex-1 px-1.5 pb-1.5">
+      <div className="flex min-h-0 flex-1 px-2 pb-2">
         {layout.files.visible && (
           <aside className="relative flex shrink-0 flex-col" style={{ width: layout.files.width }}>
             {files}
@@ -110,11 +110,11 @@ export function Workspace({ files, main, chat, title, actions }: Props) {
             />
           </aside>
         )}
-        <div className="flex min-w-0 flex-1 overflow-hidden rounded-[10px] border border-stroke bg-card">
+        <div className="flex min-w-0 flex-1 overflow-hidden rounded-xl bg-bg-base shadow-raised">
           <main className="flex min-w-0 flex-1 flex-col">{main}</main>
           {layout.chat.visible && (
             <aside
-              className="relative flex shrink-0 flex-col border-l border-stroke"
+              className="relative flex shrink-0 flex-col border-l-[0.5px] border-border-base"
               style={{ width: layout.chat.width }}
             >
               <ResizeHandle
