@@ -3,7 +3,7 @@ import type { ChatEntry, ChatProblem } from "../model/chat";
 import { NO_TABS, type Tabs } from "../model/tabs";
 
 // Ответ, который идёт сейчас: его строки и вопрос, который ждёт человека.
-export type LiveRun = { entries: ChatEntry[]; open: string | null };
+type LiveRun = { entries: ChatEntry[]; open: string | null };
 
 // Ответы, которые идут сейчас, по сессиям: ответы разных сессий идут
 // параллельно. problems: почему последний ответ сессии не дошёл. askEdits:

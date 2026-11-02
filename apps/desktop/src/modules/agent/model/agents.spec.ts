@@ -98,7 +98,6 @@ describe("выбор из хранилища окна", () => {
 const command = (name: string, builtin = false, aliases: string[] = []): AgentCommand => ({
   name,
   description: "",
-  hint: "",
   aliases,
   builtin,
 });

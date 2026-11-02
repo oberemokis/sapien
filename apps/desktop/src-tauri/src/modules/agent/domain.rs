@@ -67,13 +67,12 @@ impl AgentModel {
 }
 
 /// Команда агента: своя команда проекта, скил, команда плагина или
-/// встроенная. `hint` подсказывает аргументы.
+/// встроенная.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentCommand {
     pub name: String,
     pub description: String,
-    pub hint: String,
     pub aliases: Vec<String>,
     pub builtin: bool,
 }
@@ -84,36 +83,17 @@ impl AgentCommand {
         Some(Self {
             name: info["name"].as_str()?.to_owned(),
             description: info["description"].as_str().unwrap_or_default().to_owned(),
-            hint: info["argumentHint"].as_str().unwrap_or_default().to_owned(),
             aliases: strings(&info["aliases"]),
             builtin: info["builtin"] == true,
         })
     }
 }
 
-/// Субагент, которому агент может поручить часть работы.
-#[derive(Debug, Clone, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Subagent {
-    pub name: String,
-    pub description: String,
-}
-
-impl Subagent {
-    fn of(info: &Value) -> Option<Self> {
-        Some(Self {
-            name: info["name"].as_str()?.to_owned(),
-            description: info["description"].as_str().unwrap_or_default().to_owned(),
-        })
-    }
-}
-
-/// Команды и субагенты агента в папке проекта.
+/// Команды агента в папке проекта.
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Commands {
     pub commands: Vec<AgentCommand>,
-    pub agents: Vec<Subagent>,
 }
 
 /// Что Claude Code рассказал о себе на `initialize`. Данных аккаунта здесь
@@ -171,7 +151,6 @@ pub fn init_reply(line: &Value) -> Option<Result<Init, AppError>> {
         models: parsed(&init["models"], AgentModel::of),
         commands: Commands {
             commands: parsed(&init["commands"], AgentCommand::of),
-            agents: parsed(&init["agents"], Subagent::of),
         },
     }))
 }

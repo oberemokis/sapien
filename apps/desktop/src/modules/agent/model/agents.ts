@@ -11,15 +11,11 @@ export type Provider = { id: string; name: string; models: AgentModel[] };
 
 // Команда агента, как AgentCommand в domain.rs: своя команда, скил,
 // команда плагина или встроенная. Её пишут в начале сообщения:
-// «/name аргументы». hint подсказывает аргументы, например «<file>».
-export type AgentCommand = { name: string; description: string; hint: string; aliases: string[]; builtin: boolean };
+// «/name аргументы».
+export type AgentCommand = { name: string; description: string; aliases: string[]; builtin: boolean };
 
-// Субагент, которому агент может отдать часть работы.
-export type Subagent = { name: string; description: string };
-
-// Команды и субагенты агента в папке проекта: у проекта свои команды,
-// скилы и плагины.
-export type Commands = { commands: AgentCommand[]; agents: Subagent[] };
+// Команды агента в папке проекта: у проекта свои команды, скилы и плагины.
+export type Commands = { commands: AgentCommand[] };
 
 // Команды под набранное после «/»: по имени и другим именам команды.
 // Свои команды и скилы выше встроенных. У команд с одним именем
@@ -42,7 +38,7 @@ export function commandsMatching(commands: AgentCommand[], query: string) {
 }
 
 // Уровни размышления, которые принимает Rust.
-export const EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
+const EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
 
 export type Effort = (typeof EFFORTS)[number];
 

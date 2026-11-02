@@ -194,7 +194,7 @@ function fakeRust({
       case "agent_providers":
         return providers;
       case "agent_commands":
-        return { commands: [], agents: [] };
+        return { commands: [] };
       case "actions_list":
         return [];
       case "agent_running":
