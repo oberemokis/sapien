@@ -74,7 +74,8 @@ sapien/
 │   ├── src-tauri/
 │   │   ├── tauri.conf.json         окно, CSP, команды сборки фронта, бандл
 │   │   ├── capabilities/           что окну разрешено звать в Rust
-│   │   ├── icons/                  иконки бандла
+│   │   ├── icons/                  иконки бандла, их собирает `pnpm tauri icon`
+│   │   │                           из PNG 1024 по исходнику icon.svg
 │   │   ├── polkit/                 действие polkit для разблокировки паролем
 │   │   │                           на Linux, его ставят пакеты .deb и .rpm
 │   │   └── src/
