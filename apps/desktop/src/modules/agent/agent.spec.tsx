@@ -1,19 +1,23 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { AgentSettings } from "@/modules/agent";
 import type { ClaudeStatus } from "./model/chat";
-import { modelStore } from "./store/model.store";
 
 const READY: ClaudeStatus = { state: "ready", version: "2.1.316" };
 
 // Claude Code на устройстве за командой Rust. Состояние можно сменить
 // посреди теста: так человек входит в терминале, пока окно открыто.
 function fakeRust(claude: ClaudeStatus) {
-  const rust = { claude, checks: 0 };
+  const rust = { claude, checks: 0, listed: 0 };
 
   mockIPC((command) => {
+    if (command === "agent_providers") {
+      rust.listed += 1;
+      return [];
+    }
+
     if (command !== "agent_claude_status") {
       throw new Error(`нет команды ${command}`);
     }
@@ -33,18 +37,9 @@ function open() {
   );
 }
 
-function model(name: string) {
-  return screen.getByRole<HTMLOptionElement>("option", { name });
-}
-
-function chooseModel(name: string) {
-  fireEvent.change(screen.getByRole("combobox", { name: "Модель" }), { target: { value: model(name).value } });
-}
-
 afterEach(() => {
   cleanup();
   clearMocks();
-  modelStore.setState(() => "claude-sonnet-5-5");
 });
 
 describe("раздел «Агент»", () => {
@@ -62,29 +57,17 @@ describe("раздел «Агент»", () => {
     expect(await screen.findByText(/Не найден. Поставьте его командой curl/)).toBeDefined();
   });
 
-  it("вход не выполнен, а после входа «Проверить снова» видит подписку", async () => {
+  it("вход не выполнен, а после входа «Проверить снова» видит подписку и заново спрашивает модели", async () => {
     const rust = fakeRust({ state: "logged_out", version: "2.1.316" });
     open();
     expect(await screen.findByText(/Вход не выполнен/)).toBeDefined();
+    await waitFor(() => expect(rust.listed).toBe(1));
 
     rust.claude = READY;
     fireEvent.click(screen.getByRole("button", { name: "Проверить снова" }));
 
     expect(await screen.findByText("Вход по подписке Claude. Версия 2.1.316.")).toBeDefined();
     expect(rust.checks).toBe(2);
-  });
-
-  it("выбранная модель остаётся выбранной, когда раздел открывают снова", async () => {
-    fakeRust(READY);
-    const view = open();
-    await screen.findByText(/Вход по подписке/);
-    expect(model("Sonnet 5.5").selected).toBe(true);
-
-    chooseModel("Opus 5.5");
-    view.unmount();
-    open();
-
-    expect(model("Opus 5.5").selected).toBe(true);
-    expect(model("Sonnet 5.5").selected).toBe(false);
+    await waitFor(() => expect(rust.listed).toBe(2));
   });
 });

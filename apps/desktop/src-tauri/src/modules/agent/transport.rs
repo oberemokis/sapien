@@ -1,5 +1,6 @@
 use super::domain::{
-    ANSWER_WAIT, Answer, ClaudeState, ClaudeStatus, Entry, Event, Oversight, Question, SessionInfo,
+    ANSWER_WAIT, Answer, ClaudeState, ClaudeStatus, Commands, Entry, Event, Oversight, Provider,
+    Question, SessionInfo,
 };
 use super::infrastructure::claude_code::ClaudeCode;
 use super::infrastructure::neighbours::ProjectFolders;
@@ -248,11 +249,17 @@ pub fn agent_history(app: AppHandle, session: String) -> Result<Vec<Entry>, AppE
 /// не присылает и не получает ни ключей, ни токенов. Ответ идёт в окно
 /// через канал по мере появления, а команда кончается вместе с ответом.
 #[tauri::command]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "аргументы команды это поля вызова из окна, а состояние и канал даёт Tauri"
+)]
 pub async fn agent_send(
     app: AppHandle,
     running: State<'_, Running>,
     session: String,
-    model: String,
+    provider: String,
+    model: Option<String>,
+    effort: Option<String>,
     text: String,
     oversight: Oversight,
     on_event: Channel<Event>,
@@ -269,7 +276,9 @@ pub async fn agent_send(
     let mut events = |event| live.emit(event);
     let turn = Turn {
         session: &session,
-        model: &model,
+        provider: &provider,
+        model: model.as_deref(),
+        effort: effort.as_deref(),
         text: &text,
         oversight,
         now: durable::now(),
@@ -322,6 +331,39 @@ pub fn agent_answer(
     answer: Answer,
 ) -> Result<(), AppError> {
     running.answer(&session, &id, answer)
+}
+
+/// Агенты на устройстве с их моделями, пока только Claude Code. Модели
+/// агент называет сам, поэтому список каждый раз спрашивается у него.
+#[tauri::command]
+pub async fn agent_providers(app: AppHandle) -> Result<Vec<Provider>, AppError> {
+    if !CLAUDE_SUPPORTED {
+        return Ok(vec![]);
+    }
+
+    Ok(use_case::providers(&claude(&app)?).await)
+}
+
+/// Команды, скилы и субагенты агента `provider` в проекте `project`.
+/// У проекта свои команды и плагины, поэтому агент спрашивается из его
+/// папки.
+#[tauri::command]
+pub async fn agent_commands(
+    app: AppHandle,
+    provider: String,
+    project: String,
+) -> Result<Commands, AppError> {
+    if !CLAUDE_SUPPORTED {
+        return Err(AppError::invalid("claude_unsupported"));
+    }
+
+    use_case::commands(
+        &claude(&app)?,
+        &ProjectFolders(app.clone()),
+        &provider,
+        &project,
+    )
+    .await
 }
 
 /// Есть ли Claude Code, какой версии и как выполнен вход.

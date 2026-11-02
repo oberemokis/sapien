@@ -14,15 +14,39 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { useCallback } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SessionList, SessionSearch, SessionTabs, SessionView, useActionTriggers, useAttach } from "@/modules/agent";
+import type { Provider } from "./model/agents";
 import type { Answer, ChatEntry, ChatEvent, ClaudeStatus, Oversight, Question } from "./model/chat";
 import type { Project, SessionInfo } from "./model/sessions";
 import { NO_TABS } from "./model/tabs";
 import { chatStore, draftStore, searchStore, tabsStore } from "./store/chat.store";
-import { modelStore } from "./store/model.store";
+import { choiceStore } from "./store/choice.store";
 
-type Sent = { session: string; model: string; text: string; oversight: Oversight };
+type Sent = {
+  session: string;
+  provider: string;
+  model: string | null;
+  effort: string | null;
+  text: string;
+  oversight: Oversight;
+};
 
 const READY: ClaudeStatus = { state: "ready", version: "2.1.316" };
+
+const ALL_EFFORTS = ["low", "medium", "high", "xhigh", "max"];
+
+// Claude Code со своими моделями: окно показывает все, что он назвал.
+const CLAUDE: Provider = {
+  id: "claude",
+  name: "Claude Code",
+  models: [
+    { id: "sonnet", resolved: "claude-sonnet-5-5", name: "Sonnet 5.5", description: "Для повседневных задач", efforts: ALL_EFFORTS },
+    { id: "opus", resolved: "claude-opus-5-5", name: "Opus 5.5", description: "Для сложных задач", efforts: ALL_EFFORTS },
+    { id: "haiku", resolved: "claude-haiku-5-5", name: "Haiku 5.5", description: "Самая быстрая", efforts: [] },
+  ],
+};
+
+// Сессия, которая ещё не отвечала: выбора агента в ней нет.
+const FRESH = { provider: "claude", model: null, effort: null };
 
 const SAPIEN: Project = { id: "p1", name: "sapien", path: "/Users/me/sapien", missing: false };
 // Кавычка в пути: команда для терминала должна её экранировать.
@@ -31,9 +55,9 @@ const SITE: Project = { id: "p2", name: "сайт", path: "/Users/me/O'Brien/с�
 const DOCS: Project = { id: "p3", name: "документы", path: "/Users/me/документы", missing: false };
 
 const SESSIONS: SessionInfo[] = [
-  { id: "s1", project: "p1", title: "Рефакторинг парсера", updated: 3000 },
-  { id: "s2", project: "p1", title: "Тесты окна", updated: 5000 },
-  { id: "s3", project: "p2", title: "Лендинг", updated: 4000 },
+  { id: "s1", project: "p1", title: "Рефакторинг парсера", updated: 3000, ...FRESH },
+  { id: "s2", project: "p1", title: "Тесты окна", updated: 5000, ...FRESH },
+  { id: "s3", project: "p2", title: "Лендинг", updated: 4000, ...FRESH },
 ];
 
 // happy-dom представляется Linux, но тест не должен от этого зависеть.
@@ -54,16 +78,17 @@ type Run = {
   fail: (code: string) => void;
 };
 
-// Rust за командами агента: проекты, их сессии, история каждой сессии
-// и ответы, которые идут событиями через канал и кончаются, когда тест их
-// отпустит. Ответы разных сессий идут параллельно. ongoing это ответ
-// в первой сессии, который уже идёт и ждёт ответа на вопрос, когда окно
-// открывается: так выглядит перезагрузка окна.
+// Rust за командами агента: агенты на устройстве, проекты, их сессии,
+// история каждой сессии и ответы, которые идут событиями через канал
+// и кончаются, когда тест их отпустит. Ответы разных сессий идут
+// параллельно. ongoing это ответ в первой сессии, который уже идёт и ждёт
+// ответа на вопрос, когда окно открывается: так выглядит перезагрузка окна.
 function fakeRust({
   projects = [SAPIEN, SITE],
   claude = READY,
   ongoing = null,
-}: { projects?: Project[]; claude?: ClaudeStatus; ongoing?: Question | null } = {}) {
+  providers = [CLAUDE],
+}: { projects?: Project[]; claude?: ClaudeStatus; ongoing?: Question | null; providers?: Provider[] } = {}) {
   const rust = {
     projects: [...projects],
     sessions: SESSIONS.filter((session) => projects.some((project) => project.id === session.project)),
@@ -129,7 +154,7 @@ function fakeRust({
           throw { kind: "not_found", code: "project_missing" };
         }
 
-        const session: SessionInfo = { id: `new${rust.created.length + 1}`, project, title: "", updated: 10_000 };
+        const session: SessionInfo = { id: `new${rust.created.length + 1}`, project, title: "", updated: 10_000, ...FRESH };
 
         rust.created.push(session);
         rust.sessions = [...rust.sessions, session];
@@ -139,6 +164,10 @@ function fakeRust({
         return rust.history[(args as { session: string }).session] ?? [];
       case "agent_claude_status":
         return claude;
+      case "agent_providers":
+        return providers;
+      case "agent_commands":
+        return { commands: [], agents: [] };
       case "actions_list":
         return [];
       case "agent_running":
@@ -164,13 +193,16 @@ function fakeRust({
         const { onEvent, ...sent } = args as Sent & { onEvent: Channel<ChatEvent> };
 
         rust.sent.push(sent);
-        // Название пустой сессии Rust берёт из первой строки сообщения.
+        // Название пустой сессии Rust берёт из первой строки сообщения,
+        // а выбор агента запоминает с каждым сообщением.
         rust.sessions = rust.sessions.map((session) => {
-          if (session.id !== sent.session || session.title !== "") {
+          if (session.id !== sent.session) {
             return session;
           }
 
-          return { ...session, title: sent.text.split("\n")[0] ?? "" };
+          const { provider, model, effort } = sent;
+
+          return { ...session, provider, model, effort, title: session.title || (sent.text.split("\n")[0] ?? "") };
         });
 
         return new Promise((resolve, reject) => {
@@ -301,7 +333,7 @@ afterEach(() => {
   tabsStore.setState(() => NO_TABS);
   draftStore.setState(() => ({}));
   searchStore.setState(() => false);
-  modelStore.setState(() => "claude-sonnet-5-5");
+  choiceStore.setState(() => ({ last: null, sessions: {} }));
 });
 
 describe("левая панель", () => {
@@ -477,7 +509,14 @@ describe("чат сессии", () => {
 
     expect(field().value).toBe("");
     await waitFor(() => expect(rust.sent).toHaveLength(1));
-    expect(rust.sent[0]).toEqual({ session: "s1", model: "claude-sonnet-5-5", text: "Почини парсер", oversight: "ask" });
+    expect(rust.sent[0]).toEqual({
+      session: "s1",
+      provider: "claude",
+      model: "sonnet",
+      effort: null,
+      text: "Почини парсер",
+      oversight: "ask",
+    });
 
     const tool: ChatEntry = { kind: "tool", name: "Edit", target: "src/parser.ts", ok: true };
     rust.emit(tool);
@@ -647,25 +686,100 @@ describe("чат сессии", () => {
     expect(rust.sent).toHaveLength(0);
   });
 
-  it("модель, выбранная под полем, уходит с сообщением", async () => {
+});
+
+// Пункты открытого меню выбора: подпись с подсказкой и отмечен ли пункт.
+function menu() {
+  return screen.getAllByRole("menuitemradio").map((item) => [item.textContent, item.getAttribute("aria-checked")]);
+}
+
+async function choose(button: string, item: RegExp) {
+  fireEvent.click(await screen.findByRole("button", { name: button }));
+  fireEvent.click(screen.getByRole("menuitemradio", { name: item }));
+}
+
+describe("агент, модель и размышление", () => {
+  it("под полем все модели агента, выбранные модель и размышление уходят с сообщением", async () => {
     const rust = fakeRust();
     open();
     await openSession("Рефакторинг парсера");
-    fireEvent.click(screen.getByRole("button", { name: "Модель: Sonnet 5.5" }));
-    expect(
-      screen.getAllByRole("menuitemradio").map((item) => [item.textContent, item.getAttribute("aria-checked")]),
-    ).toEqual([
-      ["Sonnet 5.5", "true"],
-      ["Opus 5.5", "false"],
-      ["Haiku 5.5", "false"],
-    ]);
 
-    fireEvent.click(screen.getByRole("menuitemradio", { name: "Opus 5.5" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Провайдер: Claude Code" }));
+    expect(menu()).toEqual([["Claude Code", "true"]]);
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "Claude Code" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Модель: Sonnet 5.5" }));
+    expect(menu()).toEqual([
+      ["Sonnet 5.5Для повседневных задач", "true"],
+      ["Opus 5.5Для сложных задач", "false"],
+      ["Haiku 5.5Самая быстрая", "false"],
+    ]);
+    fireEvent.click(screen.getByRole("menuitemradio", { name: /^Opus 5.5/ }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Размышление: По умолчанию" }));
+    expect(menu().map(([label]) => label)).toEqual([
+      "По умолчанию",
+      "Низкое",
+      "Среднее",
+      "Высокое",
+      "Очень высокое",
+      "Максимальное",
+    ]);
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "Высокое" }));
     await ask("Почини парсер");
 
     await waitFor(() => expect(rust.sent).toHaveLength(1));
-    expect(rust.sent[0]?.model).toBe("claude-opus-5-5");
+    expect(rust.sent[0]).toMatchObject({ session: "s1", provider: "claude", model: "opus", effort: "high" });
+    // Сессия ответила: её агент закреплён.
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Провайдер: Claude Code" }).disabled).toBe(true);
+  });
+
+  it("у модели без размышления выбора уровня нет, и уровень не уходит", async () => {
+    const rust = fakeRust();
+    open();
+    await openSession("Рефакторинг парсера");
+    await choose("Размышление: По умолчанию", /^Максимальное/);
+    expect(screen.getByRole("button", { name: "Размышление: Максимальное" })).toBeDefined();
+
+    await choose("Модель: Sonnet 5.5", /^Haiku 5.5/);
+
+    expect(screen.queryByRole("button", { name: /^Размышление/ })).toBeNull();
+    await ask("Привет");
+    await waitFor(() => expect(rust.sent).toHaveLength(1));
+    expect(rust.sent[0]).toMatchObject({ model: "haiku", effort: null });
+  });
+
+  it("у каждой сессии свой выбор, новая начинает с последнего", async () => {
+    const rust = fakeRust();
+    open();
+    await openSession("Рефакторинг парсера");
+    await choose("Модель: Sonnet 5.5", /^Opus 5.5/);
+    await ask("Почини парсер");
+    await waitFor(() => expect(rust.sent).toHaveLength(1));
+    rust.finish([{ kind: "user", text: "Почини парсер" }]);
+
+    await openSession("Тесты окна");
+    // Новая для выбора сессия начинает с последнего выбора окна.
     expect(screen.getByRole("button", { name: "Модель: Opus 5.5" })).toBeDefined();
+    await choose("Модель: Opus 5.5", /^Haiku 5.5/);
+
+    await openSession("Рефакторинг парсера");
+    expect(await screen.findByRole("button", { name: "Модель: Opus 5.5" })).toBeDefined();
+    await openSession("Тесты окна");
+    expect(screen.getByRole("button", { name: "Модель: Haiku 5.5" })).toBeDefined();
+  });
+
+  it("без агентов на устройстве выбирать нечего и отправить нельзя", async () => {
+    const rust = fakeRust({ providers: [] });
+    open();
+    await openSession("Рефакторинг парсера");
+
+    await ask("Вопрос");
+
+    expect(screen.queryByRole("button", { name: /^Провайдер/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Модель/ })).toBeNull();
+    expect(sendButton().disabled).toBe(true);
+    expect(rust.sent).toHaveLength(0);
   });
 });
 

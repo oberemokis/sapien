@@ -4,7 +4,17 @@ export type Project = { id: string; name: string; path: string; missing: boolean
 
 // Сессия это разговор с агентом в папке проекта, как SessionInfo в Rust.
 // title пустой, пока человек ничего не написал. updated в миллисекундах.
-export type SessionInfo = { id: string; project: string; title: string; updated: number };
+// provider, model и effort это выбор, с которым ушло последнее сообщение:
+// model null, пока сессия не отвечала.
+export type SessionInfo = {
+  id: string;
+  project: string;
+  title: string;
+  updated: number;
+  provider: string;
+  model: string | null;
+  effort: string | null;
+};
 
 // Сессии проекта, свежие сверху.
 export function sessionsOf(sessions: SessionInfo[], project: string) {

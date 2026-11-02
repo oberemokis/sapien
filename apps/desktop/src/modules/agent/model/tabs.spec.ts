@@ -2,7 +2,15 @@ import { describe, expect, it } from "vitest";
 import type { SessionInfo } from "./sessions";
 import { closeTab, NO_TABS, openTab, visibleTabs } from "./tabs";
 
-const session = (id: string, project: string): SessionInfo => ({ id, project, title: id, updated: 1 });
+const session = (id: string, project: string): SessionInfo => ({
+  id,
+  project,
+  title: id,
+  updated: 1,
+  provider: "claude",
+  model: null,
+  effort: null,
+});
 
 const SESSIONS = [session("a", "p1"), session("b", "p1"), session("c", "p1"), session("x", "p2")];
 

@@ -1,4 +1,6 @@
-use super::domain::{Answer, ClaudeStatus, Oversight, Question, Session, SessionInfo, Stamp};
+use super::domain::{
+    AgentModel, Answer, ClaudeStatus, Commands, Oversight, Question, Session, SessionInfo, Stamp,
+};
 use crate::error::AppError;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
@@ -17,6 +19,12 @@ pub trait Claude {
     type Talk: Conversation;
 
     fn status(&self) -> impl Future<Output = ClaudeStatus> + Send;
+    /// Модели, которые Claude Code предлагает этому аккаунту. Нет Claude
+    /// Code, значит, `claude_missing`.
+    fn models(&self) -> impl Future<Output = Result<Vec<AgentModel>, AppError>> + Send;
+    /// Команды, скилы и субагенты Claude Code в папке проекта `dir`:
+    /// у проекта свои команды и плагины.
+    fn commands(&self, dir: &Path) -> impl Future<Output = Result<Commands, AppError>> + Send;
     /// Запускает ответ на сообщение в сессии Claude Code с сервером
     /// MCP sapien. Ответ идёт событиями `Conversation`.
     fn converse(&self, run: &Run<'_>) -> impl Future<Output = Result<Self::Talk, AppError>> + Send;
@@ -29,7 +37,10 @@ pub trait Claude {
 pub struct Run<'a> {
     /// Папка проекта: в ней Claude Code работает.
     pub dir: &'a Path,
-    pub model: &'a str,
+    /// Без модели Claude Code берёт свою по умолчанию.
+    pub model: Option<&'a str>,
+    /// Уровень размышления, один из `EFFORTS`. Без него решает модель.
+    pub effort: Option<&'a str>,
     /// Что дописать к системному промпту Claude Code.
     pub append: &'a str,
     /// Сообщение человека.

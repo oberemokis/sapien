@@ -4,11 +4,170 @@ use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::time::Duration;
 
-/// Модели на выбор в настройках, первая по умолчанию.
-pub const MODELS: [&str; 3] = ["claude-sonnet-5-5", "claude-opus-5-5", "claude-haiku-5-5"];
+/// Агент, которого знает sapien. Пока только Claude Code.
+pub const CLAUDE: &str = "claude";
 
-pub fn parse_model(model: &str) -> Option<&'static str> {
-    MODELS.into_iter().find(|known| *known == model)
+fn claude_provider() -> String {
+    CLAUDE.to_owned()
+}
+
+/// Уровни размышления, которые понимает `--effort` Claude Code.
+pub const EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
+
+/// Модель годится в аргумент `--model`: не флаг и без чужих знаков.
+/// Какие модели есть, знает сам Claude Code, а не sapien.
+pub fn valid_model(model: &str) -> bool {
+    !model.is_empty()
+        && !model.starts_with('-')
+        && model
+            .chars()
+            .all(|char| char.is_ascii_alphanumeric() || "-._[]:/".contains(char))
+}
+
+/// Агент на устройстве и его модели.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Provider {
+    pub id: String,
+    pub name: String,
+    pub models: Vec<AgentModel>,
+}
+
+/// Модель агента. `id` уходит в `--model`, `resolved` это полное имя,
+/// которое стоит за псевдонимом. `efforts`: уровни размышления, пусто,
+/// если модель их не принимает.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentModel {
+    pub id: String,
+    pub resolved: Option<String>,
+    pub name: String,
+    pub description: String,
+    pub efforts: Vec<String>,
+}
+
+impl AgentModel {
+    /// Модель из `ModelInfo` Claude Code. Модель, которую нельзя передать
+    /// в `--model`, окну не предлагается.
+    fn of(info: &Value) -> Option<Self> {
+        let id = info["value"].as_str().filter(|id| valid_model(id))?;
+        let efforts = strings(&info["supportedEffortLevels"])
+            .into_iter()
+            .filter(|effort| info["supportsEffort"] == true && EFFORTS.contains(&effort.as_str()))
+            .collect();
+
+        Some(Self {
+            id: id.to_owned(),
+            resolved: info["resolvedModel"].as_str().map(str::to_owned),
+            name: info["displayName"].as_str().unwrap_or(id).to_owned(),
+            description: info["description"].as_str().unwrap_or_default().to_owned(),
+            efforts,
+        })
+    }
+}
+
+/// Команда агента: своя команда проекта, скил, команда плагина или
+/// встроенная. `hint` подсказывает аргументы.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentCommand {
+    pub name: String,
+    pub description: String,
+    pub hint: String,
+    pub aliases: Vec<String>,
+    pub builtin: bool,
+}
+
+impl AgentCommand {
+    /// Команда из `SlashCommand` Claude Code. Без имени её нет.
+    fn of(info: &Value) -> Option<Self> {
+        Some(Self {
+            name: info["name"].as_str()?.to_owned(),
+            description: info["description"].as_str().unwrap_or_default().to_owned(),
+            hint: info["argumentHint"].as_str().unwrap_or_default().to_owned(),
+            aliases: strings(&info["aliases"]),
+            builtin: info["builtin"] == true,
+        })
+    }
+}
+
+/// Субагент, которому агент может поручить часть работы.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Subagent {
+    pub name: String,
+    pub description: String,
+}
+
+impl Subagent {
+    fn of(info: &Value) -> Option<Self> {
+        Some(Self {
+            name: info["name"].as_str()?.to_owned(),
+            description: info["description"].as_str().unwrap_or_default().to_owned(),
+        })
+    }
+}
+
+/// Команды и субагенты агента в папке проекта.
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Commands {
+    pub commands: Vec<AgentCommand>,
+    pub agents: Vec<Subagent>,
+}
+
+/// Что Claude Code рассказал о себе на `initialize`. Данных аккаунта здесь
+/// нет: они лежат в том же ответе, но sapien их не берёт.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Init {
+    pub models: Vec<AgentModel>,
+    pub commands: Commands,
+}
+
+fn strings(list: &Value) -> Vec<String> {
+    list.as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(str::to_owned)
+        .collect()
+}
+
+/// Разобранные строки списка. Строка, которая не разобралась, пропускается,
+/// а не роняет весь ответ.
+fn parsed<T>(list: &Value, of: fn(&Value) -> Option<T>) -> Vec<T> {
+    list.as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(of)
+        .collect()
+}
+
+/// Номер запроса `initialize`, которым sapien спрашивает Claude Code.
+pub const INIT_REQUEST: &str = "sapien-init";
+
+/// Ответ на `initialize` из строки Claude Code, если это он. Остальные
+/// строки дают `None`.
+pub fn init_reply(line: &Value) -> Option<Result<Init, AppError>> {
+    let response = &line["response"];
+
+    if line["type"] != "control_response" || response["request_id"] != INIT_REQUEST {
+        return None;
+    }
+
+    if response["subtype"] != "success" {
+        return Some(Err(AppError::unavailable("claude_failed")));
+    }
+
+    let init = &response["response"];
+
+    Some(Ok(Init {
+        models: parsed(&init["models"], AgentModel::of),
+        commands: Commands {
+            commands: parsed(&init["commands"], AgentCommand::of),
+            agents: parsed(&init["agents"], Subagent::of),
+        },
+    }))
 }
 
 /// Что Claude Code получает к своему системному промпту. Остальное
@@ -546,9 +705,11 @@ pub struct Stamp {
     pub modified: u64,
 }
 
-/// Сессия sapien: отдельный разговор с Claude Code в папке проекта
-/// `project`. Заголовок пустой до первого сообщения человека. Время
-/// в миллисекундах Unix.
+/// Сессия sapien: отдельный разговор с агентом в папке проекта `project`.
+/// Заголовок пустой до первого сообщения человека. Время в миллисекундах
+/// Unix. Агент, модель и размышление последнего ответа помнит сессия,
+/// агент закреплён за ней после первого сообщения. Модели нет: агент
+/// берёт свою по умолчанию.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Session {
@@ -557,11 +718,18 @@ pub struct Session {
     pub title: String,
     pub created: u64,
     pub updated: u64,
+    #[serde(default = "claude_provider")]
+    pub provider: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
     #[serde(default)]
     pub chat: Chat,
 }
 
-/// Сессия в списке окна: без истории.
+/// Сессия в списке окна: без истории. Список читает её прямо из файла
+/// сессии, поэтому у полей те же значения по умолчанию.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionInfo {
@@ -569,15 +737,39 @@ pub struct SessionInfo {
     pub project: String,
     pub title: String,
     pub updated: u64,
+    #[serde(default = "claude_provider")]
+    pub provider: String,
+    #[serde(default)]
+    pub model: Option<String>,
+    #[serde(default)]
+    pub effort: Option<String>,
 }
 
 impl Session {
+    /// Пустая сессия `id` в проекте `project`, заведённая в `now`.
+    pub fn new(id: String, project: &str, now: u64) -> Self {
+        Self {
+            id,
+            project: project.to_owned(),
+            title: String::new(),
+            created: now,
+            updated: now,
+            provider: claude_provider(),
+            model: None,
+            effort: None,
+            chat: Chat::default(),
+        }
+    }
+
     pub fn info(&self) -> SessionInfo {
         SessionInfo {
             id: self.id.clone(),
             project: self.project.clone(),
             title: self.title.clone(),
             updated: self.updated,
+            provider: self.provider.clone(),
+            model: self.model.clone(),
+            effort: self.effort.clone(),
         }
     }
 }

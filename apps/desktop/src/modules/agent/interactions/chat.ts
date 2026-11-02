@@ -19,6 +19,7 @@ import {
   type ChatProblem,
   type Oversight,
 } from "../model/chat";
+import type { Choice } from "../model/agents";
 import type { SessionInfo } from "../model/sessions";
 import { chatStore, draftStore } from "../store/chat.store";
 import { SESSIONS_KEY } from "./sessions";
@@ -96,7 +97,7 @@ export function useSend() {
   const queryClient = useQueryClient();
 
   return useCallback(
-    async (session: string, model: string, text: string, away = false) => {
+    async (session: string, choice: Choice, text: string, away = false) => {
       const { runs, askEdits } = chatStore.get();
 
       if (runs[session] !== undefined) {
@@ -122,14 +123,21 @@ export function useSend() {
         problems: without(state.problems, session),
       }));
       // Название новой сессии Rust берёт из первой строки первого сообщения,
-      // а список перечитается только в конце ответа: до тех пор оно здесь.
+      // а выбор агента запоминает с сообщением. Список перечитается только
+      // в конце ответа: до тех пор они здесь.
       queryClient.setQueryData<SessionInfo[]>(SESSIONS_KEY, (list) =>
         list?.map((item) => {
-          if (item.id !== session || item.title !== "") {
+          if (item.id !== session) {
             return item;
           }
 
-          return { ...item, title: text.split("\n")[0]?.slice(0, 60) ?? "" };
+          let title = item.title;
+
+          if (title === "") {
+            title = text.split("\n")[0]?.slice(0, 60) ?? "";
+          }
+
+          return { ...item, ...choice, title };
         }),
       );
 
@@ -139,7 +147,7 @@ export function useSend() {
         // Вкладка сессии может открыться посреди ответа: история к этому
         // времени уже прочитана, до ответа.
         await queryClient.fetchQuery(historyQuery(session)).catch(() => {});
-        await agentSend(session, model, text, oversight, (event) => receive(session, event));
+        await agentSend(session, choice, text, oversight, (event) => receive(session, event));
       } catch (error) {
         problem = chatProblemOf(error);
       }
@@ -249,7 +257,7 @@ export function useChat(session: string) {
     open: run?.open ?? null,
     askEdits,
     setAskEdits,
-    send: (model: string, text: string) => send(session, model, text),
+    send: (choice: Choice, text: string) => send(session, choice, text),
     answer,
     stop,
   };
