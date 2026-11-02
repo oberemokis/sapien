@@ -1,8 +1,6 @@
 //! Агент: Claude Code на устройстве по подписке Claude, который работает
 //! в папке проекта своими инструментами, как в терминале. Разговор идёт
-//! сессиями, у каждой своя история и своя сессия Claude Code. Вопросы
-//! агента и разрешения на вызовы доходят до окна через сервер MCP
-//! приложения (infrastructure/mcp.rs).
+//! сессиями, у каждой своя сессия Claude Code, а историю хранит он сам.
 
 mod domain;
 mod infrastructure;
@@ -13,6 +11,4 @@ mod use_case;
 // командой скрытые функции, которые переэкспорт через `pub use` не уносит.
 pub mod transport;
 
-#[cfg(unix)]
-pub use infrastructure::mcp::bridge;
-pub use transport::Running;
+pub use infrastructure::sessions_dir::without_chat;

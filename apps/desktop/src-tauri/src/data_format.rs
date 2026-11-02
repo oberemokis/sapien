@@ -5,6 +5,7 @@
 //! продолжает с того же шага.
 
 use crate::durable;
+use crate::modules::agent;
 use std::fs;
 use std::io;
 use std::path::Path;
@@ -17,7 +18,11 @@ type Step = fn(&Path) -> io::Result<()>;
 
 /// Шаги по порядку, первый переносит из формата 1 в 2. Формат этой версии
 /// на единицу больше числа шагов.
-const STEPS: &[Step] = &[];
+const STEPS: &[Step] = &[
+    // 1 → 2: история чата sapien уходит в архив, сессия помнит только
+    // разговор Claude Code.
+    agent::without_chat,
+];
 
 const FILE: &str = "data-format";
 
@@ -111,11 +116,12 @@ mod tests {
     }
 
     #[test]
-    fn без_шагов_файлы_не_трогаются() {
+    fn новая_установка_проходит_шаги_на_пустой_папке() {
         let dir = tempfile::tempdir().unwrap();
 
         migrate(dir.path()).unwrap();
 
-        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 0);
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+        assert_eq!(read(dir.path(), FILE), (STEPS.len() + 1).to_string());
     }
 }

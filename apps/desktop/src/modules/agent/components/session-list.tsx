@@ -6,7 +6,6 @@ import { ContextMenu, type MenuItem } from "@/core/ui/context-menu";
 import { Icon } from "@/core/ui/icon";
 import { IconButton } from "@/core/ui/icon-button";
 import { shortcutLabel } from "@/core/ui/keys";
-import { useRunning } from "../interactions/chat";
 import {
   openSearch,
   openSession,
@@ -51,7 +50,6 @@ function ProjectSessions({ project, onMenu }: ProjectProps) {
   const navigate = useNavigate();
   const sessions = useSessions();
   const tabs = useTabs();
-  const running = useRunning();
   const newSession = useNewSession();
   const remove = useRemoveProject();
   const deleteSession = useDeleteSession();
@@ -119,21 +117,21 @@ function ProjectSessions({ project, onMenu }: ProjectProps) {
               aria-current={(onChat && session.project === tabs.project && session.id === tabs.active && "page") || undefined}
               className={SESSION_ROW}
               onClick={() => open(session)}
-              // Сессию с идущим ответом Rust не удалит: пункт недоступен
-              // и говорит почему.
+              // Сессию, в которой отвечает агент, Rust не удалит: пункт
+              // недоступен и говорит почему.
               onContextMenu={(event) =>
                 onMenu(event, [
                   {
                     label: t("agent.sessions.delete"),
-                    disabled: running(session.id),
-                    hint: running(session.id) ? t("agent.sessions.running") : undefined,
+                    disabled: session.answering,
+                    hint: session.answering ? t("agent.sessions.running") : undefined,
                     onSelect: () => deleteSession.mutate(session),
                   },
                 ])
               }
             >
               <span className="min-w-0 flex-1 truncate text-left">{session.title || t("agent.sessions.untitled")}</span>
-              {running(session.id) && (
+              {session.answering && (
                 <>
                   <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-bg-accent motion-safe:animate-pulse" />
                   <span className="sr-only">{t("agent.sessions.running")}</span>
@@ -148,9 +146,8 @@ function ProjectSessions({ project, onMenu }: ProjectProps) {
 }
 
 // Левая панель: поиск, действия и входящие всегда наверху, ниже проекты
-// с их сессиями. deferred это действия по расписанию, которые ждут сети
-// или проекта.
-export function SessionList({ deferred }: { deferred: string[] }) {
+// с их сессиями.
+export function SessionList() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const projects = useProjects();
@@ -200,11 +197,6 @@ export function SessionList({ deferred }: { deferred: string[] }) {
           ))}
         </ul>
       </nav>
-      {deferred.length > 0 && (
-        <output className="m-1 block rounded-md bg-state-bg-warning px-2 py-1.5 text-[12px]/[18px] shadow-[inset_0_0_0_0.5px_var(--state-border-warning)]">
-          {t("agent.actions.deferred", { names: deferred.join(", ") })}
-        </output>
-      )}
       {menu !== null && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
     </div>
   );

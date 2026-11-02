@@ -1,6 +1,5 @@
-import { Channel, invoke } from "@tauri-apps/api/core";
-import type { Choice, Commands, Provider } from "../model/agents";
-import type { Answer, ChatEntry, ChatEvent, ClaudeStatus, Oversight } from "../model/chat";
+import { invoke } from "@tauri-apps/api/core";
+import type { ClaudeStatus } from "../model/claude";
 import type { Project, SessionInfo } from "../model/sessions";
 import type { Usage } from "../model/usage";
 
@@ -30,64 +29,9 @@ export function agentSessionDelete(id: string) {
   return invoke<null>("agent_session_delete", { id });
 }
 
-export function agentHistory(session: string) {
-  return invoke<ChatEntry[]>("agent_history", { session });
-}
-
-// Ответ идёт событиями через канал, а обещание кончается вместе с ответом.
-// Ответы разных сессий идут параллельно, в одной сессии по одному.
-export function agentSend(
-  session: string,
-  choice: Choice,
-  text: string,
-  oversight: Oversight,
-  onEvent: (event: ChatEvent) => void,
-) {
-  return invoke<null>("agent_send", {
-    session,
-    provider: choice.provider,
-    model: choice.model,
-    effort: choice.effort,
-    text,
-    oversight,
-    onEvent: new Channel<ChatEvent>(onEvent),
-  });
-}
-
-// Агенты, установленные на устройстве, с их моделями. Rust спрашивает
-// каждого агента, поэтому список читается редко.
-export function agentProviders() {
-  return invoke<Provider[]>("agent_providers");
-}
-
-// Команды, скилы и субагенты агента в папке проекта.
-export function agentCommands(provider: string, project: string) {
-  return invoke<Commands>("agent_commands", { provider, project });
-}
-
 // Лимиты подписки Claude. Их спрашивает Claude Code своим входом.
 export function agentUsage() {
   return invoke<Usage>("agent_usage");
-}
-
-// Сессии, чьи ответы идут сейчас.
-export function agentRunning() {
-  return invoke<string[]>("agent_running");
-}
-
-// Окно открылось заново: события идущего ответа сессии приходят сюда,
-// открытый вопрос приходит снова. Кончается вместе с ответом, true, если
-// он шёл.
-export function agentAttach(session: string, onEvent: (event: ChatEvent) => void) {
-  return invoke<boolean>("agent_attach", { session, onEvent: new Channel<ChatEvent>(onEvent) });
-}
-
-export function agentAnswer(session: string, id: string, answer: Answer) {
-  return invoke<null>("agent_answer", { session, id, answer });
-}
-
-export function agentStop(session: string) {
-  return invoke<null>("agent_stop", { session });
 }
 
 // Есть ли Claude Code на устройстве, его версия и вход.

@@ -11,7 +11,7 @@ import {
 import { readTabs, writeTabs } from "../infrastructure/agent.device";
 import type { SessionInfo } from "../model/sessions";
 import { closeTab, NO_TABS, openTab, visibleTabs, type Tabs } from "../model/tabs";
-import { searchStore, tabsStore } from "../store/chat.store";
+import { searchStore, tabsStore } from "../store/sessions.store";
 
 export const PROJECTS_KEY = ["agent", "projects"] as const;
 export const SESSIONS_KEY = ["agent", "sessions"] as const;

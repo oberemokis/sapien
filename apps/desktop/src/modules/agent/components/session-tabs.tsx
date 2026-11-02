@@ -2,13 +2,12 @@ import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { Icon } from "@/core/ui/icon";
 import { IconButton } from "@/core/ui/icon-button";
-import { useRunning } from "../interactions/chat";
 import { closeSession, openSession, useNewSession, useProjects, useSessions, useTabs } from "../interactions/sessions";
 import type { SessionInfo } from "../model/sessions";
 
 // Вкладки открытого проекта в верхней полосе окна. Вкладка это сессия:
-// нажатие открывает её чат, крестик закрывает вкладку, а сессия остаётся
-// в списке слева. Ответ идёт и в фоновой вкладке, её отмечает точка.
+// нажатие открывает её, крестик закрывает вкладку, а сессия остаётся
+// в списке слева. Агент отвечает и в фоновой вкладке, её отмечает точка.
 // «+» начинает новую сессию в этом же проекте. Для чтения с экрана это
 // навигация, а не tablist: tablist держит одни вкладки, без крестиков и «+».
 export function SessionTabs() {
@@ -17,7 +16,6 @@ export function SessionTabs() {
   const tabs = useTabs();
   const sessions = useSessions();
   const projects = useProjects();
-  const running = useRunning();
   const newSession = useNewSession();
   const onChat = useRouterState({ select: (state) => state.location.pathname === "/" });
   const project = projects.data?.find((candidate) => candidate.id === tabs.project);
@@ -55,7 +53,7 @@ export function SessionTabs() {
                 onClick={() => show(session)}
               >
                 <span className="truncate">{title}</span>
-                {running(session.id) && (
+                {session.answering && (
                   <>
                     <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-bg-accent motion-safe:animate-pulse" />
                     <span className="sr-only">{t("agent.sessions.running")}</span>
