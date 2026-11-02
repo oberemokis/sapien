@@ -1,4 +1,4 @@
-# Релиз по тегу версии: черновик релиза, сборки под три системы с файлами
+# Релиз по тегу версии: черновик релиза, сборка под macOS с файлами
 # обновления и подписью, публикация. Приложение берёт обновление из
 # latest.json последнего релиза (plugins.updater в tauri.conf.json).
 #
@@ -44,16 +44,12 @@ jobs:
 
       # Что изменилось, собирает GitHub по пул-реквестам с прошлого тега.
       # Это же окно показывает в «Что нового», а описание релиза
-      # начинается ещё и с первого запуска без подписи Apple и Microsoft.
+      # начинается ещё и с первого запуска без подписи Apple.
       - id: draft
         env:
           GH_TOKEN: ${{ github.token }}
           FIRST_LAUNCH: |
-            Сборки без подписи Apple и Microsoft, поэтому при первом запуске система предупреждает:
-
-            - macOS: открыть sapien, закрыть предупреждение, затем «Системные настройки» → «Конфиденциальность и безопасность» → «Всё равно открыть». На macOS 14 и раньше хватает «Открыть» в контекстном меню Finder.
-            - Windows: в окне SmartScreen «Подробнее» → «Выполнить в любом случае».
-            - Linux: сам обновляется только AppImage, пакеты deb и rpm ставятся заново руками.
+            Сборка без подписи Apple, поэтому при первом запуске macOS предупреждает: открыть sapien, закрыть предупреждение, затем «Системные настройки» → «Конфиденциальность и безопасность» → «Всё равно открыть». На macOS 14 и раньше хватает «Открыть» в контекстном меню Finder.
 
             Дальше приложение обновляется само: спрашивает согласия и сверяет подпись обновления.
         run: |
@@ -73,38 +69,18 @@ jobs:
   # Кеши сборки здесь не берутся: в работе ключ подписи, а кеш пишут и
   # другие прогоны.
   build:
-    name: сборка ${{ matrix.name }}
+    name: сборка macOS
     needs: draft
     environment: release
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # Одна сборка на Apple Silicon и Intel.
-          - name: macOS
-            os: macos-latest
-            targets: aarch64-apple-darwin,x86_64-apple-darwin
-            args: --target universal-apple-darwin
-          # AppImage со старой glibc запускается на большем числе систем.
-          - name: Linux
-            os: ubuntu-22.04
-          - name: Windows
-            os: windows-latest
+    runs-on: macos-latest
 
     steps:
       - uses: actions/checkout@v7
 
-      # Список из https://tauri.app/start/prerequisites/, patchelf для AppImage.
-      - if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev \
-            libssl-dev libayatana-appindicator3-dev librsvg2-dev patchelf
-
+      # Одна сборка на Apple Silicon и Intel.
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.targets }}
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
 
       - uses: pnpm/action-setup@v6
 
@@ -114,8 +90,6 @@ jobs:
 
       - run: pnpm ci
 
-      # Окно Windows ставит установщик NSIS: он умеет тихое обновление
-      # (installMode passive) и не просит прав администратора.
       - uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -125,8 +99,7 @@ jobs:
           projectPath: apps/desktop
           releaseId: ${{ needs.draft.outputs.id }}
           releaseBody: ${{ needs.draft.outputs.notes }}
-          updaterJsonPreferNsis: true
-          args: ${{ matrix.args }}
+          args: --target universal-apple-darwin
 
   publish:
     name: публикация
@@ -134,9 +107,8 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # Сборки дописывают latest.json по очереди, и две одновременные теряют
-      # одна другую. Без любой системы релиз не выходит: перезапуск её
-      # сборки допишет её.
+      # Универсальная сборка пишет в latest.json обе архитектуры. Без любой
+      # из них релиз не выходит: установленные копии на ней не обновились бы.
       - env:
           GH_TOKEN: ${{ github.token }}
           ID: ${{ needs.draft.outputs.id }}
@@ -145,9 +117,9 @@ jobs:
             --jq '.[] | select(.name == "latest.json") | .id')
           gh api -H "Accept: application/octet-stream" \
             "repos/$GITHUB_REPOSITORY/releases/assets/$asset" > latest.json
-          for platform in darwin-aarch64 darwin-x86_64 linux-x86_64 windows-x86_64; do
+          for platform in darwin-aarch64 darwin-x86_64; do
             if ! jq -e --arg platform "$platform" '.platforms[$platform]' latest.json > /dev/null; then
-              echo "::error::В latest.json нет $platform, перезапусти её сборку"
+              echo "::error::В latest.json нет $platform, перезапусти сборку"
               exit 1
             fi
           done

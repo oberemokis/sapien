@@ -18,18 +18,15 @@ describe("api", () => {
     expect(await response.json()).toEqual({ status: "ok" });
   });
 
-  it.each(["tauri://localhost", "http://tauri.localhost"])(
-    "пускает окно Tauri с %s",
-    async (origin) => {
-      const client = testClient(createApp({ NODE_ENV: "production" }));
+  it("пускает окно Tauri", async () => {
+    const client = testClient(createApp({ NODE_ENV: "production" }));
 
-      const response = await client.health.$get(undefined, {
-        headers: { origin },
-      });
+    const response = await client.health.$get(undefined, {
+      headers: { origin: "tauri://localhost" },
+    });
 
-      expect(allowedOrigin(response)).toBe(origin);
-    },
-  );
+    expect(allowedOrigin(response)).toBe("tauri://localhost");
+  });
 
   it("пускает дев-сервер Vite вне продакшена", async () => {
     const client = testClient(createApp({ NODE_ENV: "development" }));

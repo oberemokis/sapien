@@ -22,8 +22,7 @@ function relaunch() {
   return renderWorkspace();
 }
 
-// happy-dom представляется Linux, но тест не должен от этого зависеть.
-const mod = /Mac/.test(navigator.userAgent) ? { metaKey: true } : { ctrlKey: true };
+const mod = { metaKey: true };
 
 describe("раскладка окна", () => {
   beforeEach(() => {

@@ -1,23 +1,21 @@
 import { useTranslation } from "react-i18next";
 import { SettingsGroup, SettingsRow, SettingsSection, SettingsSelect, SWITCH } from "@/core/ui/settings";
 import { setLockMinutes, useLockSettings, useLockToggle } from "../interactions/lock";
-import { LOCK_MINUTES, systemOf } from "../model/lock";
+import { LOCK_MINUTES } from "../model/lock";
 
-// Раздел «Безопасность»: блокировка окна после бездействия. Чем открывать
-// окно, зависит от системы, поэтому и текст свой у каждой.
+// Раздел «Безопасность»: блокировка окна после бездействия.
 export function LockSettings() {
   const { t } = useTranslation();
   const settings = useLockSettings();
   const { toggle, checking, failure } = useLockToggle();
-  const system = systemOf(navigator.userAgent);
-  let description: string = t(`security.lock.enabled.${system}`);
+  let description: string = t("security.lock.enabled.description");
 
   if (checking) {
     description = t("security.lock.checking");
   } else if (failure === "failed") {
     description = t("security.lock.failed");
   } else if (failure === "unavailable") {
-    description = t(`security.lock.unavailable.${system}`);
+    description = t("security.lock.unavailable");
   }
 
   return (

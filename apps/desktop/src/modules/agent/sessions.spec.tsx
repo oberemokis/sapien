@@ -30,8 +30,7 @@ const SESSIONS: SessionInfo[] = [
   { id: "s3", project: "p2", title: "Лендинг", updated: 4000, answering: false, stalled: false },
 ];
 
-// happy-dom представляется Linux, но тест не должен от этого зависеть.
-const MOD = /Mac/.test(navigator.userAgent) ? { metaKey: true } : { ctrlKey: true };
+const MOD = { metaKey: true };
 
 // Rust за командами агента: проекты, их сессии и Claude Code. answering:
 // сессии, в которых отвечает агент.

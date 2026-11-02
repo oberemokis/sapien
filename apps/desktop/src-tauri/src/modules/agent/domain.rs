@@ -5,8 +5,6 @@ use serde_json::{Value, json};
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ClaudeState {
-    /// Пока только macOS.
-    Unsupported,
     Missing,
     /// Старше версии, которая знает все нужные флаги, или версию не разобрать.
     Outdated,

@@ -1,6 +1,6 @@
 # sapien
 
-Монорепа на pnpm и turbo: сервер на Hono и десктопное приложение на Tauri v2 и React для работы с агентом Claude Code в папках проектов. Приложение ходит в сервер через клиент Hono RPC. Устройство слоёв, дерево каталогов и правила: [docs/architecture.md](./docs/architecture.md).
+Монорепа на pnpm и turbo: сервер на Hono и приложение для macOS на Tauri v2 и React для работы с агентом Claude Code в папках проектов. Приложение ходит в сервер через клиент Hono RPC. Устройство слоёв, дерево каталогов и правила: [docs/architecture.md](./docs/architecture.md).
 
 ## Стек
 
@@ -35,7 +35,7 @@ scripts/              проверка направления зависимос
 
 ## Запуск
 
-Нужны Node 24, pnpm 11 и Rust stable. На Linux ещё системные библиотеки WebKitGTK, список в [требованиях Tauri](https://tauri.app/start/prerequisites/).
+Нужны macOS, Node 24, pnpm 11 и Rust stable. Приложение собирается и работает только на macOS.
 
 ```bash
 pnpm install

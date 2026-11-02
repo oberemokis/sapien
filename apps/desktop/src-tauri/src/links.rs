@@ -18,10 +18,7 @@ fn web_link(url: &Url) -> bool {
 fn own_page(url: &Url) -> bool {
     match url.scheme() {
         "tauri" => true,
-        "http" | "https" => {
-            url.host_str() == Some("tauri.localhost")
-                || (cfg!(debug_assertions) && url.host_str() == Some("localhost"))
-        }
+        "http" | "https" => cfg!(debug_assertions) && url.host_str() == Some("localhost"),
         _ => false,
     }
 }
@@ -95,7 +92,7 @@ mod tests {
     #[test]
     fn окно_остаётся_только_на_своём_интерфейсе() {
         assert!(own_page(&url("tauri://localhost/index.html")));
-        assert!(own_page(&url("http://tauri.localhost/")));
+        assert!(!own_page(&url("http://tauri.localhost/")));
         assert!(!own_page(&url("https://evil.example/tauri.localhost")));
         assert!(!own_page(&url("https://tauri.localhost.evil.example/")));
         assert!(!own_page(&url("file:///etc/passwd")));

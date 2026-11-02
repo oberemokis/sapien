@@ -62,10 +62,6 @@ function launch() {
   );
 }
 
-// Система окна: от неё зависит, чем окно открывается.
-function onSystem(userAgent: string) {
-  vi.spyOn(navigator, "userAgent", "get").mockReturnValue(userAgent);
-}
 
 function storeLock(enabled: boolean, minutes = 1) {
   localStorage.setItem("sapien.lock", JSON.stringify({ enabled, minutes }));
@@ -106,7 +102,6 @@ describe("блокировка окна", () => {
   it("включается только после проверки системы и переживает перезапуск", async () => {
     const rust = fakeRust(["unlock_canceled", "verified"]);
 
-    onSystem("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)");
     launch();
     const toggle = await screen.findByRole("switch", { name: "Блокировать окно" });
 
@@ -123,7 +118,6 @@ describe("блокировка окна", () => {
   it("проверка не прошла или системе нечем спросить: блокировка не включается, и видно почему", async () => {
     fakeRust(["unlock_failed", "unlock_unavailable"]);
 
-    onSystem("Mozilla/5.0 (X11; Linux x86_64)");
     launch();
     const toggle = await screen.findByRole("switch", { name: "Блокировать окно" });
 
@@ -131,7 +125,7 @@ describe("блокировка окна", () => {
     expect(await screen.findByText("Проверка не прошла, блокировка не включена.")).toBeTruthy();
 
     fireEvent.click(toggle);
-    expect(await screen.findByText(/в AppImage её нет/)).toBeTruthy();
+    expect(await screen.findByText(/у учётной записи Mac нет пароля/)).toBeTruthy();
     expect(toggle).toHaveProperty("checked", false);
     expect(localStorage.getItem("sapien.lock")).toBeNull();
   });
