@@ -9,12 +9,17 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "is.oberemok.sapien"
+      "bundleIdentifier": "is.oberemok.sapien",
+      "icon": {
+        "light": "./assets/icon.png",
+        "dark": "./assets/icon-dark.png",
+        "tinted": "./assets/icon-tinted.png"
+      }
     },
     "android": {
       "package": "is.oberemok.sapien",
       "adaptiveIcon": {
-        "backgroundColor": "#111113",
+        "backgroundColor": "#161616",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
