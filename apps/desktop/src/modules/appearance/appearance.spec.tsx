@@ -1,8 +1,10 @@
 import { clearMocks, mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import { act, fireEvent, render, screen } from "@testing-library/react";
+import i18next from "i18next";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   AppearanceSettings,
+  restoreLanguage,
   restoreTheme,
   restoreUiScale,
   setThemePreference,
@@ -163,5 +165,72 @@ describe("масштаб", () => {
     render(<AppearanceSettings />);
 
     expect(scale().value).toBe("100");
+  });
+});
+
+// Меню macOS строит Rust: язык уходит ему командой.
+function fakeMenu() {
+  const languages: unknown[] = [];
+
+  Object.assign(globalThis, { isTauri: true });
+  mockIPC((command, args) => {
+    if (command === "app_set_language") {
+      languages.push((args as { language: string }).language);
+    }
+
+    return null;
+  });
+
+  return languages;
+}
+
+describe("язык", () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  afterEach(async () => {
+    clearMocks();
+    Reflect.deleteProperty(globalThis, "isTauri");
+    await i18next.changeLanguage("ru");
+  });
+
+  it("без выбора окно и меню на английском", () => {
+    const languages = fakeMenu();
+
+    restoreLanguage();
+    render(<AppearanceSettings />);
+
+    expect(screen.getByRole("heading", { name: "Appearance" })).toBeDefined();
+    expect(screen.getByRole<HTMLSelectElement>("combobox", { name: "Language" }).value).toBe("en");
+    expect(document.documentElement.lang).toBe("en");
+    expect(languages).toEqual(["en"]);
+  });
+
+  it("русский выбирается в настройках, сразу меняет окно и меню и переживает перезапуск", async () => {
+    const languages = fakeMenu();
+
+    restoreLanguage();
+    render(<AppearanceSettings />);
+    fireEvent.change(screen.getByRole("combobox", { name: "Language" }), { target: { value: "ru" } });
+
+    expect(await screen.findByRole("heading", { name: "Внешний вид" })).toBeDefined();
+    expect(languages).toEqual(["en", "ru"]);
+
+    await act(() => i18next.changeLanguage("en"));
+    restoreLanguage();
+
+    expect(await screen.findByRole("heading", { name: "Внешний вид" })).toBeDefined();
+    expect(document.documentElement.lang).toBe("ru");
+  });
+
+  it("битое сохранённое значение даёт английский, а не падение", () => {
+    fakeMenu();
+    localStorage.setItem("sapien.language", "de");
+
+    restoreLanguage();
+    render(<AppearanceSettings />);
+
+    expect(screen.getByRole<HTMLSelectElement>("combobox", { name: "Language" }).value).toBe("en");
   });
 });

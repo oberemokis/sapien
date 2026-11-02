@@ -1,8 +1,13 @@
 import { cleanup } from "@testing-library/react";
+import i18next from "i18next";
 import { afterEach, vi } from "vitest";
 // Компоненты берут строки из словаря, как в приложении.
 import "@/core/i18n/i18n";
 import { Terminal } from "./test-xterm";
+
+// Тесты ищут элементы по русским подписям. Английский по умолчанию
+// проверяет свой тест и возвращает русский за собой.
+void i18next.changeLanguage("ru");
 
 // Testing Library убирает за собой сама только при глобалах vitest, а они
 // выключены: без этого разметка одного теста доживает до следующего.

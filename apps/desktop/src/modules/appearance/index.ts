@@ -7,3 +7,4 @@ export {
   useThemeSync,
 } from "./interactions/theme";
 export { restoreUiScale } from "./interactions/scale";
+export { restoreLanguage } from "./interactions/language";
