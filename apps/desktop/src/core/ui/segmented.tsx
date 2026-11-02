@@ -13,12 +13,12 @@ export function Segmented<Value extends string>({ label, value, options, onChang
   const name = useId();
 
   return (
-    <fieldset className="flex rounded-lg border border-stroke p-0.5">
+    <fieldset className="flex h-7 rounded-md bg-bg-layer-01 shadow-[0_0_0_0.5px_var(--border-border-base)]">
       <legend className="sr-only">{label}</legend>
       {options.map((option) => (
         <label
           key={option.value}
-          className="cursor-default rounded-md px-2.5 py-1 text-[13px] text-content/60 transition-colors duration-120 hover:text-content has-checked:bg-selection-strong has-checked:text-content has-focus-visible:outline-2 has-focus-visible:outline-accent"
+          className="flex cursor-default items-center rounded-md px-3 text-[13px]/4 text-text-muted transition-colors duration-120 hover:text-text-base has-checked:bg-bg-base has-checked:text-text-base has-checked:shadow-[0_0_0_0.5px_var(--border-border-strong)] has-focus-visible:outline-2 has-focus-visible:outline-offset-1 has-focus-visible:outline-border-focus"
         >
           <input
             type="radio"

@@ -32,7 +32,7 @@ export function MenuButton({ icon, value, label, items, disabled = false, tint, 
         aria-haspopup="menu"
         aria-expanded={at !== null}
         disabled={disabled}
-        className="flex h-7 min-w-0 items-center gap-1.5 rounded-md bg-selection px-2 text-[12px] text-content/80 transition-colors duration-120 hover:bg-selection-hover hover:text-content disabled:opacity-50"
+        className="flex h-7 min-w-0 items-center gap-1.5 rounded-md px-2 text-[12px] text-text-muted transition-colors duration-120 hover:bg-overlay-hover hover:text-text-base focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus aria-expanded:bg-overlay-pressed aria-expanded:text-text-base disabled:opacity-50"
         onClick={(event) => {
           if (at !== null) {
             setAt(null);
@@ -47,7 +47,7 @@ export function MenuButton({ icon, value, label, items, disabled = false, tint, 
       >
         <Icon icon={icon} size={14} className={tint} />
         <span className={`truncate ${shown}`}>{value}</span>
-        <Icon icon={ArrowDown01Icon} size={12} className="shrink-0 text-content/50" />
+        <Icon icon={ArrowDown01Icon} size={12} className="shrink-0 text-icon-muted" />
       </button>
       {at !== null && (
         <ContextMenu x={at.x} y={at.y} above anchor={at.button} items={items} onClose={() => setAt(null)} />

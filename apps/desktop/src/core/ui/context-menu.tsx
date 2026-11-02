@@ -117,16 +117,16 @@ export function ContextMenu({ x, y, items, onClose, above = false, anchor = null
       ref={menuRef}
       role="menu"
       tabIndex={-1}
-      className="fixed z-30 min-w-40 rounded-lg border border-content/8 bg-shell/85 p-1 shadow-float backdrop-blur-xl"
+      className="fixed z-30 min-w-40 rounded-md bg-bg-layer-01 p-0.5 shadow-floating"
       style={{ left: x, top: y }}
       onKeyDown={onKeyDown}
       onContextMenu={(event) => event.preventDefault()}
     >
       {items.map((item) => (
         <Fragment key={item.id ?? item.label}>
-          {item.separated === true && <hr className="mx-2 my-1 border-hairline" />}
+          {item.separated === true && <hr className="-mx-0.5 my-0.5 border-border-muted" />}
           {item.heading !== undefined && (
-            <p role="presentation" className="px-2 pt-1 pb-0.5 text-[11px] text-content/40">
+            <p role="presentation" className="flex h-7 items-center px-3 text-[11px] font-medium text-text-faint">
               {item.heading}
             </p>
           )}
@@ -135,14 +135,14 @@ export function ContextMenu({ x, y, items, onClose, above = false, anchor = null
             role={item.checked === undefined ? "menuitem" : "menuitemradio"}
             aria-checked={item.checked}
             disabled={item.disabled}
-            className="flex h-7 w-full items-center gap-4 rounded-md px-2 text-left text-[13px] outline-none transition-colors duration-120 hover:bg-selection-hover focus-visible:bg-selection-hover disabled:text-content/40 disabled:hover:bg-transparent"
+            className="flex h-7 w-full items-center gap-4 rounded-sm pr-1.5 pl-3 text-left text-[13px] outline-none transition-colors duration-120 hover:bg-overlay-hover focus-visible:bg-overlay-hover disabled:opacity-50 disabled:hover:bg-transparent"
             onClick={() => {
               onClose();
               item.onSelect();
             }}
           >
             <span className="flex-1 truncate">{item.label}</span>
-            {item.hint !== undefined && <span className="text-[12px] text-content/40">{item.hint}</span>}
+            {item.hint !== undefined && <span className="text-[12px] text-text-faint">{item.hint}</span>}
             {item.checked !== undefined && (
               <span className="grid size-3.5 shrink-0 place-items-center">
                 {item.checked && <Icon icon={Tick02Icon} size={14} />}
