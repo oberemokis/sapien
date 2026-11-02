@@ -1,4 +1,3 @@
-import InboxIcon from "@hugeicons/core-free-icons/InboxIcon";
 import { Link } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { Icon } from "@/core/ui/icon";
@@ -11,7 +10,7 @@ export function Inbox() {
   return (
     <div className="grid flex-1 place-items-center p-6">
       <div className="flex max-w-md flex-col items-center gap-4 text-center">
-        <Icon icon={InboxIcon} size={20} className="text-icon-muted" />
+        <Icon icon="archive" size={20} className="text-icon-muted" />
         <div className="flex flex-col items-center gap-1">
           <h1 className="text-[16px]/7 font-medium">{t("inbox.title")}</h1>
           <p className="text-[13px]/5 text-text-muted">{t("inbox.empty")}</p>

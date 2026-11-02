@@ -1,4 +1,3 @@
-import Tick02Icon from "@hugeicons/core-free-icons/Tick02Icon";
 import { Fragment, useEffect, useLayoutEffect, useRef, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { Icon } from "./icon";
@@ -147,7 +146,7 @@ export function ContextMenu({ x, y, items, onClose, above = false, anchor = null
             {item.hint !== undefined && <span className="text-[12px] text-text-faint">{item.hint}</span>}
             {item.checked !== undefined && (
               <span className="grid size-3.5 shrink-0 place-items-center">
-                {item.checked && <Icon icon={Tick02Icon} size={14} />}
+                {item.checked && <Icon icon="check" size={14} />}
               </span>
             )}
           </button>

@@ -2,8 +2,6 @@
 // стрелками через aria-activedescendant, мышь только дублирует их. Своих
 // клавиш у строк и у затемнения поэтому нет.
 /* oxlint-disable jsx-a11y/prefer-tag-over-role, jsx-a11y/click-events-have-key-events, jsx-a11y/no-noninteractive-element-interactions */
-import AiChat02Icon from "@hugeicons/core-free-icons/AiChat02Icon";
-import Search01Icon from "@hugeicons/core-free-icons/Search01Icon";
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { createPortal } from "react-dom";
@@ -138,7 +136,7 @@ function SearchDialog() {
       }}
     >
       <div className="flex h-12 items-center gap-2 border-b border-border-muted px-3">
-        <Icon icon={Search01Icon} size={16} className="shrink-0 text-icon-muted" />
+        <Icon icon="magnifying-glass" size={16} className="shrink-0 text-icon-muted" />
         <input
           ref={inputRef}
           role="combobox"
@@ -173,7 +171,7 @@ function SearchDialog() {
               onMouseMove={() => setActive(index)}
               onClick={() => choose(session.id)}
             >
-              <Icon icon={AiChat02Icon} className="shrink-0" />
+              <Icon icon="bubble-5" className="shrink-0" />
               <span className="min-w-0 shrink truncate font-medium">{session.title || t("agent.sessions.untitled")}</span>
               <span className="min-w-0 flex-1 truncate text-text-muted">{session.projectName}</span>
             </div>

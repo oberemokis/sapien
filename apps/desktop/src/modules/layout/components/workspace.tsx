@@ -1,5 +1,3 @@
-import PanelLeftIcon from "@hugeicons/core-free-icons/PanelLeftIcon";
-import PanelRightIcon from "@hugeicons/core-free-icons/PanelRightIcon";
 import { useEffect, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { IconButton } from "@/core/ui/icon-button";
@@ -78,7 +76,7 @@ export function Workspace({ files, main, chat, title, actions }: Props) {
         >
           <span data-files-peek-trigger className="flex">
             <IconButton
-              icon={PanelLeftIcon}
+              icon="layout-left"
               label={t(layout.files.visible ? "layout.hideFiles" : "layout.showFiles")}
               shortcut={shortcutLabel("B")}
               onClick={() => togglePanel("files")}
@@ -90,7 +88,7 @@ export function Workspace({ files, main, chat, title, actions }: Props) {
           {actions}
           {withChat && (
             <IconButton
-              icon={PanelRightIcon}
+              icon="layout-right"
               label={t(layout.chat.visible ? "layout.hideChat" : "layout.showChat")}
               shortcut={shortcutLabel("B", true)}
               onClick={() => togglePanel("chat")}

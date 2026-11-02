@@ -1,8 +1,8 @@
-import type { IconSvgElement } from "@hugeicons/react";
 import { Icon } from "./icon";
+import type { IconName } from "./icons";
 
 type Props = {
-  icon: IconSvgElement;
+  icon: IconName;
   label: string;
   // Подпись сочетания из shortcutLabel: попадает в подсказку при наведении.
   shortcut?: string;

@@ -1,4 +1,3 @@
-import ArrowLeft01Icon from "@hugeicons/core-free-icons/ArrowLeft01Icon";
 import { Link } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { Icon } from "@/core/ui/icon";
@@ -36,7 +35,7 @@ export function SettingsNav() {
         ))}
       </nav>
       <button type="button" className={ROW} onClick={close}>
-        <Icon icon={ArrowLeft01Icon} />
+        <Icon icon="chevron-left" />
         {t("settings.back")}
       </button>
     </div>

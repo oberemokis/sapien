@@ -1,4 +1,3 @@
-import SquareLock02Icon from "@hugeicons/core-free-icons/SquareLock02Icon";
 import { useId, useLayoutEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/core/ui/button";
@@ -32,7 +31,7 @@ function LockScreen() {
       {/* За шапку окно двигается и закрытым. */}
       <div data-tauri-drag-region className="h-10 shrink-0" />
       <div className="flex flex-1 flex-col items-center justify-center gap-4 pb-10 text-[13px]">
-        <Icon icon={SquareLock02Icon} size={28} className="text-icon-muted" />
+        <Icon icon="lock" size={28} className="text-icon-muted" />
         <h2 id={titleId} className="text-[16px]/7 font-medium">
           {t("security.lock.screen.title")}
         </h2>
