@@ -2,7 +2,6 @@ import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { ClaudeStatus } from "../model/claude";
 import type { Project, SessionInfo } from "../model/sessions";
-import type { Usage } from "../model/usage";
 
 export function projectsList() {
   return invoke<Project[]>("projects_list");
@@ -81,11 +80,6 @@ export function onTerminalMoved(handler: (from: string, to: string) => void) {
 // Claude Code сессии кончился.
 export function onTerminalExited(handler: (session: string) => void) {
   return listen<{ session: string }>("terminal-exited", ({ payload }) => handler(payload.session));
-}
-
-// Лимиты подписки Claude. Их спрашивает Claude Code своим входом.
-export function agentUsage() {
-  return invoke<Usage>("agent_usage");
 }
 
 // Есть ли Claude Code на устройстве, его версия и вход.

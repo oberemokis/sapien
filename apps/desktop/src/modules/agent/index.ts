@@ -1,6 +1,5 @@
 export { ActionsView } from "./components/actions-view";
 export { AgentSettings } from "./components/agent-settings";
-export { ClaudeUsage } from "./components/claude-usage";
 export { SessionList } from "./components/session-list";
 export { SessionSearch } from "./components/session-search";
 export { SessionTabs } from "./components/session-tabs";

@@ -1,4 +1,4 @@
-use super::domain::{ClaudeState, ClaudeStatus, Effect, Hook, SessionInfo, Tracked, Usage};
+use super::domain::{ClaudeState, ClaudeStatus, Effect, Hook, SessionInfo, Tracked};
 use super::infrastructure::claude_code::ClaudeCode;
 use super::infrastructure::neighbours::ProjectFolders;
 use super::infrastructure::sessions_dir::SessionsDir;
@@ -505,17 +505,6 @@ pub async fn terminal_close(
     }
 
     Ok(())
-}
-
-/// Лимиты подписки Claude за пять часов и за неделю. Их спрашивает
-/// Claude Code своим входом, токен sapien не видит.
-#[tauri::command]
-pub async fn agent_usage(app: AppHandle) -> Result<Usage, AppError> {
-    if !CLAUDE_SUPPORTED {
-        return Err(AppError::invalid("claude_unsupported"));
-    }
-
-    claude(&app)?.usage().await
 }
 
 /// Есть ли Claude Code, какой версии и как выполнен вход.
