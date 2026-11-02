@@ -54,9 +54,32 @@ export function isEffort(value: string | null): value is Effort {
 // модель агента по умолчанию, effort null: уровень модели по умолчанию.
 export type Choice = { provider: string; model: string | null; effort: Effort | null };
 
-// То, с чем ушло последнее сообщение сессии. null: сессия ещё не отвечала.
+// Выбор из хранилища окна: там может лежать что угодно от прошлых версий.
+// Неизвестный уровень сбрасывается, как у сессии. null: выбора нет или
+// это не выбор.
+export function parseChoice(value: unknown): Choice | null {
+  if (typeof value !== "object" || value === null || !("provider" in value) || !("model" in value)) {
+    return null;
+  }
+
+  const { provider, model } = value;
+  let effort: Effort | null = null;
+
+  if (typeof provider !== "string" || (model !== null && typeof model !== "string")) {
+    return null;
+  }
+
+  if ("effort" in value && typeof value.effort === "string" && isEffort(value.effort)) {
+    effort = value.effort;
+  }
+
+  return { provider, model, effort };
+}
+
+// То, с чем ушло последнее сообщение сессии. null: разговора ещё нет,
+// и агента можно выбрать.
 export function savedChoice(session: SessionInfo): Choice | null {
-  if (session.model === null) {
+  if (!session.started) {
     return null;
   }
 
@@ -83,7 +106,13 @@ export function wantedChoice(session: SessionInfo, picked: Choice | null, last: 
   return { ...wanted, provider: saved.provider };
 }
 
+// Модель агента по псевдониму или полному имени. Без модели её нет: иначе
+// null нашёл бы модель без полного имени.
 export function modelOf(provider: Provider, model: string | null) {
+  if (model === null) {
+    return undefined;
+  }
+
   return provider.models.find((candidate) => candidate.id === model || candidate.resolved === model);
 }
 

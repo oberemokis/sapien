@@ -900,6 +900,7 @@ mod tests {
                 provider: "claude".into(),
                 model: None,
                 effort: None,
+                started: false,
             }
         );
 

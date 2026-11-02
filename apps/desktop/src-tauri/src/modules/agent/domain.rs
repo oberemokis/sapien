@@ -779,7 +779,9 @@ pub struct Session {
 }
 
 /// Сессия в списке окна: без истории. Список читает её прямо из файла
-/// сессии, поэтому у полей те же значения по умолчанию.
+/// сессии, поэтому у полей те же значения по умолчанию. `started`: в
+/// истории есть сообщения, и агент сессии закреплён, см. `use_case::send`.
+/// В файле его нет, он считается по `chat`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionInfo {
@@ -793,6 +795,23 @@ pub struct SessionInfo {
     pub model: Option<String>,
     #[serde(default)]
     pub effort: Option<String>,
+    #[serde(
+        default,
+        rename(deserialize = "chat"),
+        deserialize_with = "has_messages"
+    )]
+    pub started: bool,
+}
+
+/// Есть ли в `chat` сессии сообщения. Сами сообщения не разбираются.
+fn has_messages<'de, D: serde::Deserializer<'de>>(chat: D) -> Result<bool, D::Error> {
+    #[derive(Deserialize)]
+    struct Messages {
+        #[serde(default)]
+        messages: Vec<serde::de::IgnoredAny>,
+    }
+
+    Ok(!Messages::deserialize(chat)?.messages.is_empty())
 }
 
 impl Session {
@@ -820,6 +839,7 @@ impl Session {
             provider: self.provider.clone(),
             model: self.model.clone(),
             effort: self.effort.clone(),
+            started: !self.chat.messages.is_empty(),
         }
     }
 }

@@ -45,8 +45,16 @@ const CLAUDE: Provider = {
   ],
 };
 
-// Сессия, которая ещё не отвечала: выбора агента в ней нет.
-const FRESH = { provider: "claude", model: null, effort: null };
+// Второй агент на устройстве.
+const CODEX: Provider = {
+  id: "codex",
+  name: "Codex",
+  models: [{ id: "gpt-5", resolved: null, name: "GPT-5", description: "", efforts: [] }],
+};
+
+// Сессия, которая ещё не отвечала: выбора агента в ней нет. Начатой её
+// делает история в подделке Rust.
+const FRESH = { provider: "claude", model: null, effort: null, started: false };
 
 const SAPIEN: Project = { id: "p1", name: "sapien", path: "/Users/me/sapien", missing: false };
 // Кавычка в пути: команда для терминала должна её экранировать.
@@ -148,8 +156,12 @@ function fakeRust({
         rust.sessions = rust.sessions.filter((session) => session.project !== id);
         return null;
       }
+      // Как has_messages в domain.rs: сессия с историей начата.
       case "agent_sessions":
-        return rust.sessions;
+        return rust.sessions.map((session) => ({
+          ...session,
+          started: session.started || (rust.history[session.id]?.length ?? 0) > 0,
+        }));
       case "agent_session_delete": {
         const { id } = args as { id: string };
 
@@ -218,9 +230,11 @@ function fakeRust({
           const { provider, model, effort } = sent;
 
           // Как title в domain.rs: первая строка без пробелов по краям.
+          // Непустое сообщение ложится в историю, и разговор начат.
           const title = session.title || (sent.text.trim().split("\n")[0]?.trim() ?? "");
+          const started = session.started || sent.text.trim() !== "";
 
-          return { ...session, provider, model, effort, title };
+          return { ...session, provider, model, effort, title, started };
         });
 
         return new Promise((resolve, reject) => {
@@ -853,8 +867,32 @@ describe("агент, модель и размышление", () => {
 
     await waitFor(() => expect(rust.sent).toHaveLength(1));
     expect(rust.sent[0]).toMatchObject({ session: "s1", provider: "claude", model: "opus", effort: "high" });
-    // Сессия ответила: её агент закреплён.
+
+    // Ответ кончился, а агент сессии закреплён.
+    rust.finish([
+      { kind: "user", text: "Почини парсер" },
+      { kind: "assistant", text: "Починил." },
+    ]);
+    expect(await screen.findByRole("button", { name: "Отправить" })).toBeDefined();
     expect(screen.getByRole<HTMLButtonElement>("button", { name: "Провайдер: Claude Code" }).disabled).toBe(true);
+  });
+
+  it("начатая сессия без модели продолжает своим агентом, хотя окно последним выбрало другого", async () => {
+    const rust = fakeRust({ providers: [CLAUDE, CODEX] });
+    // Сессия из версии без выбора агента: история есть, модели нет.
+    rust.history.s1 = [
+      { kind: "user", text: "Почини парсер" },
+      { kind: "assistant", text: "Починил." },
+    ];
+    choiceStore.setState(() => ({ last: { provider: "codex", model: "gpt-5", effort: null }, sessions: {} }));
+    open();
+    await openSession("Рефакторинг парсера");
+    expect(await screen.findByText("Починил.")).toBeDefined();
+
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Провайдер: Claude Code" }).disabled).toBe(true);
+    await ask("Теперь тесты");
+    await waitFor(() => expect(rust.sent).toHaveLength(1));
+    expect(rust.sent[0]).toMatchObject({ session: "s1", provider: "claude" });
   });
 
   it("у модели без размышления выбора уровня нет, и уровень не уходит", async () => {

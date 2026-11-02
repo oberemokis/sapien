@@ -11,6 +11,41 @@ export const NO_TABS: Tabs = { project: null, projects: {} };
 
 const EMPTY: ProjectTabs = { sessions: [], active: null };
 
+function isProjectTabs(value: unknown): value is ProjectTabs {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "sessions" in value &&
+    Array.isArray(value.sessions) &&
+    value.sessions.every((id) => typeof id === "string") &&
+    "active" in value &&
+    (value.active === null || typeof value.active === "string")
+  );
+}
+
+// Вкладки из хранилища окна: там может лежать что угодно от прошлых
+// версий. null: вкладок не было или это не вкладки.
+export function parseTabs(value: unknown): Tabs | null {
+  if (typeof value !== "object" || value === null || !("project" in value) || !("projects" in value)) {
+    return null;
+  }
+
+  const { project, projects } = value;
+
+  if ((project !== null && typeof project !== "string") || typeof projects !== "object" || projects === null) {
+    return null;
+  }
+
+  const entries = Object.entries(projects);
+  const valid = entries.filter((entry): entry is [string, ProjectTabs] => isProjectTabs(entry[1]));
+
+  if (valid.length !== entries.length) {
+    return null;
+  }
+
+  return { project, projects: Object.fromEntries(valid) };
+}
+
 // Сессия становится активной вкладкой своего проекта, а проект открытым.
 // Открытая сессия второй вкладки не получает.
 export function openTab(tabs: Tabs, project: string, session: string): Tabs {

@@ -9,6 +9,8 @@ import {
 } from "../infrastructure/agent.api";
 import { readRuns, writeRun } from "../infrastructure/agent.device";
 import { actionsOf, dueActions, hotkeyOf, isRunnable, taskAt, type Action } from "../model/actions";
+import type { Choice } from "../model/agents";
+import { chatProblemOf } from "../model/chat";
 import { homeProject } from "../model/sessions";
 import { choiceFor } from "./agents";
 import { reportProblem, useOnline, useRunning, useSend } from "./chat";
@@ -71,7 +73,15 @@ function useStart() {
 
       writeRun(action.path, { at: now.getTime(), ran: true });
 
-      const choice = await choiceFor(queryClient, session);
+      let choice: Choice | null;
+
+      // Rust не отдал список агентов: в чате его причина, а не «агентов нет».
+      try {
+        choice = await choiceFor(queryClient, session);
+      } catch (error) {
+        reportProblem(session, chatProblemOf(error));
+        return;
+      }
 
       // Агентов на устройстве нет: запуск помечен, причину видно в чате.
       if (choice === null) {

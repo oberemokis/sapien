@@ -4,8 +4,10 @@ export type Project = { id: string; name: string; path: string; missing: boolean
 
 // Сессия это разговор с агентом в папке проекта, как SessionInfo в Rust.
 // title пустой, пока человек ничего не написал. updated в миллисекундах.
-// provider, model и effort это выбор, с которым ушло последнее сообщение:
-// model null, пока сессия не отвечала.
+// provider, model и effort это выбор, с которым ушло последнее сообщение,
+// model null и у новой сессии, и у ответа моделью агента по умолчанию.
+// started: в истории есть сообщения, и агент сессии закреплён: Rust
+// не даст продолжить разговор другим агентом.
 export type SessionInfo = {
   id: string;
   project: string;
@@ -14,6 +16,7 @@ export type SessionInfo = {
   provider: string;
   model: string | null;
   effort: string | null;
+  started: boolean;
 };
 
 // Название новой сессии по первому сообщению, как title в domain.rs:
