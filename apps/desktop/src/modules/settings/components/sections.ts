@@ -10,9 +10,15 @@ export const SETTINGS_GROUPS = [
     label: "settings.groups.app",
     sections: [
       { to: "/settings/appearance", label: "appearance.title", icon: PaintBoardIcon },
-      { to: "/settings/agent", label: "agent.settings.title", icon: AiChat02Icon },
-      { to: "/settings/integrations", label: "forge.title", icon: Plug01Icon },
       { to: "/settings/security", label: "security.title", icon: SecurityLockIcon },
     ],
+  },
+  {
+    label: "settings.groups.agents",
+    sections: [{ to: "/settings/agent", label: "agent.settings.title", icon: AiChat02Icon }],
+  },
+  {
+    label: "settings.groups.workspace",
+    sections: [{ to: "/settings/integrations", label: "forge.title", icon: Plug01Icon }],
   },
 ] as const;

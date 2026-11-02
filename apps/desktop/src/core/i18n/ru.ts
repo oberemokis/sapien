@@ -229,6 +229,8 @@ export const ru = {
     sections: "Разделы настроек",
     groups: {
       app: "Приложение",
+      agents: "Агенты",
+      workspace: "Рабочее пространство",
     },
   },
   appearance: {
