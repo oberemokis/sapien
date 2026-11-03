@@ -18,6 +18,16 @@ export const ru = {
       failed: "Оболочка не запустилась.",
       retry: "Повторить",
     },
+    panes: {
+      label: "Панель {{index}}",
+      splitRight: "Разделить вправо",
+      splitLeft: "Разделить влево",
+      splitDown: "Разделить вниз",
+      splitUp: "Разделить вверх",
+      close: "Закрыть панель",
+      last: "Последнюю панель закрывает вкладка",
+      resize: "Граница панелей",
+    },
     sessions: {
       sections: "Разделы",
       title: "Сессии",

@@ -15,6 +15,7 @@ import { readTabs, writeTabs } from "../infrastructure/agent.device";
 import type { SessionInfo } from "../model/sessions";
 import { closeTab, NO_TABS, openTab, visibleTabs, type Tabs } from "../model/tabs";
 import { searchStore, tabsStore } from "../store/sessions.store";
+import { forgetPanes, sessionPanes } from "./panes";
 import { closeTerminal, terminalExited } from "./terminal";
 
 export const PROJECTS_KEY = ["agent", "projects"] as const;
@@ -58,10 +59,14 @@ export function openSession(session: Pick<SessionInfo, "id" | "project">) {
   changeTabs((tabs) => openTab(tabs, session.project, session.id));
 }
 
-// Закрытая вкладка закрывает и терминал сессии.
+// Закрытая вкладка закрывает и терминалы всех панелей сессии. Раскладка
+// остаётся: открытая снова сессия получает те же панели.
 export function closeSession(session: Pick<SessionInfo, "id" | "project">) {
   changeTabs((tabs) => closeTab(tabs, session.project, session.id));
-  closeTerminal(session.id);
+
+  for (const pane of sessionPanes(session.id)) {
+    closeTerminal(pane);
+  }
 }
 
 // События Rust о сессиях и терминалах, пока смонтирована оболочка окна.
@@ -135,13 +140,16 @@ export function useRemoveProject() {
   });
 }
 
-// Удалённая сессия закрывает и свою вкладку.
+// Удалённая сессия закрывает и свою вкладку, а её панели забываются.
 export function useDeleteSession() {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: (session: SessionInfo) => agentSessionDelete(session.id),
-    onSuccess: (_, session) => closeSession(session),
+    onSuccess: (_, session) => {
+      closeSession(session);
+      forgetPanes(session.id);
+    },
     onSettled: () => queryClient.invalidateQueries({ queryKey: SESSIONS_KEY }),
   });
 }

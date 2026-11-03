@@ -19,7 +19,7 @@ import { ActionsView, SessionList, SessionTabs, SessionView, useActionTriggers, 
 import type { ClaudeStatus } from "./model/claude";
 import type { Project, SessionInfo } from "./model/sessions";
 import { NO_TABS } from "./model/tabs";
-import { tabsStore } from "./store/sessions.store";
+import { panesStore, tabsStore } from "./store/sessions.store";
 
 const READY: ClaudeStatus = { state: "ready", version: "2.1.316" };
 
@@ -35,7 +35,7 @@ const SUMMARY: File = { path: "Сводка.md", text: "---\nhotkey: Mod+Shift+S
 
 const DAILY: File = { path: "Обзор за день.md", text: "---\nschedule: 0:00\n---\nИзменения с {{since}} по {{today}}\n" };
 
-type Opened = { session: string; cols: number; rows: number; task: string | null };
+type Opened = { session: string; pane: string; cols: number; rows: number; task: string | null };
 
 // Терминалы окна живут дольше теста, поэтому у сессий каждого теста свои
 // номера: терминал прошлого теста не подменит терминал этого.
@@ -53,15 +53,16 @@ function fakeRust({ actions = [] as File[], answers = [] as string[], runFails =
     title,
     updated,
     answering: false,
-    agent: null,
+    agents: [],
   });
   const rust = {
     sessions: [session("a", "Парсер", 2000), session("b", "Тесты", 1000)],
     created: [] as SessionInfo[],
     opened: [] as Opened[],
+    // Вывод оболочек по панелям.
     channels: new Map<string, Channel<ArrayBuffer>>(),
     received: 0,
-    written: [] as { session: string; data: string }[],
+    written: [] as { pane: string; data: string }[],
     closed: [] as string[],
     runs: [] as { session: string; task: string }[],
     answers: [...answers],
@@ -93,11 +94,11 @@ function fakeRust({ actions = [] as File[], answers = [] as string[], runFails =
             throw { kind: "unavailable", code: "terminal_failed" };
           }
 
-          rust.channels.set(opened.session, onData);
+          rust.channels.set(opened.pane, onData);
           return null;
         }
         case "terminal_write": {
-          const written = args as { session: string; data: string };
+          const written = args as { pane: string; data: string };
 
           // Команды Rust асинхронные: первое нажатие обрабатывается дольше
           // второго и без очереди в окне пришло бы вторым.
@@ -109,7 +110,7 @@ function fakeRust({ actions = [] as File[], answers = [] as string[], runFails =
         case "terminal_resize":
           return null;
         case "terminal_close":
-          rust.closed.push((args as { session: string }).session);
+          rust.closed.push((args as { pane: string }).pane);
           return null;
         case "terminal_run": {
           const run = args as { session: string; task: string };
@@ -131,9 +132,9 @@ function fakeRust({ actions = [] as File[], answers = [] as string[], runFails =
   return rust;
 }
 
-// Оболочка сессии напечатала text.
-function print(rust: ReturnType<typeof fakeRust>, session: string, text: string) {
-  act(() => rust.channels.get(session)?.onmessage(new TextEncoder().encode(text).buffer));
+// Оболочка панели напечатала text. Первая панель сессии зовётся как сессия.
+function print(rust: ReturnType<typeof fakeRust>, pane: string, text: string) {
+  act(() => rust.channels.get(pane)?.onmessage(new TextEncoder().encode(text).buffer));
 }
 
 // Оболочка окна, как pages/_shell.tsx.
@@ -216,6 +217,31 @@ function terminal() {
   return shown;
 }
 
+// Панель name, например «Панель 2».
+function region(name: string) {
+  return screen.getByRole("region", { name });
+}
+
+// Место терминала в панели name: на нём фокус и правая кнопка.
+function paneHost(name: string) {
+  return within(region(name)).getByTestId("terminal");
+}
+
+function paneTerminal(name: string) {
+  const host = paneHost(name);
+  const shown = Terminal.created.find((candidate) => !candidate.disposed && host.contains(candidate.element));
+
+  if (shown === undefined) {
+    throw new Error(`терминала в панели «${name}» нет`);
+  }
+
+  return shown;
+}
+
+function paneNames() {
+  return screen.queryAllByRole("region", { name: /^Панель/ }).map((found) => found.getAttribute("aria-label"));
+}
+
 function shownText() {
   return screen.getByTestId("terminal").textContent;
 }
@@ -236,6 +262,7 @@ afterEach(async () => {
   await new Promise((resolve) => setTimeout(resolve, 0));
   clearMocks();
   tabsStore.setState(() => NO_TABS);
+  panesStore.setState(() => ({}));
 });
 
 describe("терминал сессии", () => {
@@ -245,7 +272,9 @@ describe("терминал сессии", () => {
     open();
 
     await openSession("Парсер");
-    await waitFor(() => expect(rust.opened).toEqual([{ session: parser?.id, cols: 80, rows: 24, task: null }]));
+    await waitFor(() =>
+      expect(rust.opened).toEqual([{ session: parser?.id, pane: parser?.id, cols: 80, rows: 24, task: null }]),
+    );
 
     print(rust, parser?.id ?? "", "~/sapien $ ");
     expect(shownText()).toContain("~/sapien $");
@@ -256,8 +285,8 @@ describe("терминал сессии", () => {
     });
     await waitFor(() =>
       expect(rust.written).toEqual([
-        { session: parser?.id, data: "п" },
-        { session: parser?.id, data: "\r" },
+        { pane: parser?.id, data: "п" },
+        { pane: parser?.id, data: "\r" },
       ]),
     );
   });
@@ -308,7 +337,7 @@ describe("терминал сессии", () => {
     await openSession("Парсер");
     await waitFor(() => expect(rust.opened).toHaveLength(1));
 
-    await act(() => emit("terminal-exited", { session: parser?.id }));
+    await act(() => emit("terminal-exited", { session: parser?.id, pane: parser?.id }));
     fireEvent.click(await screen.findByRole("button", { name: "Открыть новую" }));
 
     await waitFor(() => expect(rust.opened).toHaveLength(2));
@@ -336,12 +365,116 @@ describe("терминал сессии", () => {
     expect(sessionRow("Парсер").queryByText("Codex")).toBeNull();
 
     rust.sessions = rust.sessions.map((session) =>
-      session.title === "Парсер" ? { ...session, agent: "codex", answering: true } : session,
+      session.title === "Парсер"
+        ? {
+            ...session,
+            agents: [
+              { pane: session.id, agent: "codex", answering: true },
+              { pane: "вторая", agent: "codex", answering: false },
+            ],
+            answering: true,
+          }
+        : session,
     );
     await act(() => emit("agent-sessions"));
 
     await waitFor(() => expect(sessionRow("Парсер").queryByText("агент работает")).not.toBeNull());
     expect(sessionRow("Парсер").getByText("Codex")).toBeDefined();
+  });
+});
+
+describe("панели сессии", () => {
+  it("⌘D делит панель вправо: у новой панели своя оболочка, набор уходит в панель, где фокус", async () => {
+    const rust = fakeRust();
+    const [parser] = rust.sessions;
+    open();
+
+    await openSession("Парсер");
+    await waitFor(() => expect(rust.opened).toHaveLength(1));
+    print(rust, parser?.id ?? "", "до деления");
+
+    fireEvent.keyDown(window, { code: "KeyD", ...MOD });
+    await waitFor(() => expect(rust.opened).toHaveLength(2));
+    const fresh = rust.opened[1]?.pane;
+    expect(rust.opened[1]).toEqual({ session: parser?.id, pane: fresh, cols: 80, rows: 24, task: null });
+    expect(fresh).not.toBe(parser?.id);
+    expect(paneNames()).toEqual(["Панель 1", "Панель 2"]);
+
+    // Первая панель держит свой терминал: вывод до деления на месте.
+    expect(paneTerminal("Панель 1").element?.textContent).toContain("до деления");
+    expect(rust.closed).toEqual([]);
+
+    act(() => paneTerminal("Панель 2").type("2"));
+    fireEvent.focusIn(paneHost("Панель 1"));
+    act(() => paneTerminal("Панель 1").type("1"));
+    // У каждой панели своя очередь ввода, порядок между панелями не задан.
+    await waitFor(() => expect(rust.written).toHaveLength(2));
+    expect(rust.written).toEqual(
+      expect.arrayContaining([
+        { pane: fresh, data: "2" },
+        { pane: parser?.id, data: "1" },
+      ]),
+    );
+    expect(region("Панель 1").dataset.active).toBe("true");
+    expect(region("Панель 2").dataset.active).toBeUndefined();
+  });
+
+  it("граница между панелями двигается стрелками", async () => {
+    fakeRust();
+    open();
+
+    await openSession("Парсер");
+    fireEvent.keyDown(window, { code: "KeyD", shiftKey: true, ...MOD });
+    const border = await screen.findByRole("separator", { name: "Граница панелей" });
+    expect(border.getAttribute("aria-orientation")).toBe("horizontal");
+
+    fireEvent.keyDown(border, { key: "ArrowDown" });
+    expect(border.getAttribute("aria-valuenow")).toBe("55");
+  });
+
+  it("меню панели закрывает её оболочку, а единственную панель закрыть нельзя", async () => {
+    const rust = fakeRust();
+    const [parser] = rust.sessions;
+    open();
+
+    await openSession("Парсер");
+    await waitFor(() => expect(rust.opened).toHaveLength(1));
+
+    fireEvent.contextMenu(paneHost("Панель 1"));
+    expect(screen.getByRole("menuitem", { name: /^Закрыть панель/ })).toHaveProperty("disabled", true);
+
+    fireEvent.click(screen.getByRole("menuitem", { name: "Разделить вверх" }));
+    await waitFor(() => expect(rust.opened).toHaveLength(2));
+    const fresh = rust.opened[1]?.pane;
+    // Новая панель встала сверху.
+    expect(paneTerminal("Панель 1")).toBe(Terminal.created.at(-1));
+
+    fireEvent.contextMenu(paneHost("Панель 1"));
+    fireEvent.click(screen.getByRole("menuitem", { name: /^Закрыть панель/ }));
+
+    await waitFor(() => expect(rust.closed).toEqual([fresh]));
+    expect(paneNames()).toEqual(["Панель 1"]);
+    print(rust, parser?.id ?? "", "осталась");
+    expect(shownText()).toContain("осталась");
+  });
+
+  it("крестик вкладки закрывает оболочки всех панелей, а открытая снова сессия возвращает те же панели", async () => {
+    const rust = fakeRust();
+    const [parser] = rust.sessions;
+    open();
+
+    await openSession("Парсер");
+    fireEvent.keyDown(window, { code: "KeyD", ...MOD });
+    await waitFor(() => expect(rust.opened).toHaveLength(2));
+    const fresh = rust.opened[1]?.pane;
+
+    fireEvent.click(screen.getByRole("button", { name: "Закрыть вкладку «Парсер»" }));
+    await waitFor(() => expect(rust.closed.toSorted()).toEqual([parser?.id, fresh].toSorted()));
+
+    await openSession("Парсер");
+    await waitFor(() => expect(rust.opened).toHaveLength(4));
+    expect(rust.opened.slice(2).map((opened) => opened.pane)).toEqual([parser?.id, fresh]);
+    expect(paneNames()).toEqual(["Панель 1", "Панель 2"]);
   });
 });
 

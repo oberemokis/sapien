@@ -81,8 +81,8 @@ pub struct Session {
 }
 
 /// Сессия в списке окна. Список читает её прямо из файла сессии.
-/// `answering`: агент сейчас работает, `agent`: какой агент на переднем
-/// плане терминала. Этих двух в файле нет.
+/// `agents`: агенты на переднем плане её панелей, `answering`: хоть один
+/// из них работает. Этих двух в файле нет.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionInfo {
@@ -93,7 +93,16 @@ pub struct SessionInfo {
     #[serde(skip_deserializing)]
     pub answering: bool,
     #[serde(skip_deserializing)]
-    pub agent: Option<String>,
+    pub agents: Vec<PaneAgent>,
+}
+
+/// Агент в панели `pane` сессии и работает ли он.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PaneAgent {
+    pub pane: String,
+    pub agent: String,
+    pub answering: bool,
 }
 
 impl Session {
@@ -116,16 +125,9 @@ impl Session {
             title: self.title.clone(),
             updated: self.updated,
             answering: false,
-            agent: None,
+            agents: vec![],
         }
     }
-}
-
-/// Что известно о терминале сессии, пока он идёт.
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct Live {
-    pub agent: Option<&'static str>,
-    pub answering: bool,
 }
 
 /// Агенты, которых sapien узнаёт в терминале. id совпадает с командой.

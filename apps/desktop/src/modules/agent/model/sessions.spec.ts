@@ -9,7 +9,7 @@ const session = (id: string, projectId: string, title: string, updated: number):
   title,
   updated,
   answering: false,
-  agent: null,
+  agents: [],
 });
 
 const PROJECTS = [project("p1", "sapien"), project("p2", "сайт")];

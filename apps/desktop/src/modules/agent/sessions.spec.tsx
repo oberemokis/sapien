@@ -22,9 +22,9 @@ const SITE: Project = { id: "p2", name: "сайт", path: "/Users/me/O'Brien/с�
 const DOCS: Project = { id: "p3", name: "документы", path: "/Users/me/документы", missing: false };
 
 const SESSIONS: SessionInfo[] = [
-  { id: "s1", project: "p1", title: "Рефакторинг парсера", updated: 3000, answering: false, agent: null },
-  { id: "s2", project: "p1", title: "Тесты окна", updated: 5000, answering: false, agent: null },
-  { id: "s3", project: "p2", title: "Лендинг", updated: 4000, answering: false, agent: null },
+  { id: "s1", project: "p1", title: "Рефакторинг парсера", updated: 3000, answering: false, agents: [] },
+  { id: "s2", project: "p1", title: "Тесты окна", updated: 5000, answering: false, agents: [] },
+  { id: "s3", project: "p2", title: "Лендинг", updated: 4000, answering: false, agents: [] },
 ];
 
 const MOD = { metaKey: true };
@@ -87,7 +87,7 @@ function fakeRust({ projects = [SAPIEN, SITE], answering = [] }: { projects?: Pr
           title: "",
           updated: 10_000,
           answering: false,
-          agent: null,
+          agents: [],
         };
 
         rust.created.push(session);

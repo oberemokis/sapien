@@ -29,11 +29,12 @@ export function agentSessionDelete(id: string) {
   return invoke<null>("agent_session_delete", { id });
 }
 
-// Терминал сессии: оболочка в её папке, вывод байтами в onData, начиная
-// с прежнего экрана. Оболочка ещё не идёт, и с task в ней сразу
-// запускается Claude Code с этим заданием.
+// Терминал панели pane сессии session: оболочка в папке сессии, вывод
+// байтами в onData, начиная с прежнего экрана панели. Оболочка ещё
+// не идёт, и с task в ней сразу запускается Claude Code с этим заданием.
 export function terminalOpen(
   session: string,
+  pane: string,
   cols: number,
   rows: number,
   task: string | null,
@@ -41,25 +42,27 @@ export function terminalOpen(
 ) {
   const channel = new Channel<ArrayBuffer>((data) => onData(new Uint8Array(data)));
 
-  return invoke<null>("terminal_open", { session, cols, rows, task, onData: channel });
+  return invoke<null>("terminal_open", { session, pane, cols, rows, task, onData: channel });
 }
 
-// Действие по расписанию: Claude Code с заданием в оболочке без вкладки.
+// Действие по расписанию: Claude Code с заданием в оболочке первой панели
+// без вкладки.
 export function terminalRun(session: string, task: string) {
   return invoke<null>("terminal_run", { session, task });
 }
 
-export function terminalWrite(session: string, data: string) {
-  return invoke<null>("terminal_write", { session, data });
+export function terminalWrite(pane: string, data: string) {
+  return invoke<null>("terminal_write", { pane, data });
 }
 
-export function terminalResize(session: string, cols: number, rows: number) {
-  return invoke<null>("terminal_resize", { session, cols, rows });
+export function terminalResize(pane: string, cols: number, rows: number) {
+  return invoke<null>("terminal_resize", { pane, cols, rows });
 }
 
-// Вкладку закрыли: оболочка доживает до конца работы агента.
-export function terminalClose(session: string) {
-  return invoke<null>("terminal_close", { session });
+// Панель закрыли, сама или с вкладкой: оболочка доживает до конца работы
+// агента.
+export function terminalClose(pane: string) {
+  return invoke<null>("terminal_close", { pane });
 }
 
 // Сессии поменялись без команды окна: в терминале запустили агента или
@@ -68,9 +71,9 @@ export function onSessionsChanged(handler: () => void) {
   return listen("agent-sessions", () => handler());
 }
 
-// Оболочка сессии кончилась.
-export function onTerminalExited(handler: (session: string) => void) {
-  return listen<{ session: string }>("terminal-exited", ({ payload }) => handler(payload.session));
+// Оболочка панели кончилась.
+export function onTerminalExited(handler: (pane: string) => void) {
+  return listen<{ session: string; pane: string }>("terminal-exited", ({ payload }) => handler(payload.pane));
 }
 
 // Есть ли Claude Code на устройстве, его версия и вход.

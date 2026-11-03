@@ -1,5 +1,5 @@
 use super::domain::{
-    ClaudeStatus, Live, SessionInfo, TASK_VAR, Titles, agent_of, session_title, shell_args,
+    ClaudeStatus, PaneAgent, SessionInfo, TASK_VAR, Titles, agent_of, session_title, shell_args,
 };
 use super::infrastructure::claude_code::ClaudeCode;
 use super::infrastructure::neighbours::ProjectFolders;
@@ -131,44 +131,59 @@ fn long_ago() -> Instant {
         .unwrap_or_else(Instant::now)
 }
 
-/// Оболочка сессии в псевдотерминале.
+/// Оболочка панели сессии `session` в псевдотерминале.
 struct Term {
+    session: String,
     pty: Pty,
     output: Arc<Mutex<Output>>,
     watch: Arc<Mutex<Watch>>,
 }
 
-/// Терминалы по сессиям.
+/// Терминалы по панелям. У каждой панели сессии своя оболочка.
 #[derive(Default)]
 pub struct Terminals {
     terms: Mutex<HashMap<String, Arc<Term>>>,
 }
 
 impl Terminals {
-    fn find(&self, session: &str) -> Option<Arc<Term>> {
-        lock(&self.terms).get(session).cloned()
+    fn find(&self, pane: &str) -> Option<Arc<Term>> {
+        lock(&self.terms).get(pane).cloned()
     }
 
-    fn live(&self, session: &str) -> Option<Live> {
-        let term = self.find(session)?;
-        let watch = lock(&term.watch);
+    /// Агенты в панелях сессии `session`, по порядку имён панелей.
+    fn agents(&self, session: &str) -> Vec<PaneAgent> {
+        let mut agents: Vec<PaneAgent> = lock(&self.terms)
+            .iter()
+            .filter(|(_, term)| term.session == session)
+            .filter_map(|(pane, term)| {
+                let watch = lock(&term.watch);
 
-        Some(Live {
-            agent: watch.agent,
-            answering: watch.answering,
-        })
+                Some(PaneAgent {
+                    pane: pane.clone(),
+                    agent: watch.agent?.to_owned(),
+                    answering: watch.answering,
+                })
+            })
+            .collect();
+
+        agents.sort_by(|a, b| a.pane.cmp(&b.pane));
+        agents
     }
 
     fn answering(&self, session: &str) -> bool {
-        self.live(session).is_some_and(|live| live.answering)
+        self.agents(session).iter().any(|agent| agent.answering)
     }
 
-    /// Сессию удаляют: терминал уходит из реестра сразу, чтобы его конец
-    /// не сохранил экран удалённой сессии.
+    /// Сессию удаляют: её терминалы уходят из реестра сразу, чтобы их
+    /// конец не сохранил экраны удалённой сессии.
     fn stop(&self, session: &str) {
-        if let Some(term) = lock(&self.terms).remove(session) {
-            term.pty.stop();
-        }
+        lock(&self.terms).retain(|_, term| {
+            if term.session == session {
+                term.pty.stop();
+            }
+
+            term.session != session
+        });
     }
 }
 
@@ -176,12 +191,12 @@ fn changed<R: Runtime>(app: &AppHandle<R>) {
     let _ = app.emit(SESSIONS_CHANGED, ());
 }
 
-/// Последний экран терминала остаётся сессии до следующего запуска.
-fn keep_screen<R: Runtime>(app: &AppHandle<R>, session: &str, term: &Term) {
+/// Последний экран терминала остаётся панели `pane` до следующего запуска.
+fn keep_screen<R: Runtime>(app: &AppHandle<R>, pane: &str, term: &Term) {
     let screen = lock(&term.output).screen.clone();
 
     if let Ok(store) = sessions(app) {
-        let _ = store.save_screen(session, &screen);
+        let _ = store.save_screen(&term.session, pane, &screen);
     }
 }
 
@@ -195,14 +210,14 @@ fn named<R: Runtime>(app: &AppHandle<R>, session: &str, title: String) {
     }
 }
 
-/// Запускает оболочку сессии `session` в папке её проекта, с прежним
-/// экраном над ней. С заданием `task` в ней сразу идёт Claude Code. Без
-/// канала это действие по расписанию: вывод никто не смотрит, пока сессию
-/// не откроют.
+/// Запускает оболочку панели `pane` сессии `session` в папке её проекта,
+/// с прежним экраном панели над ней. С заданием `task` в ней сразу идёт
+/// Claude Code. Без канала это действие по расписанию: вывод никто не
+/// смотрит, пока сессию не откроют.
 fn start(
     app: &AppHandle,
     terms: &mut HashMap<String, Arc<Term>>,
-    session: &str,
+    (session, pane): (&str, &str),
     task: Option<&str>,
     channel: Option<Channel>,
     (cols, rows): (u16, u16),
@@ -210,7 +225,7 @@ fn start(
     let store = sessions(app)?;
     let dir = use_case::folder(&store, &ProjectFolders(app.clone()), session)?;
     let mut env = shell_environment();
-    let mut screen = store.screen(session).unwrap_or_default();
+    let mut screen = store.screen(session, pane).unwrap_or_default();
 
     if let Some(task) = task {
         env.push((TASK_VAR.into(), task.into()));
@@ -241,7 +256,7 @@ fn start(
         app.clone(),
         session.to_owned(),
     );
-    let (ended, gone) = (app.clone(), session.to_owned());
+    let (ended, gone) = (app.clone(), pane.to_owned());
     let pty = Pty::spawn(
         Command {
             program: &user_shell(),
@@ -292,19 +307,30 @@ fn start(
         move || exited(&ended, &gone),
     )?;
 
-    terms.insert(session.to_owned(), Arc::new(Term { pty, output, watch }));
+    terms.insert(
+        pane.to_owned(),
+        Arc::new(Term {
+            session: session.to_owned(),
+            pty,
+            output,
+            watch,
+        }),
+    );
     Ok(())
 }
 
-/// Оболочка сессии `session` кончилась. Реестр держит запуск до конца
+/// Оболочка панели `pane` кончилась. Реестр держит запуск до конца
 /// вставки, поэтому оболочка, которая кончилась сразу, тоже уходит из него.
-fn exited<R: Runtime>(app: &AppHandle<R>, session: &str) {
-    let Some(term) = lock(&app.state::<Terminals>().terms).remove(session) else {
+fn exited<R: Runtime>(app: &AppHandle<R>, pane: &str) {
+    let Some(term) = lock(&app.state::<Terminals>().terms).remove(pane) else {
         return;
     };
 
-    keep_screen(app, session, &term);
-    let _ = app.emit(TERMINAL_EXITED, json!({ "session": session }));
+    keep_screen(app, pane, &term);
+    let _ = app.emit(
+        TERMINAL_EXITED,
+        json!({ "session": term.session, "pane": pane }),
+    );
     changed(app);
 }
 
@@ -355,20 +381,20 @@ fn watch<R: Runtime>(app: &AppHandle<R>) {
     loop {
         std::thread::sleep(TICK);
 
-        let terms: Vec<(String, Arc<Term>)> = lock(&app.state::<Terminals>().terms)
-            .iter()
-            .map(|(session, term)| (session.clone(), term.clone()))
+        let terms: Vec<Arc<Term>> = lock(&app.state::<Terminals>().terms)
+            .values()
+            .cloned()
             .collect();
         let mut news = false;
 
-        for (session, term) in terms {
+        for term in terms {
             let (different, started) = look(&term);
 
             news |= different;
 
             if started {
                 let _ = sessions(app)
-                    .and_then(|store| use_case::touch(&store, &session, None, durable::now()));
+                    .and_then(|store| use_case::touch(&store, &term.session, None, durable::now()));
             }
 
             let idle = {
@@ -395,13 +421,13 @@ pub fn start_terminals<R: Runtime>(app: &AppHandle<R>) {
     std::thread::spawn(move || watch(&watched));
 }
 
-/// Дверь для выхода из приложения: экраны остаются сессиям, а оболочки
+/// Дверь для выхода из приложения: экраны остаются панелям, а оболочки
 /// и всё, что в них идёт, уходят с приложением.
 pub fn stop_terminals<R: Runtime>(app: &AppHandle<R>) {
     let terms = std::mem::take(&mut *lock(&app.state::<Terminals>().terms));
 
-    for (session, term) in terms {
-        keep_screen(app, &session, &term);
+    for (pane, term) in terms {
+        keep_screen(app, &pane, &term);
         term.pty.stop();
     }
 }
@@ -412,7 +438,7 @@ pub fn agent_sessions(
     app: AppHandle,
     terminals: State<'_, Terminals>,
 ) -> Result<Vec<SessionInfo>, AppError> {
-    use_case::sessions(&sessions(&app)?, |id| terminals.live(id))
+    use_case::sessions(&sessions(&app)?, |id| terminals.agents(id))
 }
 
 #[tauri::command]
@@ -457,16 +483,17 @@ pub fn forget_project<R: Runtime>(app: &AppHandle<R>, project: &str) -> Result<(
 // Команды терминала асинхронные: синхронная команда идёт в главном потоке,
 // а через него же канал отдаёт вывод окну.
 
-/// Терминал вкладки сессии `session` размером `cols` на `rows`. Оболочка
-/// сессии уже идёт, например окно перезагрузили или действие по расписанию
-/// работает без вкладки, и вывод переключается в `on_data`, начиная с того,
-/// что уже на экране. Иначе она запускается, с Claude Code и заданием
-/// `task`, если оно есть.
+/// Терминал панели `pane` сессии `session` размером `cols` на `rows`.
+/// Оболочка панели уже идёт, например окно перезагрузили или действие
+/// по расписанию работает без вкладки, и вывод переключается в `on_data`,
+/// начиная с того, что уже на экране. Иначе она запускается, с Claude Code
+/// и заданием `task`, если оно есть.
 #[tauri::command]
 pub async fn terminal_open(
     app: AppHandle,
     terminals: State<'_, Terminals>,
     session: String,
+    pane: String,
     cols: u16,
     rows: u16,
     task: Option<String>,
@@ -474,11 +501,11 @@ pub async fn terminal_open(
 ) -> Result<(), AppError> {
     let mut terms = lock(&terminals.terms);
 
-    let Some(term) = terms.get(&session).cloned() else {
+    let Some(term) = terms.get(&pane).cloned() else {
         return start(
             &app,
             &mut terms,
-            &session,
+            (&session, &pane),
             task.as_deref(),
             Some(on_data),
             (cols, rows),
@@ -503,9 +530,9 @@ pub async fn terminal_open(
     Ok(())
 }
 
-/// Действие по расписанию: Claude Code с заданием `task` в оболочке сессии
-/// `session` без вкладки и без разрешений. Открытая потом вкладка
-/// подключается к нему.
+/// Действие по расписанию: Claude Code с заданием `task` в оболочке первой
+/// панели сессии `session` (у неё имя сессии) без вкладки и без
+/// разрешений. Открытая потом вкладка подключается к нему.
 #[tauri::command]
 pub async fn terminal_run(
     app: AppHandle,
@@ -515,30 +542,30 @@ pub async fn terminal_run(
 ) -> Result<(), AppError> {
     let mut terms = lock(&terminals.terms);
 
-    if terms.contains_key(&session) {
+    if terms.values().any(|term| term.session == session) {
         return Err(AppError::conflict("agent_busy"));
     }
 
     start(
         &app,
         &mut terms,
-        &session,
+        (&session, &session),
         Some(&task),
         None,
         BACKGROUND_SIZE,
     )
 }
 
-/// Ввод с клавиатуры вкладки. Оболочка уже кончилась, значит,
+/// Ввод с клавиатуры в панель `pane`. Оболочка уже кончилась, значит,
 /// `terminal_missing`.
 #[tauri::command]
 pub async fn terminal_write(
     terminals: State<'_, Terminals>,
-    session: String,
+    pane: String,
     data: String,
 ) -> Result<(), AppError> {
     let term = terminals
-        .find(&session)
+        .find(&pane)
         .ok_or(AppError::not_found("terminal_missing"))?;
 
     lock(&term.watch).poked = Instant::now();
@@ -548,11 +575,11 @@ pub async fn terminal_write(
 #[tauri::command]
 pub async fn terminal_resize(
     terminals: State<'_, Terminals>,
-    session: String,
+    pane: String,
     cols: u16,
     rows: u16,
 ) -> Result<(), AppError> {
-    if let Some(term) = terminals.find(&session) {
+    if let Some(term) = terminals.find(&pane) {
         lock(&term.watch).poked = Instant::now();
         term.pty.resize(cols, rows);
     }
@@ -560,14 +587,11 @@ pub async fn terminal_resize(
     Ok(())
 }
 
-/// Вкладку закрыли. Агент работает, и терминал доживает до конца его
-/// работы, иначе останавливается сразу.
+/// Панель закрыли, сама или с вкладкой. Агент работает, и терминал
+/// доживает до конца его работы, иначе останавливается сразу.
 #[tauri::command]
-pub async fn terminal_close(
-    terminals: State<'_, Terminals>,
-    session: String,
-) -> Result<(), AppError> {
-    if let Some(term) = terminals.find(&session) {
+pub async fn terminal_close(terminals: State<'_, Terminals>, pane: String) -> Result<(), AppError> {
+    if let Some(term) = terminals.find(&pane) {
         lock(&term.output).channel = None;
 
         if !lock(&term.watch).answering {

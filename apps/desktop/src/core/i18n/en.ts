@@ -23,6 +23,16 @@ export const en: Dictionary<typeof ru> = {
       failed: "The shell did not start.",
       retry: "Retry",
     },
+    panes: {
+      label: "Pane {{index}}",
+      splitRight: "Split right",
+      splitLeft: "Split left",
+      splitDown: "Split down",
+      splitUp: "Split up",
+      close: "Close pane",
+      last: "The last pane closes with its tab",
+      resize: "Pane border",
+    },
     sessions: {
       sections: "Sections",
       title: "Sessions",
