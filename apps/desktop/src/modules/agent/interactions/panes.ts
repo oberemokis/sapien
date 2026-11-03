@@ -73,6 +73,16 @@ export function activatePane(session: string, pane: string) {
   }
 }
 
+// Фокус в панель pane, если она ещё открыта: так строка агента в левой
+// панели ведёт к его терминалу. Терминал вкладки, которой ещё нет
+// на экране, получит фокус, когда появится.
+export function focusPane(session: string, pane: string) {
+  if (sessionPanes(session).includes(pane)) {
+    activatePane(session, pane);
+    focusTerminal(pane);
+  }
+}
+
 export function resizePanes(session: string, path: SplitPath, ratio: number) {
   setPanes(session, (panes) => ({ ...panes, layout: resizeSplit(panes.layout, path, ratio) }));
 }

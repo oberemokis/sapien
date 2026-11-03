@@ -180,9 +180,13 @@ function panel() {
   return within(screen.getByRole("navigation", { name: "Сессии" }));
 }
 
-// Строка сессии title в левой панели.
-function sessionRow(title: string) {
-  return within(panel().getByText(title).closest("button") as HTMLElement);
+// Агенты под сессией title в левой панели сверху вниз, у работающего звёздочка.
+function agentRows(title: string) {
+  const list = panel().queryByRole("list", { name: `Агенты сессии «${title}»` });
+
+  return (list === null ? [] : within(list).getAllByRole("button")).map(
+    (row) => `${row.querySelector("span")?.textContent}${within(row).queryByText("агент работает") === null ? "" : "*"}`,
+  );
 }
 
 // Окно открылось, и в левой панели видна сессия title.
@@ -357,20 +361,21 @@ describe("терминал сессии", () => {
     await waitFor(() => expect(screen.queryByText("Оболочка не запустилась.")).toBeNull());
   });
 
-  it("Rust сообщил о переменах в сессиях: окно перечитывает их, видно, какой агент запущен и что он работает", async () => {
+  it("Rust сообщил о переменах в сессиях: окно перечитывает их, под сессией видны агенты её панелей и кто работает", async () => {
     const rust = fakeRust();
     open();
 
     await listed("Парсер");
-    expect(sessionRow("Парсер").queryByText("Codex")).toBeNull();
+    expect(agentRows("Парсер")).toEqual([]);
 
+    // Панели «закрытая» в раскладке нет: её закрыли, а агент доделывает работу.
     rust.sessions = rust.sessions.map((session) =>
       session.title === "Парсер"
         ? {
             ...session,
             agents: [
+              { pane: "закрытая", agent: "claude", answering: false },
               { pane: session.id, agent: "codex", answering: true },
-              { pane: "вторая", agent: "codex", answering: false },
             ],
             answering: true,
           }
@@ -378,8 +383,8 @@ describe("терминал сессии", () => {
     );
     await act(() => emit("agent-sessions"));
 
-    await waitFor(() => expect(sessionRow("Парсер").queryByText("агент работает")).not.toBeNull());
-    expect(sessionRow("Парсер").getByText("Codex")).toBeDefined();
+    await waitFor(() => expect(agentRows("Парсер")).toEqual(["Codex*", "Claude Code"]));
+    expect(agentRows("Тесты")).toEqual([]);
   });
 });
 
@@ -475,6 +480,36 @@ describe("панели сессии", () => {
     await waitFor(() => expect(rust.opened).toHaveLength(4));
     expect(rust.opened.slice(2).map((opened) => opened.pane)).toEqual([parser?.id, fresh]);
     expect(paneNames()).toEqual(["Панель 1", "Панель 2"]);
+  });
+
+  it("строка агента в левой панели открывает его сессию и делает активной его панель", async () => {
+    const rust = fakeRust();
+    open();
+
+    await openSession("Парсер");
+    fireEvent.keyDown(window, { code: "KeyD", ...MOD });
+    await waitFor(() => expect(rust.opened).toHaveLength(2));
+    const fresh = rust.opened[1]?.pane ?? "";
+    rust.sessions = rust.sessions.map((session) =>
+      session.title === "Парсер" ? { ...session, agents: [{ pane: fresh, agent: "codex", answering: false }] } : session,
+    );
+    await act(() => emit("agent-sessions"));
+    await waitFor(() => expect(agentRows("Парсер")).toEqual(["Codex"]));
+
+    // Вкладка закрыта, активна первая панель.
+    fireEvent.focusIn(paneHost("Панель 1"));
+    fireEvent.click(screen.getByRole("button", { name: "Закрыть вкладку «Парсер»" }));
+    await waitFor(() => expect(tabs()).toEqual([]));
+
+    fireEvent.click(panel().getByRole("button", { name: "Codex" }));
+    await waitFor(() => expect(tabs()).toEqual(["Парсер*"]));
+    expect(region("Панель 2").dataset.active).toBe("true");
+
+    // Вкладка на экране, фокус ушёл в первую панель.
+    fireEvent.focusIn(paneHost("Панель 1"));
+    expect(region("Панель 2").dataset.active).toBeUndefined();
+    fireEvent.click(panel().getByRole("button", { name: "Codex" }));
+    expect(region("Панель 2").dataset.active).toBe("true");
   });
 });
 

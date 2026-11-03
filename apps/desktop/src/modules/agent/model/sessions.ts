@@ -29,11 +29,6 @@ export type SessionInfo = {
   agents: PaneAgent[];
 };
 
-// Имена агентов сессии без повторов, для строки в списке.
-export function agentNames(session: SessionInfo) {
-  return [...new Set(session.agents.map((running) => AGENT_NAMES[running.agent]))].join(", ");
-}
-
 // Сессии проекта, свежие сверху.
 export function sessionsOf(sessions: SessionInfo[], project: string) {
   return sessions.filter((session) => session.project === project).toSorted((a, b) => b.updated - a.updated);

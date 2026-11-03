@@ -30,12 +30,16 @@ const SESSIONS: SessionInfo[] = [
 const MOD = { metaKey: true };
 
 // Rust за командами агента: проекты и их сессии. answering: сессии,
-// в которых работает агент.
+// в первой панели которых работает Claude Code.
 function fakeRust({ projects = [SAPIEN, SITE], answering = [] }: { projects?: Project[]; answering?: string[] } = {}) {
   const rust = {
     projects: [...projects],
     sessions: SESSIONS.filter((session) => projects.some((project) => project.id === session.project)).map(
-      (session) => ({ ...session, answering: answering.includes(session.id) }),
+      (session) => ({
+        ...session,
+        answering: answering.includes(session.id),
+        agents: answering.includes(session.id) ? [{ pane: session.id, agent: "claude", answering: true }] : [],
+      }),
     ),
     // Сессии, которые Rust начал по просьбе окна.
     created: [] as SessionInfo[],
@@ -147,7 +151,8 @@ function panel() {
   return within(screen.getByRole("navigation", { name: "Сессии" }));
 }
 
-// Названия сессий проекта в левой панели сверху вниз.
+// Названия сессий проекта в левой панели сверху вниз. Агенты под сессией
+// в счёт не идут.
 function sessionTitles(project: string) {
   const item = panel().getByText(project).closest("li");
 
@@ -157,14 +162,15 @@ function sessionTitles(project: string) {
 
   return within(item)
     .queryAllByRole("listitem")
+    .filter((row) => row.closest("ul")?.parentElement === item)
     .map((row) => row.querySelector("span")?.textContent);
 }
 
-// Отметка у сессии в левой панели: в ней работает агент.
+// Отметка у агента под сессией в левой панели: он работает.
 function isAnswering(title: string) {
-  const row = panel().getByText(title).closest("button");
+  const agents = panel().queryByRole("list", { name: `Агенты сессии «${title}»` });
 
-  return row !== null && within(row).queryByText("агент работает") !== null;
+  return agents !== null && within(agents).queryByText("агент работает") !== null;
 }
 
 // Сессию открывают в левой панели. Имя строки начинается с названия,
