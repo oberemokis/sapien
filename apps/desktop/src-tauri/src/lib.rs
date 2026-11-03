@@ -65,6 +65,7 @@ pub fn run() {
             agent::transport::agent_sessions,
             agent::transport::agent_session_new,
             agent::transport::agent_session_delete,
+            agent::transport::agent_session_rename,
             agent::transport::agent_claude_status,
             agent::transport::terminal_open,
             agent::transport::terminal_run,

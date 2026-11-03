@@ -189,6 +189,7 @@ mod tests {
             id: id.into(),
             project: project.into(),
             title: "Почини сборку".into(),
+            named: true,
             created: 1,
             updated: 2,
             claude: Some("4f1c".into()),

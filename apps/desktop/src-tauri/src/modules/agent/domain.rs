@@ -64,14 +64,17 @@ impl ClaudeStatus {
 }
 
 /// Сессия sapien: терминал в папке проекта `project`, в котором человек
-/// запускает агентов. Заголовок пустой, пока его не дал агент. Время
-/// в миллисекундах Unix.
+/// запускает агентов. Заголовок пустой, пока его не дал агент или человек.
+/// Время в миллисекундах Unix.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Session {
     pub id: String,
     pub project: String,
     pub title: String,
+    /// Заголовок дал человек: заголовки терминала его больше не меняют.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub named: bool,
     pub created: u64,
     pub updated: u64,
     /// Разговор Claude Code из версий, где сессия сама его запускала.
@@ -112,6 +115,7 @@ impl Session {
             id,
             project: project.to_owned(),
             title: String::new(),
+            named: false,
             created: now,
             updated: now,
             claude: None,
@@ -158,6 +162,19 @@ pub fn session_title(raw: &str) -> Option<String> {
     let generic = lower == "claude code" || AGENTS.contains(&lower.as_str());
 
     (!text.is_empty() && !generic).then(|| text.chars().take(TITLE_LIMIT).collect())
+}
+
+/// Сколько знаков в имени сессии, которое дал человек.
+const NAME_LIMIT: usize = 100;
+
+/// Имя сессии, которое дал человек, без пробелов по краям. Длинное или
+/// с управляющими знаками не годится: `None`. Пустое годится, оно отдаёт
+/// имя обратно агенту.
+pub fn session_name(raw: &str) -> Option<String> {
+    let text = raw.trim();
+
+    (text.chars().count() <= NAME_LIMIT && !text.chars().any(char::is_control))
+        .then(|| text.to_owned())
 }
 
 /// Состояние разбора заголовков в выводе.
@@ -304,6 +321,19 @@ mod tests {
             session_title(&"я".repeat(80)).unwrap().chars().count(),
             TITLE_LIMIT
         );
+    }
+
+    #[test]
+    fn имя_от_человека_без_пробелов_по_краям_и_управляющих_знаков() {
+        assert_eq!(session_name("  Релиз 0.3  "), Some("Релиз 0.3".into()));
+        assert_eq!(session_name("   "), Some(String::new()));
+        assert_eq!(
+            session_name(&"я".repeat(NAME_LIMIT)).map(|name| name.chars().count()),
+            Some(NAME_LIMIT)
+        );
+        assert_eq!(session_name(&"я".repeat(NAME_LIMIT + 1)), None);
+        assert_eq!(session_name("строка\nвторая"), None);
+        assert_eq!(session_name("\x1b]0;чужой заголовок\x07"), None);
     }
 
     /// Скрипт оболочки с заданием `task` и поддельными `claude` и `$SHELL`,

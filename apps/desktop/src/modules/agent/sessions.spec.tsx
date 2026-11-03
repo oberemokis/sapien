@@ -47,6 +47,7 @@ function fakeRust({ projects = [SAPIEN, SITE], answering = [] }: { projects?: Pr
     deleted: [] as string[],
     // Сессии, в которых Rust считает агента отвечающим, хотя окно этого не видит.
     busy: [] as string[],
+    renamed: [] as { id: string; title: string }[],
   };
 
   mockIPC((command, args) => {
@@ -97,6 +98,14 @@ function fakeRust({ projects = [SAPIEN, SITE], answering = [] }: { projects?: Pr
         rust.created.push(session);
         rust.sessions = [...rust.sessions, session];
         return session;
+      }
+      // Как rename_session в use_case.rs: пробелы по краям не остаются.
+      case "agent_session_rename": {
+        const { id, title } = args as { id: string; title: string };
+
+        rust.renamed.push({ id, title });
+        rust.sessions = rust.sessions.map((session) => (session.id === id ? { ...session, title: title.trim() } : session));
+        return null;
       }
       // Терминал открытой вкладки: его проверяет terminal.spec.tsx.
       case "terminal_open":
@@ -188,16 +197,23 @@ function opened() {
 
 const TAB_STRIP = { name: /^Вкладки проекта/ };
 
-// Вкладки открытого проекта слева направо, у активной звёздочка. Первая
-// кнопка вкладки открывает её, вторая закрывает.
+// Вкладки открытого проекта слева направо, у активной звёздочка, у
+// закреплённой «^» впереди. Первая кнопка вкладки открывает её, вторая
+// закрывает.
 function tabs() {
   const strip = screen.queryByRole("navigation", TAB_STRIP);
 
   return (strip === null ? [] : within(strip).queryAllByRole("listitem")).map((item) => {
     const [show] = within(item).getAllByRole("button");
+    const pinned = within(item).queryByText("закреплена") === null ? "" : "^";
 
-    return `${show?.title}${show?.getAttribute("aria-current") === "page" ? "*" : ""}`;
+    return `${pinned}${show?.title}${show?.getAttribute("aria-current") === "page" ? "*" : ""}`;
   });
+}
+
+// Вкладка title в полосе вкладок, сама строка списка.
+function tabItem(title: string) {
+  return within(screen.getByRole("navigation", TAB_STRIP)).getByTitle(title).closest("li") as HTMLElement;
 }
 
 function tab(name: string | RegExp) {
@@ -357,6 +373,72 @@ describe("вкладки", () => {
 
     expect(await screen.findByRole("heading", { name: "Нет открытых вкладок" })).toBeDefined();
     expect(tabs()).toEqual([]);
+  });
+
+  it("двойное нажатие переименовывает сессию: новое имя и во вкладке, и слева, Escape отменяет", async () => {
+    const rust = fakeRust();
+    open();
+    await openSession("Тесты окна");
+
+    fireEvent.doubleClick(tab("Тесты окна"));
+    const field = screen.getByRole<HTMLInputElement>("textbox", { name: "Имя вкладки" });
+    expect(field.value).toBe("Тесты окна");
+    fireEvent.change(field, { target: { value: "Забыть" } });
+    fireEvent.keyDown(field, { key: "Escape" });
+    expect(tabs()).toEqual(["Тесты окна*"]);
+
+    fireEvent.doubleClick(tab("Тесты окна"));
+    const again = screen.getByRole("textbox", { name: "Имя вкладки" });
+    fireEvent.change(again, { target: { value: "  Релиз 0.3 " } });
+    fireEvent.keyDown(again, { key: "Enter" });
+
+    await waitFor(() => expect(tabs()).toEqual(["Релиз 0.3*"]));
+    expect(sessionTitles("sapien")).toEqual(["Релиз 0.3", "Рефакторинг парсера"]);
+    expect(rust.renamed).toEqual([{ id: "s2", title: "  Релиз 0.3 " }]);
+  });
+
+  it("закреплённая вкладка встаёт левее остальных, без крестика, и закрыть её из меню нельзя", async () => {
+    fakeRust();
+    open();
+    await openSession("Рефакторинг парсера");
+    await openSession("Тесты окна");
+
+    fireEvent.contextMenu(tab("Тесты окна"));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Закрепить" }));
+
+    expect(tabs()).toEqual(["^Тесты окна*", "Рефакторинг парсера"]);
+    expect(screen.queryByRole("button", { name: "Закрыть вкладку «Тесты окна»" })).toBeNull();
+
+    fireEvent.contextMenu(tab(/^Тесты окна/));
+    expect(screen.queryByRole("menuitem", { name: "Закрыть вкладку" })).toBeNull();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Открепить" }));
+    expect(tabs()).toEqual(["Тесты окна*", "Рефакторинг парсера"]);
+  });
+
+  it("вкладку перетаскивают на новое место, а отпущенная она не открывается", async () => {
+    fakeRust();
+    open();
+    await openSession("Рефакторинг парсера");
+    await openSession("Тесты окна");
+
+    // Вкладки по 100 px слева направо.
+    for (const [index, title] of ["Рефакторинг парсера", "Тесты окна"].entries()) {
+      vi.spyOn(tabItem(title), "getBoundingClientRect").mockReturnValue(DOMRect.fromRect({ x: index * 100, width: 100 }));
+    }
+
+    // Фоновую вкладку тащат правее середины соседки.
+    fireEvent.pointerDown(tab("Рефакторинг парсера"), { button: 0, clientX: 50 });
+    fireEvent.pointerMove(window, { clientX: 180 });
+    fireEvent.pointerUp(window, { clientX: 180 });
+    fireEvent.click(tab("Рефакторинг парсера"));
+
+    expect(tabs()).toEqual(["Тесты окна*", "Рефакторинг парсера"]);
+
+    // Короткий сдвиг это нажатие, а не перетаскивание.
+    fireEvent.pointerDown(tab("Рефакторинг парсера"), { button: 0, clientX: 150 });
+    fireEvent.pointerUp(window, { clientX: 152 });
+    fireEvent.click(tab("Рефакторинг парсера"));
+    await waitFor(() => expect(tabs()).toEqual(["Тесты окна", "Рефакторинг парсера*"]));
   });
 });
 

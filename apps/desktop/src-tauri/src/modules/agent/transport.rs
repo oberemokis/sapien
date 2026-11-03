@@ -466,6 +466,14 @@ pub fn agent_session_delete(
     )
 }
 
+/// Человек назвал сессию `id` сам, пустое имя отдаёт её агенту.
+#[tauri::command]
+pub fn agent_session_rename(app: AppHandle, id: String, title: String) -> Result<(), AppError> {
+    use_case::rename_session(&sessions(&app)?, &id, &title)?;
+    changed(&app);
+    Ok(())
+}
+
 /// Дверь для модуля projects: стирает сессии проекта, который убирают
 /// из списка, и останавливает их терминалы. Хоть в одной из них работает
 /// агент, значит, `agent_busy`, и не стирается ни одна.
