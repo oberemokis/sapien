@@ -26,9 +26,9 @@ const views = new Map<string, View>();
 // первая панель сессии: её имя совпадает с сессией.
 const tasks = new Map<string, string>();
 
-const FONT_SIZE = 13;
-// Шрифт терминала, как у opencode 2.0: его значки рисуют приглашения
-// оболочки. Лежит в приложении, см. styles.css.
+// Шрифт и размер терминала, как у opencode 2.0: значки шрифта рисуют
+// приглашения оболочки. Шрифт лежит в приложении, см. styles.css.
+const FONT_SIZE = 14;
 const FAMILY = '"JetBrainsMono Nerd Font Mono"';
 const FONT = `${FAMILY}, ui-monospace, Menlo, monospace`;
 const FALLBACK = "ui-monospace, Menlo, monospace";
