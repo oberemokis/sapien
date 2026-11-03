@@ -6,6 +6,7 @@ import { ContextMenu, type MenuItem } from "@/core/ui/context-menu";
 import { Icon } from "@/core/ui/icon";
 import { IconButton } from "@/core/ui/icon-button";
 import { shortcutLabel } from "@/core/ui/keys";
+import { focusPane, usePanes } from "../interactions/panes";
 import {
   openSearch,
   openSession,
@@ -17,7 +18,8 @@ import {
   useSessions,
   useTabs,
 } from "../interactions/sessions";
-import { agentNames, sessionsOf, type Project, type SessionInfo } from "../model/sessions";
+import { panesIn } from "../model/panes";
+import { AGENT_NAMES, sessionsOf, type Project, type SessionInfo } from "../model/sessions";
 
 // Строка панели как строка дерева: 28 px, выбранная на заливке.
 const ROW_SHAPE =
@@ -26,13 +28,60 @@ const ROW_SHAPE =
 // Разделы панели бледные, сессии ярче имени своего проекта.
 const ROW = `${ROW_SHAPE} text-text-muted hover:text-text-base aria-[current=page]:text-text-base`;
 const SESSION_ROW = `${ROW_SHAPE} text-text-base`;
+const AGENT_ROW = `${ROW_SHAPE} text-text-muted hover:text-text-base`;
 
 // Ветка дерева от буквы проекта к сессии, углы прямые. Список сдвинут
 // под середину буквы, у каждой сессии свой отрезок вертикали и отвод
-// на середине строки: у последней вертикаль кончается на отводе.
-// Отрезки не перекрываются, поэтому полупрозрачная линия ровная.
+// на середине строки: у последней вертикаль кончается на отводе, ниже
+// него могут идти её агенты. Отрезки не перекрываются, поэтому
+// полупрозрачная линия ровная.
 const SESSION_BRANCH =
-  "relative pl-2 before:absolute before:-top-0.5 before:bottom-0 before:left-0 before:w-px before:bg-border-base first:before:-top-1 last:before:bottom-3.5 after:absolute after:top-3.5 after:left-0 after:h-px after:w-2 after:bg-border-base";
+  "relative pl-2 before:absolute before:-top-0.5 before:bottom-0 before:left-0 before:w-px before:bg-border-base first:before:-top-1 last:before:h-4 first:last:before:h-4.5 after:absolute after:top-3.5 after:left-0 after:h-px after:w-2 after:bg-border-base";
+
+// Та же ветка от сессии к её агентам: список висит под первой буквой
+// названия сессии.
+const AGENT_BRANCH =
+  "relative pl-2 before:absolute before:-top-0.5 before:bottom-0 before:left-0 before:w-px before:bg-border-base first:before:top-0 last:before:h-4 first:last:before:h-3.5 after:absolute after:top-3.5 after:left-0 after:h-px after:w-2 after:bg-border-base";
+
+// Агенты в панелях сессии, в порядке панелей. Агент закрытой панели, который
+// ещё доделывает работу, идёт последним. Строка открывает сессию и ставит
+// фокус в панель агента.
+function SessionAgents({ session, onOpen }: { session: SessionInfo; onOpen: (session: SessionInfo) => void }) {
+  const { t } = useTranslation();
+  const panes = panesIn(usePanes(session.id).layout);
+
+  if (session.agents.length === 0) {
+    return null;
+  }
+
+  const place = (pane: string) => (panes.includes(pane) ? panes.indexOf(pane) : panes.length);
+  const agents = session.agents.toSorted((a, b) => place(a.pane) - place(b.pane));
+
+  return (
+    <ul aria-label={t("agent.sessions.agents", { title: session.title || t("agent.sessions.untitled") })} className="ml-2 flex flex-col gap-0.5">
+      {agents.map((running) => (
+        <li key={running.pane} className={AGENT_BRANCH}>
+          <button
+            type="button"
+            className={AGENT_ROW}
+            onClick={() => {
+              onOpen(session);
+              focusPane(session.id, running.pane);
+            }}
+          >
+            <span className="min-w-0 flex-1 truncate text-left">{AGENT_NAMES[running.agent]}</span>
+            {running.answering && (
+              <>
+                <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-bg-accent motion-safe:animate-pulse" />
+                <span className="sr-only">{t("agent.sessions.running")}</span>
+              </>
+            )}
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
+}
 
 type Menu = { x: number; y: number; items: MenuItem[] };
 
@@ -131,16 +180,8 @@ function ProjectSessions({ project, onMenu }: ProjectProps) {
               }
             >
               <span className="min-w-0 flex-1 truncate text-left">{session.title || t("agent.sessions.untitled")}</span>
-              {session.agents.length > 0 && (
-                <span className="shrink-0 text-[12px] text-text-muted">{agentNames(session)}</span>
-              )}
-              {session.answering && (
-                <>
-                  <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-bg-accent motion-safe:animate-pulse" />
-                  <span className="sr-only">{t("agent.sessions.running")}</span>
-                </>
-              )}
             </button>
+            <SessionAgents session={session} onOpen={open} />
           </li>
         ))}
       </ul>

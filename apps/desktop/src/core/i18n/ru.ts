@@ -34,6 +34,7 @@ export const ru = {
       new: "Новая сессия",
       untitled: "Новая сессия",
       running: "агент работает",
+      agents: "Агенты сессии «{{title}}»",
       delete: "Удалить сессию",
       newFailed: "Сессия не создалась.",
       deleteFailed: "Сессия не удалилась.",
