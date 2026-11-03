@@ -27,8 +27,13 @@ const views = new Map<string, View>();
 const tasks = new Map<string, string>();
 
 const FONT_SIZE = 13;
-const FONT = '"IBM Plex Mono", ui-monospace, Menlo, monospace';
+// Шрифт терминала, как у opencode 2.0: его значки рисуют приглашения
+// оболочки. Лежит в приложении, см. styles.css.
+const FAMILY = '"JetBrainsMono Nerd Font Mono"';
+const FONT = `${FAMILY}, ui-monospace, Menlo, monospace`;
 const FALLBACK = "ui-monospace, Menlo, monospace";
+// Оба начертания: жирные клетки без своего файла рисовались бы системным.
+const FACES = [`${FONT_SIZE}px ${FAMILY}`, `bold ${FONT_SIZE}px ${FAMILY}`];
 const IDLE: TerminalState = { notice: null, generation: 0 };
 
 function setState(pane: string, change: (state: TerminalState) => TerminalState) {
@@ -59,7 +64,6 @@ function send(view: View, request: (pane: string) => Promise<unknown>) {
 function create(session: string, pane: string) {
   // Шрифт приложения грузится при первом использовании, а xterm меряет
   // знак при открытии: до загрузки идёт системный, потом замер заново.
-  const font = `${FONT_SIZE}px "IBM Plex Mono"`;
   const view: View = {
     session,
     pane,
@@ -73,10 +77,10 @@ function create(session: string, pane: string) {
   view.term.loadAddon(view.fit);
   views.set(pane, view);
 
-  if (document.fonts.check(font)) {
+  if (FACES.every((face) => document.fonts.check(face))) {
     view.term.options.fontFamily = FONT;
   } else {
-    void document.fonts.load(font).then(() => {
+    void Promise.all(FACES.map((face) => document.fonts.load(face))).then(() => {
       view.term.options.fontFamily = FONT;
       view.fit.fit();
     });

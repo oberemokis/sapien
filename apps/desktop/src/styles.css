@@ -12,6 +12,23 @@
  */
 @import "tailwindcss";
 
+/* Шрифт терминала, как у opencode 2.0: JetBrains Mono со значками Nerd
+ * Fonts, которые рисуют приглашения оболочки. Жирный отдельным файлом:
+ * терминал рисует жирные клетки жирным начертанием. */
+@font-face {
+  font-family: "JetBrainsMono Nerd Font Mono";
+  src: url("./assets/fonts/JetBrainsMonoNerdFontMono-Regular.woff2") format("woff2");
+  font-weight: normal;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: "JetBrainsMono Nerd Font Mono";
+  src: url("./assets/fonts/JetBrainsMonoNerdFontMono-Bold.woff2") format("woff2");
+  font-weight: bold;
+  font-style: normal;
+}
+
 /* Тёмная тема по умолчанию, светлую включает класс на html. */
 @custom-variant dark (&:where(html:not(.theme-light), html:not(.theme-light) *));
 
