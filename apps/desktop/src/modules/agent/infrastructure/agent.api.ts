@@ -29,13 +29,9 @@ export function agentSessionDelete(id: string) {
   return invoke<null>("agent_session_delete", { id });
 }
 
-// Как открылся терминал, как Opened в Rust: подключился к идущему Claude
-// Code, начал разговор, продолжил прежний или начал заново, потому что
-// Claude Code прежнего не помнит.
-export type Opened = "attached" | "started" | "resumed" | "lost";
-
-// Терминал сессии: Claude Code в её папке, вывод байтами в onData. task
-// уходит первым сообщением, если Claude Code ещё не идёт.
+// Терминал сессии: оболочка в её папке, вывод байтами в onData, начиная
+// с прежнего экрана. Оболочка ещё не идёт, и с task в ней сразу
+// запускается Claude Code с этим заданием.
 export function terminalOpen(
   session: string,
   cols: number,
@@ -45,10 +41,10 @@ export function terminalOpen(
 ) {
   const channel = new Channel<ArrayBuffer>((data) => onData(new Uint8Array(data)));
 
-  return invoke<Opened>("terminal_open", { session, cols, rows, task, onData: channel });
+  return invoke<null>("terminal_open", { session, cols, rows, task, onData: channel });
 }
 
-// Действие по расписанию: Claude Code с заданием без вкладки.
+// Действие по расписанию: Claude Code с заданием в оболочке без вкладки.
 export function terminalRun(session: string, task: string) {
   return invoke<null>("terminal_run", { session, task });
 }
@@ -61,23 +57,18 @@ export function terminalResize(session: string, cols: number, rows: number) {
   return invoke<null>("terminal_resize", { session, cols, rows });
 }
 
-// Вкладку закрыли: Claude Code доживает до конца ответа.
+// Вкладку закрыли: оболочка доживает до конца работы агента.
 export function terminalClose(session: string) {
   return invoke<null>("terminal_close", { session });
 }
 
-// Сессии поменялись без команды окна: агент начал или кончил отвечать,
-// у сессии появилось название.
+// Сессии поменялись без команды окна: в терминале запустили агента или
+// он вышел, начал или кончил работать, назвал сессию.
 export function onSessionsChanged(handler: () => void) {
   return listen("agent-sessions", () => handler());
 }
 
-// Разговор терминала перешёл в другую сессию, например после /clear.
-export function onTerminalMoved(handler: (from: string, to: string) => void) {
-  return listen<{ from: string; to: string }>("terminal-moved", ({ payload }) => handler(payload.from, payload.to));
-}
-
-// Claude Code сессии кончился.
+// Оболочка сессии кончилась.
 export function onTerminalExited(handler: (session: string) => void) {
   return listen<{ session: string }>("terminal-exited", ({ payload }) => handler(payload.session));
 }

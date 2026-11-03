@@ -42,13 +42,9 @@ type Opened = { session: string; cols: number; rows: number; task: string | null
 let round = 0;
 
 // Rust за командами терминала. answers это ответы terminal_open по порядку,
-// дальше «started». runFails: Claude Code по расписанию не запускается.
-function fakeRust({
-  actions = [] as File[],
-  answers = [] as string[],
-  runFails = false,
-  stalled = false,
-} = {}) {
+// «failed» значит, что оболочка не запустилась, дальше они запускаются.
+// runFails: Claude Code по расписанию не запускается.
+function fakeRust({ actions = [] as File[], answers = [] as string[], runFails = false } = {}) {
   round += 1;
 
   const session = (name: string, title: string, updated: number): SessionInfo => ({
@@ -57,10 +53,10 @@ function fakeRust({
     title,
     updated,
     answering: false,
-    stalled: false,
+    agent: null,
   });
   const rust = {
-    sessions: [session("a", "Парсер", 2000), { ...session("b", "Тесты", 1000), stalled }],
+    sessions: [session("a", "Парсер", 2000), session("b", "Тесты", 1000)],
     created: [] as SessionInfo[],
     opened: [] as Opened[],
     channels: new Map<string, Channel<ArrayBuffer>>(),
@@ -91,16 +87,14 @@ function fakeRust({
         }
         case "terminal_open": {
           const { onData, ...opened } = args as Opened & { onData: Channel<ArrayBuffer> };
-          const answer = rust.answers.shift() ?? "started";
-
           rust.opened.push(opened);
 
-          if (answer === "failed") {
+          if (rust.answers.shift() === "failed") {
             throw { kind: "unavailable", code: "terminal_failed" };
           }
 
           rust.channels.set(opened.session, onData);
-          return answer;
+          return null;
         }
         case "terminal_write": {
           const written = args as { session: string; data: string };
@@ -137,7 +131,7 @@ function fakeRust({
   return rust;
 }
 
-// Claude Code сессии напечатал text.
+// Оболочка сессии напечатала text.
 function print(rust: ReturnType<typeof fakeRust>, session: string, text: string) {
   act(() => rust.channels.get(session)?.onmessage(new TextEncoder().encode(text).buffer));
 }
@@ -183,6 +177,11 @@ function open(at = "/") {
 
 function panel() {
   return within(screen.getByRole("navigation", { name: "Сессии" }));
+}
+
+// Строка сессии title в левой панели.
+function sessionRow(title: string) {
+  return within(panel().getByText(title).closest("button") as HTMLElement);
 }
 
 // Окно открылось, и в левой панели видна сессия title.
@@ -240,7 +239,7 @@ afterEach(async () => {
 });
 
 describe("терминал сессии", () => {
-  it("вкладка запускает Claude Code сессии размером терминала, вывод виден, набор уходит по порядку", async () => {
+  it("вкладка запускает оболочку сессии размером терминала, вывод виден, набор уходит по порядку", async () => {
     const rust = fakeRust();
     const [parser] = rust.sessions;
     open();
@@ -248,8 +247,8 @@ describe("терминал сессии", () => {
     await openSession("Парсер");
     await waitFor(() => expect(rust.opened).toEqual([{ session: parser?.id, cols: 80, rows: 24, task: null }]));
 
-    print(rust, parser?.id ?? "", "Claude Code готов");
-    expect(shownText()).toContain("Claude Code готов");
+    print(rust, parser?.id ?? "", "~/sapien $ ");
+    expect(shownText()).toContain("~/sapien $");
 
     act(() => {
       terminal().type("п");
@@ -263,7 +262,7 @@ describe("терминал сессии", () => {
     );
   });
 
-  it("другая вкладка не закрывает терминал: по возвращении тот же вывод, Claude Code не запускается заново", async () => {
+  it("другая вкладка не закрывает терминал: по возвращении тот же вывод, оболочка не запускается заново", async () => {
     const rust = fakeRust();
     const [parser, tests] = rust.sessions;
     open();
@@ -285,7 +284,7 @@ describe("терминал сессии", () => {
     expect(rust.closed).toEqual([]);
   });
 
-  it("крестик закрывает терминал вкладки, а сессия, открытая снова, запускает Claude Code заново", async () => {
+  it("крестик закрывает терминал вкладки, а сессия, открытая снова, запускает оболочку заново", async () => {
     const rust = fakeRust();
     const [parser] = rust.sessions;
     open();
@@ -301,16 +300,7 @@ describe("терминал сессии", () => {
     await waitFor(() => expect(rust.opened.map((opened) => opened.session)).toEqual([parser?.id, parser?.id]));
   });
 
-  it("Claude Code не помнит прежний разговор: плашка говорит, что начат новый", async () => {
-    fakeRust({ answers: ["lost"] });
-    open();
-
-    await openSession("Парсер");
-
-    expect(await screen.findByText("Claude Code не нашёл прежний разговор этой сессии, начат новый.")).toBeDefined();
-  });
-
-  it("Claude Code кончился: плашка говорит об этом, «Продолжить» запускает его снова", async () => {
+  it("оболочка кончилась: плашка говорит об этом, «Открыть новую» запускает новую", async () => {
     const rust = fakeRust();
     const [parser] = rust.sessions;
     open();
@@ -319,13 +309,13 @@ describe("терминал сессии", () => {
     await waitFor(() => expect(rust.opened).toHaveLength(1));
 
     await act(() => emit("terminal-exited", { session: parser?.id }));
-    fireEvent.click(await screen.findByRole("button", { name: "Продолжить" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Открыть новую" }));
 
     await waitFor(() => expect(rust.opened).toHaveLength(2));
-    expect(screen.queryByText("Claude Code завершился.")).toBeNull();
+    expect(screen.queryByText("Оболочка завершилась.")).toBeNull();
   });
 
-  it("Claude Code не запустился: «Повторить» запускает его снова с тем же заданием", async () => {
+  it("оболочка не запустилась: «Повторить» запускает её снова с тем же заданием", async () => {
     const rust = fakeRust({ actions: [SUMMARY], answers: ["failed"] });
     open();
 
@@ -335,46 +325,28 @@ describe("терминал сессии", () => {
 
     await waitFor(() => expect(rust.opened).toHaveLength(2));
     expect(rust.opened[1]?.task).toBe(`Сводка за ${today()}`);
-    await waitFor(() => expect(screen.queryByText("Claude Code не запустился.")).toBeNull());
+    await waitFor(() => expect(screen.queryByText("Оболочка не запустилась.")).toBeNull());
   });
 
-  it("/clear перевёл разговор в другую сессию: вкладка переходит к ней, терминал и вывод те же", async () => {
-    const rust = fakeRust();
-    const [parser] = rust.sessions;
-    const cleared: SessionInfo = { ...rust.sessions[0], id: `c${round}`, title: "", updated: 9000 } as SessionInfo;
-    open();
-
-    await openSession("Парсер");
-    await waitFor(() => expect(rust.opened).toHaveLength(1));
-    print(rust, parser?.id ?? "", "до /clear");
-
-    rust.sessions = [...rust.sessions, cleared];
-    await act(() => emit("terminal-moved", { from: parser?.id, to: cleared.id }));
-
-    await waitFor(() => expect(tabs()).toEqual(["Новая сессия*"]));
-    expect(shownText()).toContain("до /clear");
-    // Прежняя сессия остаётся в списке.
-    expect(panel().getByText("Парсер")).toBeDefined();
-
-    act(() => terminal().type("дальше"));
-    await waitFor(() => expect(rust.written).toEqual([{ session: cleared.id, data: "дальше" }]));
-    expect(rust.opened).toHaveLength(1);
-  });
-
-  it("Rust сообщил о переменах в сессиях: окно перечитывает их, отвечающий агент отмечен", async () => {
+  it("Rust сообщил о переменах в сессиях: окно перечитывает их, видно, какой агент запущен и что он работает", async () => {
     const rust = fakeRust();
     open();
 
     await listed("Парсер");
-    rust.sessions = rust.sessions.map((session) => (session.title === "Парсер" ? { ...session, answering: true } : session));
+    expect(sessionRow("Парсер").queryByText("Codex")).toBeNull();
+
+    rust.sessions = rust.sessions.map((session) =>
+      session.title === "Парсер" ? { ...session, agent: "codex", answering: true } : session,
+    );
     await act(() => emit("agent-sessions"));
 
-    await waitFor(() => expect(within(panel().getByText("Парсер").closest("button") as HTMLElement).queryByText("агент отвечает")).not.toBeNull());
+    await waitFor(() => expect(sessionRow("Парсер").queryByText("агент работает")).not.toBeNull());
+    expect(sessionRow("Парсер").getByText("Codex")).toBeDefined();
   });
 });
 
 describe("действия", () => {
-  it("клавиша начинает новую сессию вкладкой, задание уходит первым сообщением её Claude Code", async () => {
+  it("клавиша начинает новую сессию вкладкой, в её оболочке Claude Code получает задание", async () => {
     const rust = fakeRust({ actions: [SUMMARY] });
     open();
 
@@ -428,16 +400,5 @@ describe("действия", () => {
 
     await waitFor(() => expect(rust.opened).toHaveLength(1));
     expect(rust.opened[0]?.task).toMatch(/^Изменения с /);
-  });
-
-  it("задание по расписанию не ушло: сессия отмечена, а плашка объясняет, что Claude Code ждёт ответа", async () => {
-    fakeRust({ stalled: true });
-    open();
-
-    const row = (await listed("Тесты")).closest("button") as HTMLElement;
-    expect(within(row).getByText("ждёт ответа")).toBeDefined();
-
-    await openSession("Тесты");
-    expect(await screen.findByText(/задание не ушло: Claude Code ждёт ответа ниже/)).toBeDefined();
   });
 });

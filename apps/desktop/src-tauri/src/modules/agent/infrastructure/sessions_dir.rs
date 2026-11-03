@@ -9,8 +9,8 @@ use std::path::{Path, PathBuf};
 
 /// Сессии лежат в папке данных приложения, файл на сессию:
 /// `sessions/<id>.json`, внутри `{ id, project, title, created, updated,
-/// claude }`. В папке проекта их нет: они не попадают ни в git, ни на
-/// облачный диск.
+/// claude }`, а последний экран её терминала в `sessions/screens/<id>`.
+/// В папке проекта их нет: они не попадают ни в git, ни на облачный диск.
 pub struct SessionsDir {
     dir: PathBuf,
 }
@@ -31,6 +31,25 @@ impl SessionsDir {
                 .all(|char| char.is_ascii_alphanumeric() || char == '-');
 
         plain.then(|| self.dir.join(format!("{id}.json")))
+    }
+
+    fn screen_file(&self, id: &str) -> Option<PathBuf> {
+        self.file(id).map(|_| self.dir.join("screens").join(id))
+    }
+
+    /// Вывод терминала сессии `id`, каким он был, когда терминал кончился.
+    pub fn screen(&self, id: &str) -> Option<Vec<u8>> {
+        fs::read(self.screen_file(id)?).ok()
+    }
+
+    pub fn save_screen(&self, id: &str, bytes: &[u8]) -> Result<(), AppError> {
+        let unwritable = |_| AppError::unavailable("session_unwritable");
+        let file = self
+            .screen_file(id)
+            .ok_or(AppError::invalid("session_invalid"))?;
+
+        fs::create_dir_all(self.dir.join("screens")).map_err(unwritable)?;
+        durable::write(&file, bytes).map_err(unwritable)
     }
 }
 
@@ -82,17 +101,20 @@ impl Sessions for SessionsDir {
         durable::write(&file, &saved).map_err(unwritable)
     }
 
+    /// Экран уходит вместе с сессией.
     fn delete(&self, id: &str) -> Result<(), AppError> {
-        let Some(file) = self.file(id) else {
+        let (Some(file), Some(screen)) = (self.file(id), self.screen_file(id)) else {
             return Ok(());
         };
 
-        match fs::remove_file(file) {
-            Err(error) if error.kind() != ErrorKind::NotFound => {
-                Err(AppError::unavailable("session_unwritable"))
-            }
-            _ => Ok(()),
-        }
+        [screen, file]
+            .into_iter()
+            .try_for_each(|path| match fs::remove_file(path) {
+                Err(error) if error.kind() != ErrorKind::NotFound => {
+                    Err(AppError::unavailable("session_unwritable"))
+                }
+                _ => Ok(()),
+            })
     }
 }
 
@@ -193,9 +215,19 @@ mod tests {
         assert_eq!(saved(data.path(), "a1"), Some(session("a1", "p1")));
         assert_eq!(saved(data.path(), "b2").unwrap().claude, None);
 
+        // Экран терминала тоже переживает перезапуск, а список не трогает.
+        assert_eq!(again.screen("a1"), None);
+        again.save_screen("a1", b"\x1b[1m$ make\r\n").unwrap();
+        assert_eq!(
+            SessionsDir::new(data.path()).screen("a1").as_deref(),
+            Some(&b"\x1b[1m$ make\r\n"[..])
+        );
+        assert_eq!(again.list().unwrap().len(), 2);
+
         again.delete("a1").unwrap();
         again.delete("a1").unwrap();
         assert_eq!(saved(data.path(), "a1"), None);
+        assert_eq!(again.screen("a1"), None);
     }
 
     #[test]

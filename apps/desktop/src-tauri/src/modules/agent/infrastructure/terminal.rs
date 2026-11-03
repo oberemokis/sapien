@@ -2,7 +2,7 @@ use crate::error::AppError;
 use portable_pty::{CommandBuilder, MasterPty, PtySize, native_pty_system};
 use std::ffi::OsString;
 use std::io::{Read, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -103,19 +103,78 @@ impl Pty {
         });
     }
 
-    /// SIGTERM всей группе процесса: вместе с Claude Code уходят и его
-    /// команды. Процесс, который уже кончился, сигнал не трогает.
+    /// Группа процессов на переднем плане, если это не сам запущенный
+    /// процесс: у оболочки это команда, которую в ней запустили.
+    pub fn foreground(&self) -> Option<u32> {
+        let group = lock(&self.master).process_group_leader()?;
+        let group = u32::try_from(group).ok()?;
+
+        (Some(group) != self.pid).then_some(group)
+    }
+
+    /// SIGHUP, как при закрытии окна терминала: команде на переднем плане
+    /// и группе процесса. Интерактивная оболочка SIGTERM не слушает,
+    /// а по SIGHUP выходит и рассылает его своим задачам. Процесс, который
+    /// уже кончился, сигнал не трогает.
     pub fn stop(&self) {
-        // ponytail: без SIGKILL следом. Claude Code выходит по SIGTERM,
-        // добивать его стоит, если найдётся процесс, который не выходит.
-        #[cfg(unix)]
-        if let Some(pid) = self.pid.and_then(|pid| libc::pid_t::try_from(pid).ok()) {
-            // SAFETY: killpg только шлёт сигнал и не трогает память.
-            unsafe {
-                libc::killpg(pid, libc::SIGTERM);
+        // ponytail: без SIGKILL следом, добивать стоит, если найдётся
+        // процесс, который по SIGHUP не выходит.
+        let groups = [self.foreground(), self.pid];
+
+        for group in groups.into_iter().flatten() {
+            if let Ok(group) = libc::pid_t::try_from(group) {
+                // SAFETY: killpg только шлёт сигнал и не трогает память.
+                unsafe {
+                    libc::killpg(group, libc::SIGHUP);
+                }
             }
         }
     }
+}
+
+/// Оболочка человека. Приложение из Finder получает SHELL от launchd,
+/// без него берётся zsh, оболочка macOS по умолчанию.
+pub fn user_shell() -> PathBuf {
+    std::env::var_os("SHELL").map_or_else(|| PathBuf::from("/bin/zsh"), PathBuf::from)
+}
+
+/// Что из окружения приложения доходит до оболочки. Остальное она соберёт
+/// из своих настроек сама, а окружение запуска приложения, например ключи
+/// из `pnpm dev`, до терминала не доходит.
+const PASSED: [&str; 5] = ["HOME", "USER", "LOGNAME", "TMPDIR", "SSH_AUTH_SOCK"];
+
+/// Окружение оболочки сессии. Без LANG приложение из Finder дало бы
+/// оболочке локаль C, и кириллица в ней не набиралась бы.
+pub fn shell_environment() -> Vec<(OsString, OsString)> {
+    let lang = std::env::var_os("LANG").unwrap_or_else(|| "en_US.UTF-8".into());
+    let fixed = [
+        ("PATH", "/usr/bin:/bin:/usr/sbin:/sbin".into()),
+        ("SHELL", user_shell().into_os_string()),
+        ("LANG", lang),
+        ("TERM", "xterm-256color".into()),
+        ("COLORTERM", "truecolor".into()),
+    ]
+    .map(|(name, value)| (name.into(), value));
+    let passed = PASSED
+        .iter()
+        .filter_map(|name| Some(((*name).into(), std::env::var_os(name)?)));
+
+    fixed.into_iter().chain(passed).collect()
+}
+
+/// Командная строка процесса `pid`. Процесса уже нет: `None`.
+pub fn command_line(pid: u32) -> Option<String> {
+    let output = std::process::Command::new("/bin/ps")
+        .args(["-o", "args=", "-p", &pid.to_string()])
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .ok()?;
+
+    output
+        .status
+        .success()
+        .then(|| String::from_utf8_lossy(&output.stdout).trim().to_owned())
 }
 
 #[cfg(all(test, unix))]
@@ -190,7 +249,7 @@ done
                 ],
                 env: vec![
                     ("PATH".into(), "/usr/bin:/bin".into()),
-                    ("SAPIEN_TERMINAL".into(), "метка".into()),
+                    ("SAPIEN_TASK".into(), "задание".into()),
                 ],
                 dir: &project,
                 cols: 100,
@@ -245,7 +304,7 @@ done
 
         let env = fs::read_to_string(dir.path().join("env")).unwrap();
 
-        assert!(env.contains("SAPIEN_TERMINAL=метка"));
+        assert!(env.contains("SAPIEN_TASK=задание"));
         // Окружение приложения до процесса не доходит.
         assert!(!env.contains("CARGO"));
 
@@ -269,5 +328,45 @@ done
         pty.stop();
         assert!(exited.recv_timeout(Duration::from_secs(2)).is_ok());
         assert!(until(|| !running(&child)));
+    }
+
+    #[test]
+    fn команда_оболочки_видна_на_переднем_плане_пока_идёт() {
+        let dir = tempfile::tempdir().unwrap();
+        let (done, exited) = mpsc::channel();
+        // Интерактивный zsh без файлов настроек: задачи в своих группах.
+        let pty = Pty::spawn(
+            Command {
+                program: Path::new("/bin/zsh"),
+                args: &["-f".into(), "-i".into()],
+                env: vec![("PATH".into(), "/usr/bin:/bin".into())],
+                dir: dir.path(),
+                cols: 80,
+                rows: 24,
+            },
+            |_| {},
+            move || {
+                let _ = done.send(());
+            },
+        )
+        .unwrap();
+        let shown = || pty.foreground().and_then(command_line);
+
+        assert_eq!(shown(), None);
+
+        pty.write(b"sleep 30\r").unwrap();
+        assert!(until(|| shown().as_deref() == Some("sleep 30")));
+
+        pty.write(b"\x03").unwrap();
+        assert!(until(|| shown().is_none()));
+
+        // Оболочка выходит, хотя SIGTERM не слушает, и команда с ней.
+        pty.write(b"sleep 30\r").unwrap();
+        assert!(until(|| shown().as_deref() == Some("sleep 30")));
+        let sleep = pty.foreground().unwrap().to_string();
+
+        pty.stop();
+        assert!(exited.recv_timeout(Duration::from_secs(2)).is_ok());
+        assert!(until(|| !running(&sleep)));
     }
 }

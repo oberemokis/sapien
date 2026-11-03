@@ -7,16 +7,15 @@ import {
   agentSessions,
   onSessionsChanged,
   onTerminalExited,
-  onTerminalMoved,
   projectsAdd,
   projectsList,
   projectsRemove,
 } from "../infrastructure/agent.api";
 import { readTabs, writeTabs } from "../infrastructure/agent.device";
 import type { SessionInfo } from "../model/sessions";
-import { closeTab, NO_TABS, openTab, replaceTab, visibleTabs, type Tabs } from "../model/tabs";
+import { closeTab, NO_TABS, openTab, visibleTabs, type Tabs } from "../model/tabs";
 import { searchStore, tabsStore } from "../store/sessions.store";
-import { closeTerminal, moveTerminal, terminalExited } from "./terminal";
+import { closeTerminal, terminalExited } from "./terminal";
 
 export const PROJECTS_KEY = ["agent", "projects"] as const;
 export const SESSIONS_KEY = ["agent", "sessions"] as const;
@@ -71,17 +70,7 @@ export function useAgentEvents() {
 
   useEffect(() => {
     const refresh = () => queryClient.invalidateQueries({ queryKey: SESSIONS_KEY });
-    const listeners = [
-      onSessionsChanged(() => void refresh()),
-      onTerminalMoved((from, to) => {
-        moveTerminal(from, to);
-        // Вкладка переходит, когда сессия to уже в списке: без неё вкладку
-        // не видно, и на миг активной стала бы соседняя, а с ней
-        // запустился бы и её Claude Code.
-        void refresh().then(() => changeTabs((tabs) => replaceTab(tabs, from, to)));
-      }),
-      onTerminalExited(terminalExited),
-    ];
+    const listeners = [onSessionsChanged(() => void refresh()), onTerminalExited(terminalExited)];
 
     return () => {
       for (const listener of listeners) {

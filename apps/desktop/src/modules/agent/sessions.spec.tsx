@@ -11,12 +11,9 @@ import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SessionList, SessionSearch, SessionTabs, SessionView } from "@/modules/agent";
-import type { ClaudeStatus } from "./model/claude";
 import type { Project, SessionInfo } from "./model/sessions";
 import { NO_TABS } from "./model/tabs";
 import { searchStore, tabsStore } from "./store/sessions.store";
-
-const READY: ClaudeStatus = { state: "ready", version: "2.1.316" };
 
 const SAPIEN: Project = { id: "p1", name: "sapien", path: "/Users/me/sapien", missing: false };
 // Кавычка в пути: команда для терминала должна её экранировать.
@@ -25,20 +22,16 @@ const SITE: Project = { id: "p2", name: "сайт", path: "/Users/me/O'Brien/с�
 const DOCS: Project = { id: "p3", name: "документы", path: "/Users/me/документы", missing: false };
 
 const SESSIONS: SessionInfo[] = [
-  { id: "s1", project: "p1", title: "Рефакторинг парсера", updated: 3000, answering: false, stalled: false },
-  { id: "s2", project: "p1", title: "Тесты окна", updated: 5000, answering: false, stalled: false },
-  { id: "s3", project: "p2", title: "Лендинг", updated: 4000, answering: false, stalled: false },
+  { id: "s1", project: "p1", title: "Рефакторинг парсера", updated: 3000, answering: false, agent: null },
+  { id: "s2", project: "p1", title: "Тесты окна", updated: 5000, answering: false, agent: null },
+  { id: "s3", project: "p2", title: "Лендинг", updated: 4000, answering: false, agent: null },
 ];
 
 const MOD = { metaKey: true };
 
-// Rust за командами агента: проекты, их сессии и Claude Code. answering:
-// сессии, в которых отвечает агент.
-function fakeRust({
-  projects = [SAPIEN, SITE],
-  claude = READY,
-  answering = [],
-}: { projects?: Project[]; claude?: ClaudeStatus; answering?: string[] } = {}) {
+// Rust за командами агента: проекты и их сессии. answering: сессии,
+// в которых работает агент.
+function fakeRust({ projects = [SAPIEN, SITE], answering = [] }: { projects?: Project[]; answering?: string[] } = {}) {
   const rust = {
     projects: [...projects],
     sessions: SESSIONS.filter((session) => projects.some((project) => project.id === session.project)).map(
@@ -94,18 +87,16 @@ function fakeRust({
           title: "",
           updated: 10_000,
           answering: false,
-          stalled: false,
+          agent: null,
         };
 
         rust.created.push(session);
         rust.sessions = [...rust.sessions, session];
         return session;
       }
-      case "agent_claude_status":
-        return claude;
       // Терминал открытой вкладки: его проверяет terminal.spec.tsx.
       case "terminal_open":
-        return "started";
+        return null;
       case "terminal_write":
       case "terminal_resize":
       case "terminal_close":
@@ -169,11 +160,11 @@ function sessionTitles(project: string) {
     .map((row) => row.querySelector("span")?.textContent);
 }
 
-// Отметка у сессии в левой панели: в ней отвечает агент.
+// Отметка у сессии в левой панели: в ней работает агент.
 function isAnswering(title: string) {
   const row = panel().getByText(title).closest("button");
 
-  return row !== null && within(row).queryByText("агент отвечает") !== null;
+  return row !== null && within(row).queryByText("агент работает") !== null;
 }
 
 // Сессию открывают в левой панели. Имя строки начинается с названия,
@@ -221,7 +212,7 @@ afterEach(() => {
 });
 
 describe("левая панель", () => {
-  it("проекты показывают свои сессии свежими сверху, отвечающий агент отмечен у своей сессии", async () => {
+  it("проекты показывают свои сессии свежими сверху, работающий агент отмечен у своей сессии", async () => {
     fakeRust({ answering: ["s1"] });
     open();
     await waitFor(() => expect(sessionTitles("sapien")).toEqual(["Тесты окна", "Рефакторинг парсера"]));
@@ -231,7 +222,7 @@ describe("левая панель", () => {
     expect(isAnswering("Тесты окна")).toBe(false);
 
     await openSession("Рефакторинг парсера");
-    expect(within(tab(/^Рефакторинг парсера/)).getByText("агент отвечает")).toBeDefined();
+    expect(within(tab(/^Рефакторинг парсера/)).getByText("агент работает")).toBeDefined();
   });
 
   it("«+» во вкладках начинает сессию в открытом проекте новой вкладкой", async () => {
@@ -283,7 +274,7 @@ describe("левая панель", () => {
     expect(rust.removed).toEqual(["p2"]);
   });
 
-  it("сессию, где отвечает агент, удалить нельзя, отказ Rust виден, остальные удаляются", async () => {
+  it("сессию, где работает агент, удалить нельзя, отказ Rust виден, остальные удаляются", async () => {
     const rust = fakeRust({ answering: ["s1"] });
     open();
     await waitFor(() => expect(isAnswering("Рефакторинг парсера")).toBe(true));
@@ -291,7 +282,7 @@ describe("левая панель", () => {
     fireEvent.contextMenu(panel().getByText("Рефакторинг парсера"));
     const item = screen.getByRole<HTMLButtonElement>("menuitem", { name: /^Удалить сессию/ });
     expect(item.disabled).toBe(true);
-    expect(item.textContent).toContain("агент отвечает");
+    expect(item.textContent).toContain("агент работает");
 
     rust.busy.push("s2");
     fireEvent.contextMenu(panel().getByText("Тесты окна"));
@@ -401,24 +392,14 @@ describe("сессия", () => {
     await openSession("Рефакторинг парсера");
 
     expect((await screen.findByRole("alert")).textContent).toBe(
-      "Папки проекта больше нет на диске: /Users/me/sapien. Агент работает в ней, сессия продолжится, когда папка вернётся.",
+      "Папки проекта больше нет на диске: /Users/me/sapien. Терминал открывается в ней, сессия продолжится, когда папка вернётся.",
     );
     expect(panel().getByText("нет папки")).toBeDefined();
     expect(tabs()).toEqual(["Рефакторинг парсера*"]);
     expect(screen.queryByRole("button", { name: "Новая сессия в «sapien»" })).toBeNull();
   });
 
-  it("Claude Code без входа: сессия ведёт в настройки", async () => {
-    fakeRust({ claude: { state: "logged_out", version: "2.1.316" } });
-    open();
-    await openSession("Рефакторинг парсера");
-
-    const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toContain("Вход не выполнен");
-    expect(within(alert).getByRole("link", { name: "Настройки" }).getAttribute("href")).toBe("/settings/agent");
-  });
-
-  it("с готовым Claude Code и папкой на месте плашек нет", async () => {
+  it("с папкой на месте плашек нет", async () => {
     fakeRust();
     open();
     await openSession("Рефакторинг парсера");

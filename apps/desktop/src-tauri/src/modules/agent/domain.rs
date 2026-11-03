@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::Value;
 
 /// Claude Code на устройстве: через него агент расходует подписку Claude.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
@@ -63,9 +63,8 @@ impl ClaudeStatus {
     }
 }
 
-/// Сессия sapien: отдельный разговор с агентом в папке проекта `project`.
-/// Сам разговор хранит Claude Code, а здесь его id `claude`: без него
-/// сессия ещё не говорила. Заголовок пустой до первого сообщения. Время
+/// Сессия sapien: терминал в папке проекта `project`, в котором человек
+/// запускает агентов. Заголовок пустой, пока его не дал агент. Время
 /// в миллисекундах Unix.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -75,15 +74,15 @@ pub struct Session {
     pub title: String,
     pub created: u64,
     pub updated: u64,
+    /// Разговор Claude Code из версий, где сессия сама его запускала.
+    /// Хранится, чтобы его можно было продолжить: `claude --resume <id>`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub claude: Option<String>,
 }
 
 /// Сессия в списке окна. Список читает её прямо из файла сессии.
-/// `answering`: в ней сейчас отвечает агент. `stalled`: действие
-/// по расписанию запустило Claude Code, а задание не ушло, например он
-/// ждёт ответа о доверии к папке. Этих двух в файле нет. `claude` окну
-/// не нужен и не уходит в него.
+/// `answering`: агент сейчас работает, `agent`: какой агент на переднем
+/// плане терминала. Этих двух в файле нет.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionInfo {
@@ -94,9 +93,7 @@ pub struct SessionInfo {
     #[serde(skip_deserializing)]
     pub answering: bool,
     #[serde(skip_deserializing)]
-    pub stalled: bool,
-    #[serde(default, skip_serializing)]
-    pub claude: Option<String>,
+    pub agent: Option<String>,
 }
 
 impl Session {
@@ -119,285 +116,256 @@ impl Session {
             title: self.title.clone(),
             updated: self.updated,
             answering: false,
-            stalled: false,
-            claude: self.claude.clone(),
+            agent: None,
         }
     }
 }
 
-/// Сколько знаков заголовка сессии берётся из первого сообщения.
+/// Что известно о терминале сессии, пока он идёт.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Live {
+    pub agent: Option<&'static str>,
+    pub answering: bool,
+}
+
+/// Агенты, которых sapien узнаёт в терминале. id совпадает с командой.
+pub const AGENTS: [&str; 5] = ["claude", "codex", "pi", "opencode", "gemini"];
+
+/// Агент по командной строке процесса на переднем плане терминала.
+/// Поставленный через npm агент идёт скриптом node, поэтому смотрится
+/// и программа, и следующие за ней слова.
+pub fn agent_of(command: &str) -> Option<&'static str> {
+    command.split_whitespace().take(3).find_map(|word| {
+        let name = word.rsplit('/').next()?;
+
+        AGENTS.into_iter().find(|agent| *agent == name)
+    })
+}
+
+/// Сколько знаков заголовка сессии берётся у агента.
 const TITLE_LIMIT: usize = 60;
 
-/// Заголовок сессии по первому сообщению человека: его первая строка.
-pub fn title(text: &str) -> String {
-    let line = text.trim().lines().next().unwrap_or_default().trim();
+/// Имя сессии из заголовка, который агент поставил терминалу: без значков
+/// работы в начале вроде «✳ » и «⠂ ». Заголовок с одним именем агента
+/// ничего о сессии не говорит, как и пустой.
+pub fn session_title(raw: &str) -> Option<String> {
+    let text = raw
+        .trim_start_matches(|char: char| !char.is_alphanumeric())
+        .trim();
+    let lower = text.to_lowercase();
+    let generic = lower == "claude code" || AGENTS.contains(&lower.as_str());
 
-    line.chars().take(TITLE_LIMIT).collect()
+    (!text.is_empty() && !generic).then(|| text.chars().take(TITLE_LIMIT).collect())
 }
 
-/// id разговора Claude Code годится в аргумент: uuid, без флага и чужих
-/// знаков.
-pub fn valid_claude(id: &str) -> bool {
-    !id.is_empty()
-        && !id.starts_with('-')
-        && id
-            .chars()
-            .all(|char| char.is_ascii_hexdigit() || char == '-')
+/// Состояние разбора заголовков в выводе.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+enum Osc {
+    #[default]
+    Text,
+    Esc,
+    Kind,
+    Title,
+    TitleEsc,
 }
 
-/// Событие хука Claude Code, которое передаёт подкоманда `sapien hook`.
-#[derive(Debug, Clone, PartialEq)]
-pub enum Hook {
-    /// Разговор начался: запуск, `/clear`, `/resume` или сжатие (`compact`).
-    Start { claude: String, compact: bool },
-    /// Человек отправил сообщение.
-    Prompt { text: String },
-    /// Ответ кончился, в том числе отказом.
-    Stop,
-    /// Claude Code ждёт человека: разрешения или, `idle`, следующего
-    /// сообщения.
-    Notification { idle: bool },
+/// Самый длинный заголовок, который ещё дочитывается.
+const OSC_LIMIT: usize = 1024;
+
+/// Заголовки терминала (OSC 0 и OSC 2) из потока вывода. Последовательность
+/// может прийти разрезанной между кусками, поэтому разбор помнит, где
+/// остановился.
+#[derive(Debug, Default)]
+pub struct Titles {
+    state: Osc,
+    kind: Vec<u8>,
+    text: Vec<u8>,
 }
 
-impl Hook {
-    /// Событие из JSON хука. Незнакомое или без нужного поля даёт `None`.
-    pub fn of(event: &Value) -> Option<Self> {
-        match event["hook_event_name"].as_str()? {
-            "SessionStart" => Some(Self::Start {
-                claude: event["session_id"]
-                    .as_str()
-                    .filter(|id| valid_claude(id))?
-                    .to_owned(),
-                compact: event["source"] == "compact",
-            }),
-            "UserPromptSubmit" => Some(Self::Prompt {
-                text: event["prompt"].as_str().unwrap_or_default().to_owned(),
-            }),
-            "Stop" | "StopFailure" => Some(Self::Stop),
-            "Notification" => Some(Self::Notification {
-                idle: event["notification_type"] == "idle_prompt",
-            }),
-            _ => None,
+impl Titles {
+    /// Последний целый заголовок из куска вывода.
+    pub fn feed(&mut self, bytes: &[u8]) -> Option<String> {
+        let mut found = None;
+
+        for &byte in bytes {
+            self.state = match (self.state, byte) {
+                (Osc::Title, 0x07) | (Osc::TitleEsc, b'\\') => {
+                    found = Some(String::from_utf8_lossy(&self.text).into_owned());
+                    Osc::Text
+                }
+                (Osc::Title, 0x1b) => Osc::TitleEsc,
+                (Osc::Title, _) if self.text.len() < OSC_LIMIT => {
+                    self.text.push(byte);
+                    Osc::Title
+                }
+                (_, 0x1b) => Osc::Esc,
+                (Osc::Esc, b']') => {
+                    self.kind.clear();
+                    Osc::Kind
+                }
+                (Osc::Kind, b'0'..=b'9') if self.kind.len() < 4 => {
+                    self.kind.push(byte);
+                    Osc::Kind
+                }
+                (Osc::Kind, b';') if matches!(self.kind.as_slice(), b"0" | b"2") => {
+                    self.text.clear();
+                    Osc::Title
+                }
+                _ => Osc::Text,
+            };
         }
+
+        found
     }
 }
 
-/// Что sapien знает о Claude Code, запущенном в терминале.
-#[derive(Debug, Clone, PartialEq)]
-pub struct Tracked {
-    /// Сессия sapien, в которой он говорит сейчас: после `/clear` другая.
-    pub session: String,
-    pub answering: bool,
-    /// Вкладка сессии открыта в окне.
-    pub open: bool,
-    /// Запущен действием по расписанию, без вкладки.
-    pub background: bool,
-    /// Хоть одно сообщение или задание уже ушло.
-    pub prompted: bool,
-    /// Первый `SessionStart` этого процесса уже пришёл.
-    pub started: bool,
-    /// Запущен по расписанию, а задание так и не ушло.
-    pub stalled: bool,
-}
+/// Переменная, в которой задание действия доходит до оболочки: так его
+/// не нужно экранировать ни для zsh, ни для bash, ни для fish.
+pub const TASK_VAR: &str = "SAPIEN_TASK";
 
-impl Tracked {
-    /// Claude Code сессии `session`: во вкладке или, без неё, по расписанию.
-    pub fn new(session: String, open: bool) -> Self {
-        Self {
-            session,
-            answering: false,
-            open,
-            background: !open,
-            prompted: false,
-            started: false,
-            stalled: false,
-        }
-    }
-}
+/// Оболочка входа сессии. С заданием она сначала запускает Claude Code
+/// с ним первым сообщением, после `--`, чтобы оно не стало флагом, а когда
+/// Claude Code кончится, уступает место обычной оболочке без задания
+/// в окружении. Действие по расписанию идёт без человека, поэтому без
+/// вопросов о разрешениях и без вопроса, согласен ли он на это.
+pub fn shell_args(task: bool, background: bool) -> Vec<String> {
+    let flags = if background {
+        r#" --permission-mode bypassPermissions --settings '{"skipDangerousModePermissionPrompt":true}'"#
+    } else {
+        ""
+    };
 
-/// Что делать после события хука.
-#[derive(Debug, PartialEq)]
-pub enum Effect {
-    /// Окну перечитать сессии.
-    Changed,
-    /// Разговор в терминале сменился: вкладка переходит к сессии `to`.
-    Moved { from: String, to: String },
-    /// Процесс больше не нужен: вкладку закрыли, а ответ кончился.
-    Stop,
-}
-
-/// События Claude Code, о которых узнаёт sapien.
-const HOOKED: [&str; 5] = [
-    "SessionStart",
-    "UserPromptSubmit",
-    "Stop",
-    "StopFailure",
-    "Notification",
-];
-
-/// Сколько секунд Claude Code ждёт хук sapien. Хук только передаёт
-/// событие и ответа не ждёт.
-const HOOK_TIMEOUT: u64 = 5;
-
-/// Строка в одинарных кавычках для sh: команду хука Claude Code запускает
-/// оболочкой, а в пути к приложению бывают пробелы и кавычки.
-pub fn quoted(text: &str) -> String {
-    format!("'{}'", text.replace('\'', r"'\''"))
-}
-
-/// `--settings` терминала: хуки sapien, их Claude Code складывает с хуками
-/// человека и проекта. Действие по расписанию идёт без человека, и Claude
-/// Code не спрашивает, согласен ли он на режим без разрешений.
-pub fn settings(exe: &str, background: bool) -> String {
-    let hook = json!([{
-        "hooks": [{
-            "type": "command",
-            "command": format!("{} hook", quoted(exe)),
-            "timeout": HOOK_TIMEOUT,
-        }],
-    }]);
-    let hooks: serde_json::Map<String, Value> = HOOKED
-        .iter()
-        .map(|event| ((*event).to_owned(), hook.clone()))
-        .collect();
-    let mut settings = json!({ "hooks": hooks });
-
-    if background {
-        settings["skipDangerousModePermissionPrompt"] = true.into();
+    if !task {
+        return vec!["-l".into()];
     }
 
-    settings.to_string()
-}
-
-/// Аргументы `claude` терминала. Разговор `claude` уже есть у Claude Code,
-/// значит, `--resume`, иначе он начинается с этим же id. Действие
-/// по расписанию идёт без разрешений: человека рядом нет. Задание стоит
-/// после `--` и флагом не станет.
-pub fn launch(
-    claude: &str,
-    resume: bool,
-    settings: String,
-    task: Option<&str>,
-    background: bool,
-) -> Vec<String> {
-    let mut args = vec![
-        if resume { "--resume" } else { "--session-id" }.to_owned(),
-        claude.to_owned(),
-        "--settings".to_owned(),
-        settings,
-    ];
-
-    if background {
-        args.extend([
-            "--permission-mode".to_owned(),
-            "bypassPermissions".to_owned(),
-        ]);
-    }
-
-    if let Some(task) = task {
-        args.extend(["--".to_owned(), task.to_owned()]);
-    }
-
-    args
+    vec![
+        "-l".into(),
+        "-i".into(),
+        "-c".into(),
+        format!(r#"claude{flags} -- "${TASK_VAR}"; exec env -u {TASK_VAR} "$SHELL" -l"#),
+    ]
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
-    fn хук_разбирается_по_имени_события() {
-        let hook = |event: Value| Hook::of(&event);
-
+    fn агент_узнаётся_по_команде_и_по_скрипту_node() {
+        assert_eq!(agent_of("claude"), Some("claude"));
         assert_eq!(
-            hook(
-                json!({ "hook_event_name": "SessionStart", "session_id": "4f1c-9a", "source": "clear" })
-            ),
-            Some(Hook::Start {
-                claude: "4f1c-9a".into(),
-                compact: false
-            })
+            agent_of("/Users/me/.local/bin/claude --resume 4f1c"),
+            Some("claude")
         );
-        assert_eq!(
-            hook(
-                json!({ "hook_event_name": "SessionStart", "session_id": "4f1c", "source": "compact" })
-            ),
-            Some(Hook::Start {
-                claude: "4f1c".into(),
-                compact: true
-            })
-        );
-        // id, который стал бы флагом, не годится.
-        assert_eq!(
-            hook(json!({ "hook_event_name": "SessionStart", "session_id": "--help" })),
-            None
-        );
-        assert_eq!(
-            hook(json!({ "hook_event_name": "UserPromptSubmit", "prompt": "Почини" })),
-            Some(Hook::Prompt {
-                text: "Почини".into()
-            })
-        );
-        assert_eq!(hook(json!({ "hook_event_name": "Stop" })), Some(Hook::Stop));
-        assert_eq!(
-            hook(json!({ "hook_event_name": "StopFailure", "error": "rate_limit" })),
-            Some(Hook::Stop)
-        );
-        assert_eq!(
-            hook(json!({ "hook_event_name": "Notification", "notification_type": "idle_prompt" })),
-            Some(Hook::Notification { idle: true })
-        );
-        assert_eq!(
-            hook(
-                json!({ "hook_event_name": "Notification", "notification_type": "permission_prompt" })
-            ),
-            Some(Hook::Notification { idle: false })
-        );
-        assert_eq!(hook(json!({ "hook_event_name": "SessionEnd" })), None);
-        assert_eq!(hook(json!("не событие")), None);
+        assert_eq!(agent_of("node /opt/homebrew/bin/codex"), Some("codex"));
+        assert_eq!(agent_of("node --no-warnings /usr/local/bin/pi"), Some("pi"));
+        assert_eq!(agent_of("opencode run"), Some("opencode"));
+        assert_eq!(agent_of("vim claude.md"), None);
+        assert_eq!(agent_of("-zsh"), None);
+        assert_eq!(agent_of("pnpm test"), None);
     }
 
     #[test]
-    fn claude_запускается_с_хуками_sapien_а_задание_не_становится_флагом() {
-        let exe = "/Applications/O'Brien sapien.app/Contents/MacOS/sapien";
-        let tab: Value = serde_json::from_str(&settings(exe, false)).unwrap();
-        let command = &tab["hooks"]["Stop"][0]["hooks"][0];
+    fn заголовок_терминала_собирается_из_кусков_вывода() {
+        let mut titles = Titles::default();
 
+        assert_eq!(titles.feed(b"\x1b]0;\xe2\x9c\xb3 Fix lo"), None);
         assert_eq!(
-            command["command"],
-            r"'/Applications/O'\''Brien sapien.app/Contents/MacOS/sapien' hook"
+            titles.feed(b"gin bug\x07text"),
+            Some("✳ Fix login bug".into())
         );
-        assert_eq!(command["timeout"], 5);
-        assert_eq!(tab["hooks"].as_object().unwrap().len(), HOOKED.len());
-        assert_eq!(tab.get("skipDangerousModePermissionPrompt"), None);
-
-        let background: Value = serde_json::from_str(&settings(exe, true)).unwrap();
-
-        assert_eq!(background["skipDangerousModePermissionPrompt"], true);
-
+        // OSC 2 с ESC \ в конце, OSC 7 (папка) не заголовок.
         assert_eq!(
-            launch("4f1c", true, "{}".into(), None, false),
-            ["--resume", "4f1c", "--settings", "{}"]
+            titles.feed(b"\x1b]7;file:///tmp\x07\x1b]2;Second\x1b\\"),
+            Some("Second".into())
         );
-        assert_eq!(
-            launch("4f1c", false, "{}".into(), Some("--help"), true),
-            [
-                "--session-id",
-                "4f1c",
-                "--settings",
-                "{}",
-                "--permission-mode",
-                "bypassPermissions",
-                "--",
-                "--help"
-            ]
-        );
+        // Цвета и прочие последовательности заголовков не дают.
+        assert_eq!(titles.feed(b"\x1b[31mred\x1b[0m"), None);
     }
 
     #[test]
-    fn заголовок_сессии_это_первая_строка_первого_сообщения() {
-        assert_eq!(title("\n  Почини сборку\nпадает на CI"), "Почини сборку");
-        assert_eq!(title(&"я".repeat(80)).chars().count(), TITLE_LIMIT);
+    fn имя_сессии_из_заголовка_без_значков_работы() {
+        assert_eq!(
+            session_title("✳ Fix login bug"),
+            Some("Fix login bug".into())
+        );
+        assert_eq!(
+            session_title("⠂ Почини сборку  "),
+            Some("Почини сборку".into())
+        );
+        assert_eq!(session_title("✳ Claude Code"), None);
+        assert_eq!(session_title("codex"), None);
+        assert_eq!(session_title(" ✳ "), None);
+        assert_eq!(
+            session_title(&"я".repeat(80)).unwrap().chars().count(),
+            TITLE_LIMIT
+        );
+    }
+
+    /// Скрипт оболочки с заданием `task` и поддельными `claude` и `$SHELL`,
+    /// которые пишут, с чем их позвали и что видят в окружении.
+    #[cfg(unix)]
+    fn run_shell(task: &str, background: bool) -> (String, String) {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let fake = |name: &str, script: &str| {
+            let path = dir.path().join(name);
+
+            std::fs::write(&path, format!("#!/bin/sh\n{script}\n")).unwrap();
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+            path
+        };
+        let here = dir.path().display();
+
+        fake(
+            "claude",
+            &format!("printf '%s|' \"$@\" > '{here}/claude.args'"),
+        );
+        let shell = fake(
+            "shell",
+            &format!("echo \"$@ ${TASK_VAR}\" > '{here}/shell.args'"),
+        );
+        let args = shell_args(true, background);
+
+        // Без -l и -i: оболочка входа читала бы настройки того, кто
+        // запускает тесты.
+        assert_eq!(args[..3], ["-l", "-i", "-c"]);
+        let status = std::process::Command::new("/bin/sh")
+            .args(&args[2..])
+            .env_clear()
+            .env("PATH", format!("{here}:/usr/bin:/bin"))
+            .env("SHELL", &shell)
+            .env(TASK_VAR, task)
+            .status()
+            .unwrap();
+
+        assert!(status.success());
+        let read = |name| std::fs::read_to_string(dir.path().join(name)).unwrap();
+
+        (read("claude.args"), read("shell.args"))
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn задание_доходит_до_claude_code_как_есть_а_дальше_идёт_оболочка() {
+        assert_eq!(shell_args(false, false), ["-l"]);
+
+        let task = "--help 'это' \"$HOME\"\nи \\ `то`";
+        let (claude, shell) = run_shell(task, false);
+
+        assert_eq!(claude, format!("--|{task}|"));
+        // Оболочка после Claude Code входа, и задания в её окружении нет.
+        assert_eq!(shell, "-l \n");
+
+        let (claude, _) = run_shell("сводка", true);
+
+        assert_eq!(
+            claude,
+            r#"--permission-mode|bypassPermissions|--settings|{"skipDangerousModePermissionPrompt":true}|--|сводка|"#
+        );
     }
 
     #[test]
