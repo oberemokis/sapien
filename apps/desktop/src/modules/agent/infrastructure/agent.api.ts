@@ -29,6 +29,11 @@ export function agentSessionDelete(id: string) {
   return invoke<null>("agent_session_delete", { id });
 }
 
+// Имя от человека. Пустое отдаёт имя сессии агенту.
+export function agentSessionRename(id: string, title: string) {
+  return invoke<null>("agent_session_rename", { id, title });
+}
+
 // Терминал панели pane сессии session: оболочка в папке сессии, вывод
 // байтами в onData, начиная с прежнего экрана панели. Оболочка ещё
 // не идёт, и с task в ней сразу запускается Claude Code с этим заданием.

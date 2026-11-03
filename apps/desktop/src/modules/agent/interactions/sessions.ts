@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import {
   agentSessionDelete,
   agentSessionNew,
+  agentSessionRename,
   agentSessions,
   onSessionsChanged,
   onTerminalExited,
@@ -13,7 +14,7 @@ import {
 } from "../infrastructure/agent.api";
 import { readTabs, writeTabs } from "../infrastructure/agent.device";
 import type { SessionInfo } from "../model/sessions";
-import { closeTab, NO_TABS, openTab, visibleTabs, type Tabs } from "../model/tabs";
+import { closeTab, moveTab, NO_TABS, openTab, pinTab, visibleTabs, type Tabs } from "../model/tabs";
 import { searchStore, tabsStore } from "../store/sessions.store";
 import { forgetPanes, sessionPanes } from "./panes";
 import { closeTerminal, terminalExited } from "./terminal";
@@ -67,6 +68,15 @@ export function closeSession(session: Pick<SessionInfo, "id" | "project">) {
   for (const pane of sessionPanes(session.id)) {
     closeTerminal(pane);
   }
+}
+
+export function pinSession(session: Pick<SessionInfo, "id" | "project">, pin: boolean) {
+  changeTabs((tabs) => pinTab(tabs, session.project, session.id, pin));
+}
+
+// Вкладка сессии встаёт перед вкладкой before, с null в конец.
+export function moveSessionTab(session: Pick<SessionInfo, "id" | "project">, before: string | null) {
+  changeTabs((tabs) => moveTab(tabs, session.project, session.id, before));
 }
 
 // События Rust о сессиях и терминалах, пока смонтирована оболочка окна.
@@ -137,6 +147,16 @@ export function useRemoveProject() {
         queryClient.invalidateQueries({ queryKey: PROJECTS_KEY }),
         queryClient.invalidateQueries({ queryKey: SESSIONS_KEY }),
       ]),
+  });
+}
+
+// Имя сессии одно на вкладку и строку в левой панели.
+export function useRenameSession() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, title }: { id: string; title: string }) => agentSessionRename(id, title),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: SESSIONS_KEY }),
   });
 }
 

@@ -1,4 +1,4 @@
-use super::domain::{PaneAgent, Session, SessionInfo};
+use super::domain::{PaneAgent, Session, SessionInfo, session_name};
 use super::ports::{Projects, Sessions};
 use crate::error::AppError;
 use std::cmp::Reverse;
@@ -95,7 +95,8 @@ pub fn folder(
 
 /// Агент взялся за работу в сессии `id` или назвал её заголовком `title`
 /// терминала. Сессия поднимается в списке, а заголовок, если он есть
-/// и новый, становится её именем. Отвечает, поменялось ли что-то.
+/// и новый, становится её именем, пока имя не дал человек. Отвечает,
+/// поменялось ли что-то.
 pub fn touch(
     store: &impl Sessions,
     id: &str,
@@ -105,7 +106,7 @@ pub fn touch(
     let mut session = store.load(id)?;
 
     match title {
-        Some(title) if title != session.title => session.title = title,
+        Some(title) if title != session.title && !session.named => session.title = title,
         Some(_) => return Ok(false),
         None => {}
     }
@@ -113,6 +114,17 @@ pub fn touch(
     session.updated = now;
     store.save(&session)?;
     Ok(true)
+}
+
+/// Человек назвал сессию `id` именем `title`. Место в списке не меняется.
+/// Пустое имя отдаёт сессию агенту: её снова назовёт заголовок терминала.
+pub fn rename_session(store: &impl Sessions, id: &str, title: &str) -> Result<(), AppError> {
+    let title = session_name(title).ok_or(AppError::invalid("title_invalid"))?;
+    let mut session = store.load(id)?;
+
+    session.named = !title.is_empty();
+    session.title = title;
+    store.save(&session)
 }
 
 #[cfg(test)]
@@ -298,6 +310,38 @@ mod tests {
 
         assert_eq!(
             touch(&store, "s9", None, 9),
+            Err(AppError::not_found("session_missing"))
+        );
+    }
+
+    #[test]
+    fn имя_от_человека_заголовки_агента_не_меняют_пока_его_не_стёрли() {
+        let store = FakeSessions::default();
+
+        store.put(Session::new("s1".into(), "p1", 1));
+        touch(&store, "s1", Some("Почини сборку".into()), 2).unwrap();
+
+        rename_session(&store, "s1", "  Релиз 0.3 ").unwrap();
+        assert_eq!(store.get("s1").title, "Релиз 0.3");
+        assert_eq!(store.get("s1").updated, 2);
+
+        // Заголовок агента имя не трогает, а работа сессию поднимает.
+        assert_eq!(touch(&store, "s1", Some("Другое".into()), 3), Ok(false));
+        assert_eq!(touch(&store, "s1", None, 4), Ok(true));
+        assert_eq!(store.get("s1").title, "Релиз 0.3");
+
+        // Стёртое имя возвращает сессию агенту.
+        rename_session(&store, "s1", "").unwrap();
+        assert_eq!(store.get("s1").title, "");
+        assert_eq!(touch(&store, "s1", Some("Другое".into()), 5), Ok(true));
+        assert_eq!(store.get("s1").title, "Другое");
+
+        assert_eq!(
+            rename_session(&store, "s1", "две\nстроки"),
+            Err(AppError::invalid("title_invalid"))
+        );
+        assert_eq!(
+            rename_session(&store, "s9", "Имя"),
             Err(AppError::not_found("session_missing"))
         );
     }

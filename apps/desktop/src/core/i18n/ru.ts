@@ -43,6 +43,13 @@ export const ru = {
       label: "Вкладки проекта «{{project}}»",
       new: "Новая сессия в «{{project}}»",
       close: "Закрыть вкладку «{{title}}»",
+      closeItem: "Закрыть вкладку",
+      rename: "Переименовать",
+      name: "Имя вкладки",
+      renameFailed: "Имя не сохранилось.",
+      pin: "Закрепить",
+      unpin: "Открепить",
+      pinned: "закреплена",
     },
     projects: {
       title: "Проекты",

@@ -48,6 +48,13 @@ export const en: Dictionary<typeof ru> = {
       label: "Tabs of “{{project}}”",
       new: "New session in “{{project}}”",
       close: "Close tab “{{title}}”",
+      closeItem: "Close tab",
+      rename: "Rename",
+      name: "Tab name",
+      renameFailed: "The name was not saved.",
+      pin: "Pin",
+      unpin: "Unpin",
+      pinned: "pinned",
     },
     projects: {
       title: "Projects",
