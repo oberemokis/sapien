@@ -17,7 +17,7 @@ import {
   useSessions,
   useTabs,
 } from "../interactions/sessions";
-import { AGENT_NAMES, sessionsOf, type Project, type SessionInfo } from "../model/sessions";
+import { agentNames, sessionsOf, type Project, type SessionInfo } from "../model/sessions";
 
 // Строка панели как строка дерева: 28 px, выбранная на заливке.
 const ROW_SHAPE =
@@ -131,8 +131,8 @@ function ProjectSessions({ project, onMenu }: ProjectProps) {
               }
             >
               <span className="min-w-0 flex-1 truncate text-left">{session.title || t("agent.sessions.untitled")}</span>
-              {session.agent !== null && (
-                <span className="shrink-0 text-[12px] text-text-muted">{AGENT_NAMES[session.agent]}</span>
+              {session.agents.length > 0 && (
+                <span className="shrink-0 text-[12px] text-text-muted">{agentNames(session)}</span>
               )}
               {session.answering && (
                 <>

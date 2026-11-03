@@ -8,7 +8,7 @@ const session = (id: string, project: string): SessionInfo => ({
   title: id,
   updated: 1,
   answering: false,
-  agent: null,
+  agents: [],
 });
 
 const SESSIONS = [session("a", "p1"), session("b", "p1"), session("c", "p1"), session("x", "p2")];

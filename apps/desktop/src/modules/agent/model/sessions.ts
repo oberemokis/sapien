@@ -14,17 +14,25 @@ export const AGENT_NAMES: Record<Agent, string> = {
   gemini: "Gemini CLI",
 };
 
-// Сессия это терминал в папке проекта, как SessionInfo в Rust. title
-// пустой, пока агент её не назвал. updated в миллисекундах. agent: кто
-// сейчас запущен в её терминале, answering: он работает.
+// Агент на переднем плане панели pane и работает ли он, как PaneAgent в Rust.
+export type PaneAgent = { pane: string; agent: Agent; answering: boolean };
+
+// Сессия это терминалы в папке проекта, как SessionInfo в Rust. title
+// пустой, пока агент её не назвал. updated в миллисекундах. agents: кто
+// сейчас запущен в её панелях, answering: хоть один из них работает.
 export type SessionInfo = {
   id: string;
   project: string;
   title: string;
   updated: number;
   answering: boolean;
-  agent: Agent | null;
+  agents: PaneAgent[];
 };
+
+// Имена агентов сессии без повторов, для строки в списке.
+export function agentNames(session: SessionInfo) {
+  return [...new Set(session.agents.map((running) => AGENT_NAMES[running.agent]))].join(", ");
+}
 
 // Сессии проекта, свежие сверху.
 export function sessionsOf(sessions: SessionInfo[], project: string) {

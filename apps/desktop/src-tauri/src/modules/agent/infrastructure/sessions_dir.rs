@@ -9,10 +9,19 @@ use std::path::{Path, PathBuf};
 
 /// Сессии лежат в папке данных приложения, файл на сессию:
 /// `sessions/<id>.json`, внутри `{ id, project, title, created, updated,
-/// claude }`, а последний экран её терминала в `sessions/screens/<id>`.
+/// claude }`, а последние экраны её панелей в `sessions/screens/<id>/<панель>`.
 /// В папке проекта их нет: они не попадают ни в git, ни на облачный диск.
 pub struct SessionsDir {
     dir: PathBuf,
+}
+
+/// Имена сессий и панелей приходят из окна, и с `/` или `..` они увели бы
+/// запись из папки сессий: такой сессии или панели просто нет.
+fn plain(id: &str) -> bool {
+    !id.is_empty()
+        && id
+            .chars()
+            .all(|char| char.is_ascii_alphanumeric() || char == '-')
 }
 
 impl SessionsDir {
@@ -22,33 +31,37 @@ impl SessionsDir {
         }
     }
 
-    /// Файл сессии. Имя приходит из окна, и с `/` или `..` оно увело бы
-    /// запись из папки сессий: такой сессии просто нет.
     fn file(&self, id: &str) -> Option<PathBuf> {
-        let plain = !id.is_empty()
-            && id
-                .chars()
-                .all(|char| char.is_ascii_alphanumeric() || char == '-');
-
-        plain.then(|| self.dir.join(format!("{id}.json")))
+        plain(id).then(|| self.dir.join(format!("{id}.json")))
     }
 
-    fn screen_file(&self, id: &str) -> Option<PathBuf> {
-        self.file(id).map(|_| self.dir.join("screens").join(id))
+    fn screens(&self, session: &str) -> Option<PathBuf> {
+        plain(session).then(|| self.dir.join("screens").join(session))
     }
 
-    /// Вывод терминала сессии `id`, каким он был, когда терминал кончился.
-    pub fn screen(&self, id: &str) -> Option<Vec<u8>> {
-        fs::read(self.screen_file(id)?).ok()
+    fn screen_file(&self, session: &str, pane: &str) -> Option<PathBuf> {
+        Some(self.screens(session)?.join(pane)).filter(|_| plain(pane))
     }
 
-    pub fn save_screen(&self, id: &str, bytes: &[u8]) -> Result<(), AppError> {
+    /// Вывод терминала панели `pane` сессии `session`, каким он был, когда
+    /// терминал кончился.
+    pub fn screen(&self, session: &str, pane: &str) -> Option<Vec<u8>> {
+        fs::read(self.screen_file(session, pane)?).ok()
+    }
+
+    pub fn save_screen(&self, session: &str, pane: &str, bytes: &[u8]) -> Result<(), AppError> {
         let unwritable = |_| AppError::unavailable("session_unwritable");
-        let file = self
-            .screen_file(id)
-            .ok_or(AppError::invalid("session_invalid"))?;
+        let (Some(dir), Some(file)) = (self.screens(session), self.screen_file(session, pane))
+        else {
+            return Err(AppError::invalid("session_invalid"));
+        };
 
-        fs::create_dir_all(self.dir.join("screens")).map_err(unwritable)?;
+        // Экран из версии без панелей лежит файлом на месте папки.
+        if dir.is_file() {
+            fs::remove_file(&dir).map_err(unwritable)?;
+        }
+
+        fs::create_dir_all(dir).map_err(unwritable)?;
         durable::write(&file, bytes).map_err(unwritable)
     }
 }
@@ -101,20 +114,21 @@ impl Sessions for SessionsDir {
         durable::write(&file, &saved).map_err(unwritable)
     }
 
-    /// Экран уходит вместе с сессией.
+    /// Экраны панелей уходят вместе с сессией.
     fn delete(&self, id: &str) -> Result<(), AppError> {
-        let (Some(file), Some(screen)) = (self.file(id), self.screen_file(id)) else {
+        let (Some(file), Some(screens)) = (self.file(id), self.screens(id)) else {
             return Ok(());
         };
+        let gone = |removed: io::Result<()>| match removed {
+            Err(error) if error.kind() != ErrorKind::NotFound => {
+                Err(AppError::unavailable("session_unwritable"))
+            }
+            _ => Ok(()),
+        };
 
-        [screen, file]
-            .into_iter()
-            .try_for_each(|path| match fs::remove_file(path) {
-                Err(error) if error.kind() != ErrorKind::NotFound => {
-                    Err(AppError::unavailable("session_unwritable"))
-                }
-                _ => Ok(()),
-            })
+        // Экран из версии без панелей лежит файлом на месте папки.
+        gone(fs::remove_dir_all(&screens).or_else(|_| fs::remove_file(&screens)))?;
+        gone(fs::remove_file(file))
     }
 }
 
@@ -215,19 +229,47 @@ mod tests {
         assert_eq!(saved(data.path(), "a1"), Some(session("a1", "p1")));
         assert_eq!(saved(data.path(), "b2").unwrap().claude, None);
 
-        // Экран терминала тоже переживает перезапуск, а список не трогает.
-        assert_eq!(again.screen("a1"), None);
-        again.save_screen("a1", b"\x1b[1m$ make\r\n").unwrap();
+        // Экраны панелей тоже переживают перезапуск, а список не трогают.
+        assert_eq!(again.screen("a1", "a1"), None);
+        again.save_screen("a1", "a1", b"\x1b[1m$ make\r\n").unwrap();
+        again.save_screen("a1", "f00d", b"$ pnpm dev\r\n").unwrap();
+        let restarted = SessionsDir::new(data.path());
         assert_eq!(
-            SessionsDir::new(data.path()).screen("a1").as_deref(),
+            restarted.screen("a1", "a1").as_deref(),
             Some(&b"\x1b[1m$ make\r\n"[..])
+        );
+        assert_eq!(
+            restarted.screen("a1", "f00d").as_deref(),
+            Some(&b"$ pnpm dev\r\n"[..])
         );
         assert_eq!(again.list().unwrap().len(), 2);
 
         again.delete("a1").unwrap();
         again.delete("a1").unwrap();
         assert_eq!(saved(data.path(), "a1"), None);
-        assert_eq!(again.screen("a1"), None);
+        assert_eq!(again.screen("a1", "a1"), None);
+        assert!(!data.path().join("sessions/screens/a1").exists());
+    }
+
+    #[test]
+    fn экран_из_версии_без_панелей_не_мешает_сохранять_и_удалять() {
+        let data = tempfile::tempdir().unwrap();
+        let store = SessionsDir::new(data.path());
+        let old = data.path().join("sessions/screens/a1");
+
+        store.save(&session("a1", "p1")).unwrap();
+        fs::create_dir_all(data.path().join("sessions/screens")).unwrap();
+        fs::write(&old, b"$ old").unwrap();
+        assert_eq!(store.screen("a1", "a1"), None);
+        store.save_screen("a1", "a1", b"$ new").unwrap();
+        assert_eq!(store.screen("a1", "a1").as_deref(), Some(&b"$ new"[..]));
+
+        store.save(&session("b2", "p1")).unwrap();
+        fs::write(data.path().join("sessions/screens/b2"), b"$ old").unwrap();
+        store.delete("b2").unwrap();
+        assert_eq!(saved(data.path(), "b2"), None);
+        assert!(!data.path().join("sessions/screens/b2").exists());
+        assert!(old.is_dir());
     }
 
     #[test]
@@ -243,6 +285,17 @@ mod tests {
         );
         store.delete("../../секрет").unwrap();
         assert!(data.path().join("секрет.json").exists());
+
+        // Панель с таким именем тоже не уводит экран из папки сессии.
+        assert_eq!(
+            store.save_screen("a1", "../../../секрет.json", b"x"),
+            Err(AppError::invalid("session_invalid"))
+        );
+        assert_eq!(store.screen("a1", "../../../секрет.json"), None);
+        assert_eq!(
+            fs::read_to_string(data.path().join("секрет.json")).unwrap(),
+            "{}"
+        );
     }
 
     #[test]

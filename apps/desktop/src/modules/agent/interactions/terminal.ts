@@ -5,11 +5,12 @@ import "@xterm/xterm/css/xterm.css";
 import { terminalClose, terminalOpen, terminalResize, terminalWrite } from "../infrastructure/agent.api";
 import { terminalsStore, type TerminalNotice, type TerminalState } from "../store/sessions.store";
 
-// Терминал сессии в окне. Живёт дольше вкладки на экране: при переходе
+// Терминал панели в окне. Живёт дольше вкладки на экране: при переходе
 // на другую вкладку его разметка уходит со страницы, а вывод оболочки
 // продолжает в неё писаться.
 type View = {
   session: string;
+  pane: string;
   term: Terminal;
   fit: FitAddon;
   element: HTMLDivElement;
@@ -18,9 +19,11 @@ type View = {
   queue: Promise<unknown>;
 };
 
+// Терминалы по панелям.
 const views = new Map<string, View>();
 
-// Задания действий для сессий, чей терминал ещё не открыт.
+// Задания действий по панелям, чей терминал ещё не открыт. Задание ждёт
+// первая панель сессии: её имя совпадает с сессией.
 const tasks = new Map<string, string>();
 
 const FONT_SIZE = 13;
@@ -28,12 +31,12 @@ const FONT = '"IBM Plex Mono", ui-monospace, Menlo, monospace';
 const FALLBACK = "ui-monospace, Menlo, monospace";
 const IDLE: TerminalState = { notice: null, generation: 0 };
 
-function setState(session: string, change: (state: TerminalState) => TerminalState) {
-  terminalsStore.setState((states) => ({ ...states, [session]: change(states[session] ?? IDLE) }));
+function setState(pane: string, change: (state: TerminalState) => TerminalState) {
+  terminalsStore.setState((states) => ({ ...states, [pane]: change(states[pane] ?? IDLE) }));
 }
 
-function setNotice(session: string, notice: TerminalNotice | null) {
-  setState(session, (state) => ({ ...state, notice }));
+function setNotice(pane: string, notice: TerminalNotice | null) {
+  setState(pane, (state) => ({ ...state, notice }));
 }
 
 // Цвета терминала из токенов темы. Берутся один раз, при создании.
@@ -49,16 +52,17 @@ function theme(): ITheme {
   };
 }
 
-function send(view: View, request: (session: string) => Promise<unknown>) {
-  view.queue = view.queue.then(() => request(view.session)).catch(() => undefined);
+function send(view: View, request: (pane: string) => Promise<unknown>) {
+  view.queue = view.queue.then(() => request(view.pane)).catch(() => undefined);
 }
 
-function create(session: string) {
+function create(session: string, pane: string) {
   // Шрифт приложения грузится при первом использовании, а xterm меряет
   // знак при открытии: до загрузки идёт системный, потом замер заново.
   const font = `${FONT_SIZE}px "IBM Plex Mono"`;
   const view: View = {
     session,
+    pane,
     term: new Terminal({ fontFamily: FALLBACK, fontSize: FONT_SIZE, theme: theme(), cursorBlink: true }),
     fit: new FitAddon(),
     element: document.createElement("div"),
@@ -67,7 +71,7 @@ function create(session: string) {
 
   view.element.className = "h-full";
   view.term.loadAddon(view.fit);
-  views.set(session, view);
+  views.set(pane, view);
 
   if (document.fonts.check(font)) {
     view.term.options.fontFamily = FONT;
@@ -81,25 +85,25 @@ function create(session: string) {
   return view;
 }
 
-// Оболочка сессии: Rust подключает окно к идущей или запускает её, с Claude
+// Оболочка панели: Rust подключает окно к идущей или запускает её, с Claude
 // Code и заданием действия, если оно ждёт.
 function start(view: View) {
-  const task = tasks.get(view.session) ?? null;
+  const task = tasks.get(view.pane) ?? null;
 
-  tasks.delete(view.session);
-  view.term.onData((data) => send(view, (session) => terminalWrite(session, data)));
-  view.term.onResize(({ cols, rows }) => send(view, (session) => terminalResize(session, cols, rows)));
+  tasks.delete(view.pane);
+  view.term.onData((data) => send(view, (pane) => terminalWrite(pane, data)));
+  view.term.onResize(({ cols, rows }) => send(view, (pane) => terminalResize(pane, cols, rows)));
   // Закрытый терминал вывода и плашек не получает.
-  const shown = () => views.get(view.session) === view;
+  const shown = () => views.get(view.pane) === view;
 
-  view.queue = terminalOpen(view.session, view.term.cols, view.term.rows, task, (bytes) => {
+  view.queue = terminalOpen(view.session, view.pane, view.term.cols, view.term.rows, task, (bytes) => {
     if (shown()) {
       view.term.write(bytes);
     }
   }).then(
     () => {
       if (shown()) {
-        setNotice(view.session, null);
+        setNotice(view.pane, null);
       }
     },
     () => {
@@ -109,19 +113,19 @@ function start(view: View) {
 
       // Задание не пропадает: «Повторить» отправит его снова.
       if (task !== null) {
-        tasks.set(view.session, task);
+        tasks.set(view.pane, task);
       }
 
-      setNotice(view.session, "failed");
+      setNotice(view.pane, "failed");
     },
   );
 }
 
-// Терминал сессии на странице внутри host. Возвращает, как его убрать
-// со страницы: сам терминал и оболочка остаются.
-export function attachTerminal(session: string, host: HTMLElement) {
-  const existing = views.get(session);
-  const view = existing ?? create(session);
+// Терминал панели pane сессии session на странице внутри host. Возвращает,
+// как его убрать со страницы: сам терминал и оболочка остаются.
+export function attachTerminal(session: string, pane: string, host: HTMLElement) {
+  const existing = views.get(pane);
+  const view = existing ?? create(session, pane);
   const observer = new ResizeObserver(() => view.fit.fit());
 
   host.append(view.element);
@@ -135,7 +139,6 @@ export function attachTerminal(session: string, host: HTMLElement) {
   }
 
   observer.observe(host);
-  view.term.focus();
 
   return () => {
     observer.disconnect();
@@ -143,39 +146,44 @@ export function attachTerminal(session: string, host: HTMLElement) {
   };
 }
 
-function dispose(session: string) {
-  views.get(session)?.term.dispose();
-  views.delete(session);
+export function focusTerminal(pane: string) {
+  views.get(pane)?.term.focus();
 }
 
-// Claude Code с заданием запустится, когда сессию откроют.
+function dispose(pane: string) {
+  views.get(pane)?.term.dispose();
+  views.delete(pane);
+}
+
+// Claude Code с заданием запустится, когда сессию откроют: в её первой
+// панели.
 export function queueTask(session: string, task: string) {
   tasks.set(session, task);
 }
 
-// Вкладку закрыли: оболочка доживает до конца работы агента, терминал
-// окна уходит сразу.
-export function closeTerminal(session: string) {
-  dispose(session);
-  tasks.delete(session);
-  terminalsStore.setState((states) => Object.fromEntries(Object.entries(states).filter(([id]) => id !== session)));
-  void terminalClose(session).catch(() => undefined);
+// Панель закрыли, сама или с вкладкой: оболочка доживает до конца работы
+// агента, терминал окна уходит сразу.
+export function closeTerminal(pane: string) {
+  dispose(pane);
+  tasks.delete(pane);
+  terminalsStore.setState((states) => Object.fromEntries(Object.entries(states).filter(([id]) => id !== pane)));
+  void terminalClose(pane).catch(() => undefined);
 }
 
 // Оболочка кончилась или не запустилась: терминал начинается заново,
 // с прежним экраном над новой оболочкой.
-export function restartTerminal(session: string) {
-  dispose(session);
-  setState(session, ({ generation }) => ({ notice: null, generation: generation + 1 }));
+export function restartTerminal(pane: string) {
+  dispose(pane);
+  setState(pane, ({ generation }) => ({ notice: null, generation: generation + 1 }));
 }
 
-// Оболочка сессии кончилась сама. Закрытой вкладке сказать об этом некому.
-export function terminalExited(session: string) {
-  if (views.has(session)) {
-    setNotice(session, "exited");
+// Оболочка панели кончилась сама. Закрытой вкладке сказать об этом некому.
+export function terminalExited(pane: string) {
+  if (views.has(pane)) {
+    setNotice(pane, "exited");
   }
 }
 
-export function useTerminalState(session: string) {
-  return useSelector(terminalsStore, (states) => states[session] ?? IDLE);
+export function useTerminalState(pane: string) {
+  return useSelector(terminalsStore, (states) => states[pane] ?? IDLE);
 }

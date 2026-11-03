@@ -1,22 +1,20 @@
-use super::domain::{Live, Session, SessionInfo};
+use super::domain::{PaneAgent, Session, SessionInfo};
 use super::ports::{Projects, Sessions};
 use crate::error::AppError;
 use std::cmp::Reverse;
 use std::path::PathBuf;
 
-/// Сессии всех проектов, свежие первыми. `live`: что делает терминал
-/// сессии, если он запущен.
+/// Сессии всех проектов, свежие первыми. `agents`: агенты в панелях
+/// сессии.
 pub fn sessions(
     store: &impl Sessions,
-    live: impl Fn(&str) -> Option<Live>,
+    agents: impl Fn(&str) -> Vec<PaneAgent>,
 ) -> Result<Vec<SessionInfo>, AppError> {
     let mut sessions = store.list()?;
 
     for session in &mut sessions {
-        if let Some(live) = live(&session.id) {
-            session.answering = live.answering;
-            session.agent = live.agent.map(str::to_owned);
-        }
+        session.agents = agents(&session.id);
+        session.answering = session.agents.iter().any(|agent| agent.answering);
     }
 
     sessions.sort_by_key(|session| Reverse(session.updated));
@@ -209,7 +207,7 @@ mod tests {
     }
 
     #[test]
-    fn список_сессий_от_свежих_к_старым_с_тем_что_делает_их_терминал() {
+    fn список_сессий_от_свежих_к_старым_с_агентами_их_панелей() {
         let store = FakeSessions::default();
         let projects = FakeProjects::default();
 
@@ -217,29 +215,29 @@ mod tests {
         new_session(&store, &projects, "p2", "b".into(), 9).unwrap();
         new_session(&store, &projects, "p1", "c".into(), 1).unwrap();
 
-        let live = |id: &str| match id {
-            "a" => Some(Live {
-                agent: Some("claude"),
-                answering: true,
-            }),
-            "c" => Some(Live {
-                agent: Some("codex"),
-                answering: false,
-            }),
-            _ => None,
+        let agent = |pane: &str, agent: &str, answering| PaneAgent {
+            pane: pane.into(),
+            agent: agent.into(),
+            answering,
         };
-        let listed: Vec<(String, bool, Option<String>)> = sessions(&store, live)
+        // В сессии a работает один агент из двух, в c агент ждёт человека.
+        let agents = |id: &str| match id {
+            "a" => vec![agent("a", "claude", false), agent("a2", "codex", true)],
+            "c" => vec![agent("c", "codex", false)],
+            _ => vec![],
+        };
+        let listed: Vec<(String, bool, usize)> = sessions(&store, agents)
             .unwrap()
             .into_iter()
-            .map(|session| (session.id, session.answering, session.agent))
+            .map(|session| (session.id, session.answering, session.agents.len()))
             .collect();
 
         assert_eq!(
             listed,
             [
-                ("b".into(), false, None),
-                ("a".into(), true, Some("claude".into())),
-                ("c".into(), false, Some("codex".into()))
+                ("b".into(), false, 0),
+                ("a".into(), true, 2),
+                ("c".into(), false, 1)
             ]
         );
     }
