@@ -6,10 +6,9 @@ import { terminalClose, terminalOpen, terminalResize, terminalWrite } from "../i
 import { terminalsStore, type TerminalNotice, type TerminalState } from "../store/sessions.store";
 
 // Терминал сессии в окне. Живёт дольше вкладки на экране: при переходе
-// на другую вкладку его разметка уходит со страницы, а вывод Claude Code
+// на другую вкладку его разметка уходит со страницы, а вывод оболочки
 // продолжает в неё писаться.
 type View = {
-  // Сессия меняется, когда разговор переходит в другую, например после /clear.
   session: string;
   term: Terminal;
   fit: FitAddon;
@@ -82,8 +81,8 @@ function create(session: string) {
   return view;
 }
 
-// Claude Code сессии: Rust подключает окно к идущему или запускает его
-// с заданием действия, если оно ждёт.
+// Оболочка сессии: Rust подключает окно к идущей или запускает её, с Claude
+// Code и заданием действия, если оно ждёт.
 function start(view: View) {
   const task = tasks.get(view.session) ?? null;
 
@@ -98,15 +97,9 @@ function start(view: View) {
       view.term.write(bytes);
     }
   }).then(
-    (opened) => {
-      let notice: TerminalNotice | null = null;
-
-      if (opened === "lost") {
-        notice = "lost";
-      }
-
+    () => {
       if (shown()) {
-        setNotice(view.session, notice);
+        setNotice(view.session, null);
       }
     },
     () => {
@@ -125,7 +118,7 @@ function start(view: View) {
 }
 
 // Терминал сессии на странице внутри host. Возвращает, как его убрать
-// со страницы: сам терминал и Claude Code остаются.
+// со страницы: сам терминал и оболочка остаются.
 export function attachTerminal(session: string, host: HTMLElement) {
   const existing = views.get(session);
   const view = existing ?? create(session);
@@ -155,13 +148,13 @@ function dispose(session: string) {
   views.delete(session);
 }
 
-// Задание уйдёт первым сообщением, когда сессию откроют.
+// Claude Code с заданием запустится, когда сессию откроют.
 export function queueTask(session: string, task: string) {
   tasks.set(session, task);
 }
 
-// Вкладку закрыли: Claude Code доживает до конца ответа, терминал окна
-// уходит сразу.
+// Вкладку закрыли: оболочка доживает до конца работы агента, терминал
+// окна уходит сразу.
 export function closeTerminal(session: string) {
   dispose(session);
   tasks.delete(session);
@@ -169,39 +162,18 @@ export function closeTerminal(session: string) {
   void terminalClose(session).catch(() => undefined);
 }
 
-// Claude Code кончился или не запустился: терминал начинается заново
-// и продолжает разговор.
+// Оболочка кончилась или не запустилась: терминал начинается заново,
+// с прежним экраном над новой оболочкой.
 export function restartTerminal(session: string) {
   dispose(session);
   setState(session, ({ generation }) => ({ notice: null, generation: generation + 1 }));
 }
 
-// Claude Code сессии кончился сам. Закрытой вкладке сказать об этом некому.
+// Оболочка сессии кончилась сама. Закрытой вкладке сказать об этом некому.
 export function terminalExited(session: string) {
   if (views.has(session)) {
     setNotice(session, "exited");
   }
-}
-
-// Разговор терминала перешёл в сессию to.
-export function moveTerminal(from: string, to: string) {
-  const view = views.get(from);
-
-  if (view === undefined) {
-    return;
-  }
-
-  dispose(to);
-  views.delete(from);
-  views.set(to, view);
-  view.session = to;
-  // Поколение from остаётся: пока вкладка не перешла, её терминал не
-  // должен открыться заново.
-  terminalsStore.setState((states) => {
-    const state = states[from] ?? IDLE;
-
-    return { ...states, [from]: { ...state, notice: null }, [to]: state };
-  });
 }
 
 export function useTerminalState(session: string) {

@@ -1,9 +1,7 @@
-import { Link } from "@tanstack/react-router";
 import { useCallback, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/core/ui/button";
 import { Icon } from "@/core/ui/icon";
-import { useClaudeStatus } from "../interactions/claude";
 import { useActiveSession, useAddProject, useNewSession, useProjects, useSessions, useTabs } from "../interactions/sessions";
 import { attachTerminal, restartTerminal, useTerminalState } from "../interactions/terminal";
 import { homeProject, type SessionInfo } from "../model/sessions";
@@ -19,8 +17,8 @@ const TONES = {
 
 type NoticeProps = { children: string; action?: ReactNode; tone?: keyof typeof TONES };
 
-// Плашка, как Banner дизайн-системы: агенту нечем или негде работать,
-// или с терминалом что-то случилось.
+// Плашка, как Banner дизайн-системы: терминалу негде работать или с ним
+// что-то случилось.
 function Notice({ children, action, tone = "danger" }: NoticeProps) {
   return (
     <div
@@ -33,9 +31,9 @@ function Notice({ children, action, tone = "danger" }: NoticeProps) {
   );
 }
 
-// Claude Code сессии в терминале. Вкладка, которую закрыли с экрана
-// переходом на другую, при возврате видит тот же терминал. Начатый заново
-// терминал получает новое место на странице.
+// Терминал сессии. Вкладка, которую закрыли с экрана переходом на другую,
+// при возврате видит тот же терминал. Начатый заново терминал получает
+// новое место на странице.
 function SessionTerminal({ session }: { session: SessionInfo }) {
   const { t } = useTranslation();
   const { notice, generation } = useTerminalState(session.id);
@@ -51,10 +49,8 @@ function SessionTerminal({ session }: { session: SessionInfo }) {
 
   return (
     <>
-      {session.stalled && <Notice tone="warning">{t("agent.terminal.stalled")}</Notice>}
-      {notice === "lost" && <Notice tone="warning">{t("agent.terminal.lost")}</Notice>}
       {notice === "exited" && (
-        <Notice tone="warning" action={restart(t("agent.terminal.continue"))}>
+        <Notice tone="warning" action={restart(t("agent.terminal.restart"))}>
           {t("agent.terminal.exited")}
         </Notice>
       )}
@@ -111,46 +107,30 @@ function Welcome() {
   );
 }
 
-// Середина главного экрана: терминал сессии активной вкладки. Агенту
-// нечем или негде работать, Claude Code не готов или папки проекта больше
-// нет: вместо терминала плашка говорит, что не так. Пока Claude Code
-// проверяется, терминал уже открывается: проверка идёт секунды.
+// Середина главного экрана: терминал сессии активной вкладки. Папки
+// проекта больше нет, и вместо терминала плашка говорит об этом.
 export function SessionView() {
   const { t } = useTranslation();
   const session = useActiveSession();
   const projects = useProjects();
-  const claude = useClaudeStatus();
 
   if (session === null) {
     return <Welcome />;
   }
 
   const project = projects.data?.find((candidate) => candidate.id === session.project);
-  const claudeState = claude.status?.state;
-  let notice: ReactNode = null;
-
-  if (claudeState !== undefined && claudeState !== "ready") {
-    notice = (
-      <Notice
-        action={
-          <Link to="/settings/agent" className={LINK}>
-            {t("agent.session.setUpClaude")}
-          </Link>
-        }
-      >
-        {t(`agent.settings.claude.${claudeState}`)}
-      </Notice>
-    );
-  }
 
   if (projects.data !== undefined && (project === undefined || project.missing)) {
-    notice = <Notice>{t("agent.session.projectMissing", { path: project?.path ?? "" })}</Notice>;
+    return (
+      <div className="flex min-h-0 flex-1 flex-col px-4">
+        <Notice>{t("agent.session.projectMissing", { path: project?.path ?? "" })}</Notice>
+      </div>
+    );
   }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col px-4">
-      {notice}
-      {notice === null && project !== undefined && <SessionTerminal session={session} />}
+      {project !== undefined && <SessionTerminal session={session} />}
     </div>
   );
 }

@@ -2,17 +2,28 @@
 // missing: папки больше нет, сессии видны, но новый ответ не начнётся.
 export type Project = { id: string; name: string; path: string; missing: boolean };
 
-// Сессия это разговор с агентом в папке проекта, как SessionInfo в Rust.
-// title пустой, пока человек ничего не написал. updated в миллисекундах.
-// answering: агент сейчас отвечает в ней. stalled: действие по расписанию
-// запустило Claude Code, а задание не ушло, он ждёт человека.
+// Агенты, которых Rust узнаёт в терминале, как AGENTS в domain.rs.
+export type Agent = "claude" | "codex" | "pi" | "opencode" | "gemini";
+
+// Названия агентов: это имена программ, на язык окна они не переводятся.
+export const AGENT_NAMES: Record<Agent, string> = {
+  claude: "Claude Code",
+  codex: "Codex",
+  pi: "Pi",
+  opencode: "OpenCode",
+  gemini: "Gemini CLI",
+};
+
+// Сессия это терминал в папке проекта, как SessionInfo в Rust. title
+// пустой, пока агент её не назвал. updated в миллисекундах. agent: кто
+// сейчас запущен в её терминале, answering: он работает.
 export type SessionInfo = {
   id: string;
   project: string;
   title: string;
   updated: number;
   answering: boolean;
-  stalled: boolean;
+  agent: Agent | null;
 };
 
 // Сессии проекта, свежие сверху.

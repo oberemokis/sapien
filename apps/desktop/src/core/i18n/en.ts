@@ -14,25 +14,21 @@ export const en: Dictionary<typeof ru> = {
   },
   agent: {
     session: {
-      setUpClaude: "Settings",
       projectMissing:
-        "The project folder is no longer on disk: {{path}}. The agent works in it, so the session will continue once the folder is back.",
+        "The project folder is no longer on disk: {{path}}. The terminal opens in it, so the session will continue once the folder is back.",
     },
     terminal: {
-      lost: "Claude Code could not find this session's conversation, so a new one was started.",
-      exited: "Claude Code has exited.",
-      continue: "Continue",
-      failed: "Claude Code did not start.",
+      exited: "The shell has exited.",
+      restart: "Open a new one",
+      failed: "The shell did not start.",
       retry: "Retry",
-      stalled: "A scheduled action started Claude Code, but the task was not sent: Claude Code is waiting for an answer below.",
     },
     sessions: {
       sections: "Sections",
       title: "Sessions",
       new: "New session",
       untitled: "New session",
-      running: "agent is responding",
-      stalled: "waiting for input",
+      running: "agent is working",
       delete: "Delete session",
       newFailed: "The session was not created.",
       deleteFailed: "The session was not deleted.",

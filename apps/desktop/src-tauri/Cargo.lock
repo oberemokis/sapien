@@ -3503,7 +3503,6 @@ dependencies = [
  "tempfile",
  "tokio",
  "url",
- "uuid",
 ]
 
 [[package]]

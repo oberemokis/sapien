@@ -73,15 +73,14 @@ impl ClaudeCode {
     }
 
     /// Где лежит `claude`. Не нашёлся, значит, `claude_missing`.
-    pub fn program(&self) -> Result<&Path, AppError> {
+    fn program(&self) -> Result<&Path, AppError> {
         self.program
             .as_deref()
             .ok_or(AppError::not_found("claude_missing"))
     }
 
-    /// Окружение Claude Code только из разрешённого списка, оно же
-    /// у терминала.
-    pub fn environment(&self) -> Vec<(OsString, OsString)> {
+    /// Окружение проверки только из разрешённого списка.
+    fn environment(&self) -> Vec<(OsString, OsString)> {
         let fixed = [("HOME", self.home.as_os_str()), ("PATH", PATH.as_ref())]
             .into_iter()
             .chain(ISOLATION.map(|(name, value)| (name, value.as_ref())))
@@ -91,15 +90,6 @@ impl ClaudeCode {
             .filter_map(|name| Some(((*name).into(), std::env::var_os(name)?)));
 
         fixed.chain(passed).collect()
-    }
-
-    /// Помнит ли Claude Code разговор `id`, начатый в папке `dir`.
-    /// Содержимое разговора sapien не читает.
-    pub fn remembers(&self, dir: &Path, id: &str) -> bool {
-        let config = std::env::var_os("CLAUDE_CONFIG_DIR")
-            .map_or_else(|| self.home.join(".claude"), PathBuf::from);
-
-        transcript(&config, dir, id).is_file()
     }
 
     /// Запуск Claude Code в папке данных, с окружением только из
@@ -152,30 +142,6 @@ impl ClaudeCode {
 
         ClaudeStatus::of(&version, auth.as_ref())
     }
-}
-
-/// Файл разговора `id` из папки `dir` в настройках Claude Code `config`:
-/// `projects/<папка>/<id>.jsonl`, где в пути папки всё, кроме латиницы
-/// и цифр, заменено на «-».
-fn transcript(config: &Path, dir: &Path, id: &str) -> PathBuf {
-    // Claude Code видит папку без ссылок, как её отдаёт система.
-    let dir = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_owned());
-    let project: String = dir
-        .to_string_lossy()
-        .chars()
-        .map(|char| {
-            if char.is_ascii_alphanumeric() {
-                char
-            } else {
-                '-'
-            }
-        })
-        .collect();
-
-    config
-        .join("projects")
-        .join(project)
-        .join(format!("{id}.jsonl"))
 }
 
 #[cfg(all(test, unix))]
@@ -280,28 +246,5 @@ esac"#;
         // Отвечает не версией: такой Claude Code не годится.
         let (_dir, claude) = fake("echo 'команда не найдена'");
         assert_eq!(block_on(claude.status()).state, ClaudeState::Outdated);
-    }
-
-    #[test]
-    fn разговор_ищется_по_папке_без_ссылок_с_дефисами_вместо_прочего() {
-        let dir = tempfile::tempdir().unwrap();
-        let project = dir.path().join("мой.проект_1");
-        let link = dir.path().join("ссылка");
-
-        fs::create_dir(&project).unwrap();
-        std::os::unix::fs::symlink(&project, &link).unwrap();
-
-        // «/мой.проект_1»: двенадцать знаков не латиницей и цифра.
-        let mangled = format!(
-            "{}------------1",
-            real(dir.path()).replace(|char: char| !char.is_ascii_alphanumeric(), "-")
-        );
-
-        assert_eq!(
-            transcript(Path::new("/config"), &link, "4f1c"),
-            Path::new("/config/projects")
-                .join(mangled)
-                .join("4f1c.jsonl")
-        );
     }
 }

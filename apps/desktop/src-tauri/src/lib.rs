@@ -13,18 +13,6 @@ mod updates;
 use modules::{actions, agent, forge, projects};
 use tauri::{Manager, RunEvent};
 
-/// `sapien hook`: так Claude Code терминала сообщает приложению о своих
-/// событиях. Процесс без окна только пересылает событие из stdin в сокет
-/// открытого приложения.
-pub fn hook() {
-    #[cfg(unix)]
-    agent::forward_hook(
-        std::io::stdin(),
-        std::env::var_os("SAPIEN_HOOKS"),
-        std::env::var("SAPIEN_TERMINAL").ok(),
-    );
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Меню сначала на английском: язык окна приходит командой
@@ -94,9 +82,9 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while running tauri application")
         .run(|app, event| {
-            // Claude Code терминалов без приложения никто не увидит.
+            // Терминалы без приложения никто не увидит.
             if let RunEvent::Exit = event {
-                app.state::<agent::Terminals>().stop_all();
+                agent::stop_terminals(app);
             }
         });
 }

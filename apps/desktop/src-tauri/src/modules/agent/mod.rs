@@ -1,7 +1,7 @@
-//! Агент: Claude Code на устройстве по подписке Claude, который работает
-//! в папке проекта своими инструментами. Сессия sapien это вкладка
-//! с интерактивным Claude Code в псевдотерминале, а разговор хранит он
-//! сам. Что он делает, sapien узнаёт из его хуков (infrastructure/hooks.rs).
+//! Агент: Claude Code, Codex и другие агенты, которых человек запускает
+//! в терминале сессии. Сессия sapien это вкладка с оболочкой в папке
+//! проекта, а какой агент в ней работает и работает ли, sapien узнаёт
+//! по процессу на переднем плане и по его выводу.
 
 mod domain;
 mod infrastructure;
@@ -12,7 +12,5 @@ mod use_case;
 // командой скрытые функции, которые переэкспорт через `pub use` не уносит.
 pub mod transport;
 
-#[cfg(unix)]
-pub use infrastructure::hooks::forward as forward_hook;
 pub use infrastructure::sessions_dir::without_chat;
-pub use transport::{Terminals, start_terminals};
+pub use transport::{Terminals, start_terminals, stop_terminals};

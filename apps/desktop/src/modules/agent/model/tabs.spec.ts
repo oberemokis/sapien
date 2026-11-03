@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SessionInfo } from "./sessions";
-import { closeTab, NO_TABS, openTab, parseTabs, replaceTab, visibleTabs } from "./tabs";
+import { closeTab, NO_TABS, openTab, parseTabs, visibleTabs } from "./tabs";
 
 const session = (id: string, project: string): SessionInfo => ({
   id,
@@ -8,7 +8,7 @@ const session = (id: string, project: string): SessionInfo => ({
   title: id,
   updated: 1,
   answering: false,
-  stalled: false,
+  agent: null,
 });
 
 const SESSIONS = [session("a", "p1"), session("b", "p1"), session("c", "p1"), session("x", "p2")];
@@ -32,16 +32,6 @@ describe("закрытие вкладки", () => {
 
     expect(tabs.project).toBe("p2");
     expect(visibleTabs({ ...tabs, project: "p1" }, SESSIONS).sessions).toEqual(["b", "c"]);
-  });
-});
-
-describe("разговор перешёл в другую сессию", () => {
-  it.each([
-    ["новую: вкладка на том же месте и активна", "b", "n", { sessions: ["a", "n", "c"], active: "n" }],
-    ["открытую рядом: вкладка одна", "b", "c", { sessions: ["a", "c"], active: "c" }],
-    ["из фоновой вкладки: активная та же", "a", "n", { sessions: ["n", "b", "c"], active: "b" }],
-  ])("%s", (_, from, to, left) => {
-    expect(replaceTab(THREE, from, to).projects.p1).toEqual(left);
   });
 });
 

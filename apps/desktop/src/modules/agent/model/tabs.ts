@@ -93,26 +93,3 @@ export function visibleTabs(tabs: Tabs, sessions: SessionInfo[]): ProjectTabs {
 
   return { sessions: open, active };
 }
-
-// Разговор терминала перешёл в другую сессию, например после /clear:
-// вкладка остаётся на месте, но теперь это вкладка сессии to. Вкладка to,
-// если была, уходит, чтобы не было двух.
-export function replaceTab(tabs: Tabs, from: string, to: string): Tabs {
-  const projects = Object.entries(tabs.projects).map(([project, current]): [string, ProjectTabs] => {
-    const kept = current.sessions.filter((id) => id !== to);
-    const index = kept.indexOf(from);
-    let { active } = current;
-
-    if (index === -1) {
-      return [project, current];
-    }
-
-    if (active === from) {
-      active = to;
-    }
-
-    return [project, { sessions: kept.with(index, to), active }];
-  });
-
-  return { ...tabs, projects: Object.fromEntries(projects) };
-}
