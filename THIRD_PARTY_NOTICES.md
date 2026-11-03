@@ -2,6 +2,10 @@
 
 Код, перенесённый в репозиторий из чужих проектов. Зависимости из npm и crates.io сюда не входят: их лицензии лежат в самих пакетах.
 
+## JetBrainsMono Nerd Font Mono
+
+Шрифт терминала, как у opencode 2.0: файлы `apps/desktop/src/assets/fonts/JetBrainsMonoNerdFontMono-Regular.woff2` и `-Bold.woff2` взяты из https://github.com/anomalyco/opencode, коммит `1bf08ae4`, `packages/app/public/assets`. Это JetBrains Mono (https://github.com/JetBrains/JetBrainsMono) со значками Nerd Fonts (https://github.com/ryanoasis/nerd-fonts) для приглашений оболочки. Лицензия SIL Open Font License 1.1, полный текст с правообладателем лежит рядом со шрифтом, в `apps/desktop/src/assets/fonts/OFL.txt`.
+
 ## opencode
 
 https://github.com/anomalyco/opencode, коммит `e5c9b015`.
