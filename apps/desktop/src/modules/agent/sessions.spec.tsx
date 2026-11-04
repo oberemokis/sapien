@@ -131,7 +131,7 @@ function Shell() {
         <SessionTabs />
       </header>
       <aside>
-        <SessionList deferred={[]} />
+        <SessionList />
       </aside>
       <main>
         <Outlet />

@@ -16,8 +16,7 @@ export type SplitPath = ("first" | "second")[];
 // Самая узкая часть деления: уже неё терминал не читается.
 const MIN_RATIO = 0.1;
 
-// Новая сессия начинается с одной панели. Её имя совпадает с сессией:
-// так её находит задание действия и терминал действия по расписанию.
+// Новая сессия начинается с одной панели. Её имя совпадает с сессией.
 export function singlePane(session: string): Panes {
   return { layout: { kind: "pane", id: session }, active: session };
 }

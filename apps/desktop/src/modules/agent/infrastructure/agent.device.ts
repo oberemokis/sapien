@@ -1,10 +1,8 @@
-import type { Run } from "../model/actions";
 import { parsePanes, type Panes } from "../model/panes";
 import { parseTabs, type Tabs } from "../model/tabs";
 
 const TABS_KEY = "sapien.agent.tabs";
 const PANES_KEY = "sapien.agent.panes";
-const RUNS_KEY = "sapien.actions.runs";
 
 // Раскладки панелей по сессиям: после перезапуска сессия открывается
 // с теми же панелями, а в каждой новая оболочка под прежним экраном.
@@ -21,25 +19,6 @@ export function writePanes(panes: Record<string, Panes>) {
     localStorage.setItem(PANES_KEY, JSON.stringify(panes));
   } catch {
     // Панели уже на экране, без записи они только не переживут перезапуск.
-  }
-}
-
-// Когда действия по расписанию последний раз запускались, по путям
-// файлов. Без хранилища окна каждый запуск приложения замечает действия
-// заново, и сроки, пропущенные при закрытом приложении, теряются.
-export function readRuns(): Record<string, Run> {
-  try {
-    return JSON.parse(localStorage.getItem(RUNS_KEY) ?? "{}") ?? {};
-  } catch {
-    return {};
-  }
-}
-
-export function writeRun(path: string, run: Run) {
-  try {
-    localStorage.setItem(RUNS_KEY, JSON.stringify({ ...readRuns(), [path]: run }));
-  } catch {
-    // Запуск уже идёт, без записи он только может повториться после перезапуска.
   }
 }
 

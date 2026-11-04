@@ -12,7 +12,6 @@ import { Route as rootRouteImport } from "./pages/__root";
 import { Route as ShellRouteImport } from "./pages/_shell";
 import { Route as SettingsRouteImport } from "./pages/settings";
 import { Route as ShellIndexRouteImport } from "./pages/_shell.index";
-import { Route as ShellActionsRouteImport } from "./pages/_shell.actions";
 import { Route as ShellInboxRouteImport } from "./pages/_shell.inbox";
 import { Route as SettingsIndexRouteImport } from "./pages/settings.index";
 import { Route as SettingsAgentRouteImport } from "./pages/settings.agent";
@@ -32,11 +31,6 @@ const SettingsRoute = SettingsRouteImport.update({
 const ShellIndexRoute = ShellIndexRouteImport.update({
   id: "/",
   path: "/",
-  getParentRoute: () => ShellRoute,
-} as any);
-const ShellActionsRoute = ShellActionsRouteImport.update({
-  id: "/actions",
-  path: "/actions",
   getParentRoute: () => ShellRoute,
 } as any);
 const ShellInboxRoute = ShellInboxRouteImport.update({
@@ -73,7 +67,6 @@ const SettingsSecurityRoute = SettingsSecurityRouteImport.update({
 export interface FileRoutesByFullPath {
   "/": typeof ShellIndexRoute;
   "/settings": typeof SettingsRouteWithChildren;
-  "/actions": typeof ShellActionsRoute;
   "/inbox": typeof ShellInboxRoute;
   "/settings/agent": typeof SettingsAgentRoute;
   "/settings/appearance": typeof SettingsAppearanceRoute;
@@ -82,7 +75,6 @@ export interface FileRoutesByFullPath {
   "/settings/": typeof SettingsIndexRoute;
 }
 export interface FileRoutesByTo {
-  "/actions": typeof ShellActionsRoute;
   "/inbox": typeof ShellInboxRoute;
   "/settings/agent": typeof SettingsAgentRoute;
   "/settings/appearance": typeof SettingsAppearanceRoute;
@@ -95,7 +87,6 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport;
   "/_shell": typeof ShellRouteWithChildren;
   "/settings": typeof SettingsRouteWithChildren;
-  "/_shell/actions": typeof ShellActionsRoute;
   "/_shell/inbox": typeof ShellInboxRoute;
   "/settings/agent": typeof SettingsAgentRoute;
   "/settings/appearance": typeof SettingsAppearanceRoute;
@@ -109,7 +100,6 @@ export interface FileRouteTypes {
   fullPaths:
     | "/"
     | "/settings"
-    | "/actions"
     | "/inbox"
     | "/settings/agent"
     | "/settings/appearance"
@@ -118,7 +108,6 @@ export interface FileRouteTypes {
     | "/settings/";
   fileRoutesByTo: FileRoutesByTo;
   to:
-    | "/actions"
     | "/inbox"
     | "/settings/agent"
     | "/settings/appearance"
@@ -130,7 +119,6 @@ export interface FileRouteTypes {
     | "__root__"
     | "/_shell"
     | "/settings"
-    | "/_shell/actions"
     | "/_shell/inbox"
     | "/settings/agent"
     | "/settings/appearance"
@@ -166,13 +154,6 @@ declare module "@tanstack/react-router" {
       path: "/";
       fullPath: "/";
       preLoaderRoute: typeof ShellIndexRouteImport;
-      parentRoute: typeof ShellRoute;
-    };
-    "/_shell/actions": {
-      id: "/_shell/actions";
-      path: "/actions";
-      fullPath: "/actions";
-      preLoaderRoute: typeof ShellActionsRouteImport;
       parentRoute: typeof ShellRoute;
     };
     "/_shell/inbox": {
@@ -221,13 +202,11 @@ declare module "@tanstack/react-router" {
 }
 
 interface ShellRouteChildren {
-  ShellActionsRoute: typeof ShellActionsRoute;
   ShellInboxRoute: typeof ShellInboxRoute;
   ShellIndexRoute: typeof ShellIndexRoute;
 }
 
 const ShellRouteChildren: ShellRouteChildren = {
-  ShellActionsRoute: ShellActionsRoute,
   ShellInboxRoute: ShellInboxRoute,
   ShellIndexRoute: ShellIndexRoute,
 };

@@ -1,4 +1,4 @@
-import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
+import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { useState, type MouseEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/core/ui/button";
@@ -189,10 +189,8 @@ function ProjectSessions({ project, onMenu }: ProjectProps) {
   );
 }
 
-// Левая панель: поиск, действия и входящие всегда наверху, ниже проекты
-// с их сессиями. deferred это действия по расписанию, которые ждут сети
-// или проекта.
-export function SessionList({ deferred }: { deferred: string[] }) {
+// Левая панель: поиск всегда наверху, ниже проекты с их сессиями.
+export function SessionList() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const projects = useProjects();
@@ -216,14 +214,6 @@ export function SessionList({ deferred }: { deferred: string[] }) {
           <span className="flex-1 text-left">{t("agent.search.open")}</span>
           <kbd className="font-sans text-[11px] text-text-faint">{shortcutLabel("K")}</kbd>
         </button>
-        <Link to="/actions" className={ROW}>
-          <Icon icon="task" className="shrink-0" />
-          {t("agent.actions.title")}
-        </Link>
-        <Link to="/inbox" className={ROW}>
-          <Icon icon="archive" className="shrink-0" />
-          {t("inbox.title")}
-        </Link>
       </nav>
       <div className="mt-3 flex h-9 shrink-0 items-center gap-1 pr-1.5 pl-3">
         <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-text-muted">{t("agent.projects.title")}</span>
@@ -242,11 +232,6 @@ export function SessionList({ deferred }: { deferred: string[] }) {
           ))}
         </ul>
       </nav>
-      {deferred.length > 0 && (
-        <output className="m-1 block rounded-md bg-state-bg-warning px-2 py-1.5 text-[12px]/[18px] shadow-[inset_0_0_0_0.5px_var(--state-border-warning)]">
-          {t("agent.actions.deferred", { names: deferred.join(", ") })}
-        </output>
-      )}
       {menu !== null && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
     </div>
   );

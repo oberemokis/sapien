@@ -91,10 +91,6 @@ export const ICONS = {
     viewBox: "0 0 20 20",
     body: <rect x="5" y="5" width="10" height="10" fill="currentColor" />,
   },
-  task: {
-    viewBox: "0 0 20 20",
-    body: <path d="M9.99992 2.0835V17.9168M7.08325 3.75016H2.08325V16.2502H7.08325M12.9166 16.2502H17.9166V3.75016H12.9166" stroke="currentColor" strokeLinecap="square" />,
-  },
   warning: {
     viewBox: "0 0 20 20",
     body: <path d="M10 7.91667V11.6667M10 13.7417V13.75M10 2.5L1.875 16.25H18.125L10 2.5Z" stroke="currentColor" strokeLinecap="square" />,

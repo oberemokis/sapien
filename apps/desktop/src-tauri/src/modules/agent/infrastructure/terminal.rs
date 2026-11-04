@@ -249,7 +249,7 @@ done
                 ],
                 env: vec![
                     ("PATH".into(), "/usr/bin:/bin".into()),
-                    ("SAPIEN_TASK".into(), "задание".into()),
+                    ("LANG".into(), "ru_RU.UTF-8".into()),
                 ],
                 dir: &project,
                 cols: 100,
@@ -304,7 +304,7 @@ done
 
         let env = fs::read_to_string(dir.path().join("env")).unwrap();
 
-        assert!(env.contains("SAPIEN_TASK=задание"));
+        assert!(env.contains("LANG=ru_RU.UTF-8"));
         // Окружение приложения до процесса не доходит.
         assert!(!env.contains("CARGO"));
 

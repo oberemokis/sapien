@@ -1,6 +1,4 @@
-use super::domain::{
-    ClaudeStatus, PaneAgent, SessionInfo, TASK_VAR, Titles, agent_of, session_title, shell_args,
-};
+use super::domain::{ClaudeStatus, PaneAgent, SessionInfo, Titles, agent_of, session_title};
 use super::infrastructure::claude_code::ClaudeCode;
 use super::infrastructure::neighbours::ProjectFolders;
 use super::infrastructure::sessions_dir::SessionsDir;
@@ -78,9 +76,6 @@ const SCREEN: usize = 256 * 1024;
 /// оболочка писала бы поверх прежнего экрана.
 const RESET: &[u8] =
     b"\x1b[?1047l\x1b[?25h\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?2004l\x1b[0m\r\n";
-
-/// Размер терминала действия по расписанию, пока его не открыли.
-const BACKGROUND_SIZE: (u16, u16) = (120, 40);
 
 /// Вывод терминала: куда он идёт и что из него помнится.
 struct Output {
@@ -211,36 +206,27 @@ fn named<R: Runtime>(app: &AppHandle<R>, session: &str, title: String) {
 }
 
 /// Запускает оболочку панели `pane` сессии `session` в папке её проекта,
-/// с прежним экраном панели над ней. С заданием `task` в ней сразу идёт
-/// Claude Code. Без канала это действие по расписанию: вывод никто не
-/// смотрит, пока сессию не откроют.
+/// с прежним экраном панели над ней.
 fn start(
     app: &AppHandle,
     terms: &mut HashMap<String, Arc<Term>>,
     (session, pane): (&str, &str),
-    task: Option<&str>,
-    channel: Option<Channel>,
+    channel: Channel,
     (cols, rows): (u16, u16),
 ) -> Result<(), AppError> {
     let store = sessions(app)?;
     let dir = use_case::folder(&store, &ProjectFolders(app.clone()), session)?;
-    let mut env = shell_environment();
     let mut screen = store.screen(session, pane).unwrap_or_default();
-
-    if let Some(task) = task {
-        env.push((TASK_VAR.into(), task.into()));
-    }
 
     if !screen.is_empty() {
         screen.extend_from_slice(RESET);
-
-        if let Some(channel) = &channel {
-            let _ = channel.send(InvokeResponseBody::Raw(screen.clone()));
-        }
+        let _ = channel.send(InvokeResponseBody::Raw(screen.clone()));
     }
 
-    let background = channel.is_none();
-    let output = Arc::new(Mutex::new(Output { channel, screen }));
+    let output = Arc::new(Mutex::new(Output {
+        channel: Some(channel),
+        screen,
+    }));
     let watch = Arc::new(Mutex::new(Watch {
         agent: None,
         group: None,
@@ -260,8 +246,8 @@ fn start(
     let pty = Pty::spawn(
         Command {
             program: &user_shell(),
-            args: &shell_args(task.is_some(), background),
-            env,
+            args: &["-l".into()],
+            env: shell_environment(),
             dir: &dir,
             cols,
             rows,
@@ -492,10 +478,9 @@ pub fn forget_project<R: Runtime>(app: &AppHandle<R>, project: &str) -> Result<(
 // а через него же канал отдаёт вывод окну.
 
 /// Терминал панели `pane` сессии `session` размером `cols` на `rows`.
-/// Оболочка панели уже идёт, например окно перезагрузили или действие
-/// по расписанию работает без вкладки, и вывод переключается в `on_data`,
-/// начиная с того, что уже на экране. Иначе она запускается, с Claude Code
-/// и заданием `task`, если оно есть.
+/// Оболочка панели уже идёт, например окно перезагрузили, и вывод
+/// переключается в `on_data`, начиная с того, что уже на экране. Иначе она
+/// запускается.
 #[tauri::command]
 pub async fn terminal_open(
     app: AppHandle,
@@ -504,20 +489,12 @@ pub async fn terminal_open(
     pane: String,
     cols: u16,
     rows: u16,
-    task: Option<String>,
     on_data: Channel,
 ) -> Result<(), AppError> {
     let mut terms = lock(&terminals.terms);
 
     let Some(term) = terms.get(&pane).cloned() else {
-        return start(
-            &app,
-            &mut terms,
-            (&session, &pane),
-            task.as_deref(),
-            Some(on_data),
-            (cols, rows),
-        );
+        return start(&app, &mut terms, (&session, &pane), on_data, (cols, rows));
     };
 
     {
@@ -536,32 +513,6 @@ pub async fn terminal_open(
     term.pty.resize(cols.saturating_sub(1).max(1), rows);
     term.pty.resize(cols, rows);
     Ok(())
-}
-
-/// Действие по расписанию: Claude Code с заданием `task` в оболочке первой
-/// панели сессии `session` (у неё имя сессии) без вкладки и без
-/// разрешений. Открытая потом вкладка подключается к нему.
-#[tauri::command]
-pub async fn terminal_run(
-    app: AppHandle,
-    terminals: State<'_, Terminals>,
-    session: String,
-    task: String,
-) -> Result<(), AppError> {
-    let mut terms = lock(&terminals.terms);
-
-    if terms.values().any(|term| term.session == session) {
-        return Err(AppError::conflict("agent_busy"));
-    }
-
-    start(
-        &app,
-        &mut terms,
-        (&session, &session),
-        Some(&task),
-        None,
-        BACKGROUND_SIZE,
-    )
 }
 
 /// Ввод с клавиатуры в панель `pane`. Оболочка уже кончилась, значит,

@@ -238,34 +238,6 @@ impl Titles {
     }
 }
 
-/// Переменная, в которой задание действия доходит до оболочки: так его
-/// не нужно экранировать ни для zsh, ни для bash, ни для fish.
-pub const TASK_VAR: &str = "SAPIEN_TASK";
-
-/// Оболочка входа сессии. С заданием она сначала запускает Claude Code
-/// с ним первым сообщением, после `--`, чтобы оно не стало флагом, а когда
-/// Claude Code кончится, уступает место обычной оболочке без задания
-/// в окружении. Действие по расписанию идёт без человека, поэтому без
-/// вопросов о разрешениях и без вопроса, согласен ли он на это.
-pub fn shell_args(task: bool, background: bool) -> Vec<String> {
-    let flags = if background {
-        r#" --permission-mode bypassPermissions --settings '{"skipDangerousModePermissionPrompt":true}'"#
-    } else {
-        ""
-    };
-
-    if !task {
-        return vec!["-l".into()];
-    }
-
-    vec![
-        "-l".into(),
-        "-i".into(),
-        "-c".into(),
-        format!(r#"claude{flags} -- "${TASK_VAR}"; exec env -u {TASK_VAR} "$SHELL" -l"#),
-    ]
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -334,70 +306,6 @@ mod tests {
         assert_eq!(session_name(&"я".repeat(NAME_LIMIT + 1)), None);
         assert_eq!(session_name("строка\nвторая"), None);
         assert_eq!(session_name("\x1b]0;чужой заголовок\x07"), None);
-    }
-
-    /// Скрипт оболочки с заданием `task` и поддельными `claude` и `$SHELL`,
-    /// которые пишут, с чем их позвали и что видят в окружении.
-    #[cfg(unix)]
-    fn run_shell(task: &str, background: bool) -> (String, String) {
-        use std::os::unix::fs::PermissionsExt;
-
-        let dir = tempfile::tempdir().unwrap();
-        let fake = |name: &str, script: &str| {
-            let path = dir.path().join(name);
-
-            std::fs::write(&path, format!("#!/bin/sh\n{script}\n")).unwrap();
-            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
-            path
-        };
-        let here = dir.path().display();
-
-        fake(
-            "claude",
-            &format!("printf '%s|' \"$@\" > '{here}/claude.args'"),
-        );
-        let shell = fake(
-            "shell",
-            &format!("echo \"$@ ${TASK_VAR}\" > '{here}/shell.args'"),
-        );
-        let args = shell_args(true, background);
-
-        // Без -l и -i: оболочка входа читала бы настройки того, кто
-        // запускает тесты.
-        assert_eq!(args[..3], ["-l", "-i", "-c"]);
-        let status = std::process::Command::new("/bin/sh")
-            .args(&args[2..])
-            .env_clear()
-            .env("PATH", format!("{here}:/usr/bin:/bin"))
-            .env("SHELL", &shell)
-            .env(TASK_VAR, task)
-            .status()
-            .unwrap();
-
-        assert!(status.success());
-        let read = |name| std::fs::read_to_string(dir.path().join(name)).unwrap();
-
-        (read("claude.args"), read("shell.args"))
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn задание_доходит_до_claude_code_как_есть_а_дальше_идёт_оболочка() {
-        assert_eq!(shell_args(false, false), ["-l"]);
-
-        let task = "--help 'это' \"$HOME\"\nи \\ `то`";
-        let (claude, shell) = run_shell(task, false);
-
-        assert_eq!(claude, format!("--|{task}|"));
-        // Оболочка после Claude Code входа, и задания в её окружении нет.
-        assert_eq!(shell, "-l \n");
-
-        let (claude, _) = run_shell("сводка", true);
-
-        assert_eq!(
-            claude,
-            r#"--permission-mode|bypassPermissions|--settings|{"skipDangerousModePermissionPrompt":true}|--|сводка|"#
-        );
     }
 
     #[test]

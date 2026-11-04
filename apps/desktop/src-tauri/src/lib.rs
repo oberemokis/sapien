@@ -10,7 +10,7 @@ mod secrets;
 mod unlock;
 mod updates;
 
-use modules::{actions, agent, forge, projects};
+use modules::{agent, forge, projects};
 use tauri::{Manager, RunEvent};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -68,14 +68,9 @@ pub fn run() {
             agent::transport::agent_session_rename,
             agent::transport::agent_claude_status,
             agent::transport::terminal_open,
-            agent::transport::terminal_run,
             agent::transport::terminal_write,
             agent::transport::terminal_resize,
             agent::transport::terminal_close,
-            actions::transport::actions_list,
-            actions::transport::actions_create,
-            actions::transport::actions_write,
-            actions::transport::actions_delete,
             forge::transport::forge_status,
             forge::transport::forge_connect,
             forge::transport::forge_disconnect,

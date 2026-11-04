@@ -22,10 +22,6 @@ type View = {
 // Терминалы по панелям.
 const views = new Map<string, View>();
 
-// Задания действий по панелям, чей терминал ещё не открыт. Задание ждёт
-// первая панель сессии: её имя совпадает с сессией.
-const tasks = new Map<string, string>();
-
 // Шрифт и размер терминала, как у opencode 2.0: значки шрифта рисуют
 // приглашения оболочки. Шрифт лежит в приложении, см. styles.css.
 const FONT_SIZE = 14;
@@ -89,18 +85,14 @@ function create(session: string, pane: string) {
   return view;
 }
 
-// Оболочка панели: Rust подключает окно к идущей или запускает её, с Claude
-// Code и заданием действия, если оно ждёт.
+// Оболочка панели: Rust подключает окно к идущей или запускает её.
 function start(view: View) {
-  const task = tasks.get(view.pane) ?? null;
-
-  tasks.delete(view.pane);
   view.term.onData((data) => send(view, (pane) => terminalWrite(pane, data)));
   view.term.onResize(({ cols, rows }) => send(view, (pane) => terminalResize(pane, cols, rows)));
   // Закрытый терминал вывода и плашек не получает.
   const shown = () => views.get(view.pane) === view;
 
-  view.queue = terminalOpen(view.session, view.pane, view.term.cols, view.term.rows, task, (bytes) => {
+  view.queue = terminalOpen(view.session, view.pane, view.term.cols, view.term.rows, (bytes) => {
     if (shown()) {
       view.term.write(bytes);
     }
@@ -111,16 +103,9 @@ function start(view: View) {
       }
     },
     () => {
-      if (!shown()) {
-        return;
+      if (shown()) {
+        setNotice(view.pane, "failed");
       }
-
-      // Задание не пропадает: «Повторить» отправит его снова.
-      if (task !== null) {
-        tasks.set(view.pane, task);
-      }
-
-      setNotice(view.pane, "failed");
     },
   );
 }
@@ -159,17 +144,10 @@ function dispose(pane: string) {
   views.delete(pane);
 }
 
-// Claude Code с заданием запустится, когда сессию откроют: в её первой
-// панели.
-export function queueTask(session: string, task: string) {
-  tasks.set(session, task);
-}
-
 // Панель закрыли, сама или с вкладкой: оболочка доживает до конца работы
 // агента, терминал окна уходит сразу.
 export function closeTerminal(pane: string) {
   dispose(pane);
-  tasks.delete(pane);
   terminalsStore.setState((states) => Object.fromEntries(Object.entries(states).filter(([id]) => id !== pane)));
   void terminalClose(pane).catch(() => undefined);
 }

@@ -6,16 +6,14 @@ import {
   createRootRoute,
   createRoute,
   createRouter,
-  useNavigate,
 } from "@tanstack/react-router";
 import type { Channel } from "@tauri-apps/api/core";
 import { emit } from "@tauri-apps/api/event";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { useCallback } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 import { Terminal } from "@/test-xterm";
-import { ActionsView, SessionList, SessionTabs, SessionView, useActionTriggers, useAgentEvents } from "@/modules/agent";
+import { SessionList, SessionTabs, SessionView, useAgentEvents } from "@/modules/agent";
 import type { ClaudeStatus } from "./model/claude";
 import type { Project, SessionInfo } from "./model/sessions";
 import { NO_TABS } from "./model/tabs";
@@ -25,17 +23,9 @@ const READY: ClaudeStatus = { state: "ready", version: "2.1.316" };
 
 const SAPIEN: Project = { id: "p1", name: "sapien", path: "/Users/me/sapien", missing: false };
 
-const DAY = 24 * 60 * 60 * 1000;
-
 const MOD = { metaKey: true };
 
-type File = { path: string; text: string };
-
-const SUMMARY: File = { path: "Сводка.md", text: "---\nhotkey: Mod+Shift+S\n---\nСводка за {{today}}\n" };
-
-const DAILY: File = { path: "Обзор за день.md", text: "---\nschedule: 0:00\n---\nИзменения с {{since}} по {{today}}\n" };
-
-type Opened = { session: string; pane: string; cols: number; rows: number; task: string | null };
+type Opened = { session: string; pane: string; cols: number; rows: number };
 
 // Терминалы окна живут дольше теста, поэтому у сессий каждого теста свои
 // номера: терминал прошлого теста не подменит терминал этого.
@@ -43,8 +33,7 @@ let round = 0;
 
 // Rust за командами терминала. answers это ответы terminal_open по порядку,
 // «failed» значит, что оболочка не запустилась, дальше они запускаются.
-// runFails: Claude Code по расписанию не запускается.
-function fakeRust({ actions = [] as File[], answers = [] as string[], runFails = false } = {}) {
+function fakeRust({ answers = [] as string[] } = {}) {
   round += 1;
 
   const session = (name: string, title: string, updated: number): SessionInfo => ({
@@ -57,14 +46,12 @@ function fakeRust({ actions = [] as File[], answers = [] as string[], runFails =
   });
   const rust = {
     sessions: [session("a", "Парсер", 2000), session("b", "Тесты", 1000)],
-    created: [] as SessionInfo[],
     opened: [] as Opened[],
     // Вывод оболочек по панелям.
     channels: new Map<string, Channel<ArrayBuffer>>(),
     received: 0,
     written: [] as { pane: string; data: string }[],
     closed: [] as string[],
-    runs: [] as { session: string; task: string }[],
     answers: [...answers],
   };
 
@@ -77,15 +64,6 @@ function fakeRust({ actions = [] as File[], answers = [] as string[], runFails =
           return rust.sessions;
         case "agent_claude_status":
           return READY;
-        case "actions_list":
-          return actions;
-        case "agent_session_new": {
-          const created = { ...session(`new${rust.created.length + 1}-`, "", 10_000 + rust.created.length) };
-
-          rust.created.push(created);
-          rust.sessions = [...rust.sessions, created];
-          return created;
-        }
         case "terminal_open": {
           const { onData, ...opened } = args as Opened & { onData: Channel<ArrayBuffer> };
           rust.opened.push(opened);
@@ -112,16 +90,6 @@ function fakeRust({ actions = [] as File[], answers = [] as string[], runFails =
         case "terminal_close":
           rust.closed.push((args as { pane: string }).pane);
           return null;
-        case "terminal_run": {
-          const run = args as { session: string; task: string };
-
-          if (runFails) {
-            throw { kind: "not_found", code: "claude_missing" };
-          }
-
-          rust.runs.push(run);
-          return null;
-        }
         default:
           throw new Error(`нет команды ${command}`);
       }
@@ -139,10 +107,6 @@ function print(rust: ReturnType<typeof fakeRust>, pane: string, text: string) {
 
 // Оболочка окна, как pages/_shell.tsx.
 function Shell() {
-  const navigate = useNavigate();
-  const showTabs = useCallback(() => void navigate({ to: "/" }), [navigate]);
-  const { deferred } = useActionTriggers({ onRun: showTabs });
-
   useAgentEvents();
 
   return (
@@ -151,7 +115,7 @@ function Shell() {
         <SessionTabs />
       </header>
       <aside>
-        <SessionList deferred={deferred} />
+        <SessionList />
       </aside>
       <main>
         <Outlet />
@@ -160,13 +124,12 @@ function Shell() {
   );
 }
 
-function open(at = "/") {
+function open() {
   const root = createRootRoute({ component: Shell });
   const home = createRoute({ getParentRoute: () => root, path: "/", component: SessionView });
-  const actions = createRoute({ getParentRoute: () => root, path: "/actions", component: ActionsView });
   const router = createRouter({
-    routeTree: root.addChildren([home, actions]),
-    history: createMemoryHistory({ initialEntries: [at] }),
+    routeTree: root.addChildren([home]),
+    history: createMemoryHistory({ initialEntries: ["/"] }),
   });
 
   render(
@@ -250,11 +213,7 @@ function shownText() {
   return screen.getByTestId("terminal").textContent;
 }
 
-function today() {
-  return new Date().toLocaleDateString("sv-SE");
-}
-
-// Пусть окно доделает начатое: ответы Rust, перерисовка, тик расписания.
+// Пусть окно доделает начатое: ответы Rust, перерисовка.
 async function settle() {
   await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
 }
@@ -277,7 +236,7 @@ describe("терминал сессии", () => {
 
     await openSession("Парсер");
     await waitFor(() =>
-      expect(rust.opened).toEqual([{ session: parser?.id, pane: parser?.id, cols: 80, rows: 24, task: null }]),
+      expect(rust.opened).toEqual([{ session: parser?.id, pane: parser?.id, cols: 80, rows: 24 }]),
     );
 
     print(rust, parser?.id ?? "", "~/sapien $ ");
@@ -348,16 +307,16 @@ describe("терминал сессии", () => {
     expect(screen.queryByText("Оболочка завершилась.")).toBeNull();
   });
 
-  it("оболочка не запустилась: «Повторить» запускает её снова с тем же заданием", async () => {
-    const rust = fakeRust({ actions: [SUMMARY], answers: ["failed"] });
+  it("оболочка не запустилась: «Повторить» запускает её снова", async () => {
+    const rust = fakeRust({ answers: ["failed"] });
+    const [parser] = rust.sessions;
     open();
 
-    await listed("Парсер");
-    fireEvent.keyDown(window, { code: "KeyS", shiftKey: true, ...MOD });
+    await openSession("Парсер");
     fireEvent.click(await screen.findByRole("button", { name: "Повторить" }));
 
     await waitFor(() => expect(rust.opened).toHaveLength(2));
-    expect(rust.opened[1]?.task).toBe(`Сводка за ${today()}`);
+    expect(rust.opened[1]?.pane).toBe(parser?.id);
     await waitFor(() => expect(screen.queryByText("Оболочка не запустилась.")).toBeNull());
   });
 
@@ -401,7 +360,7 @@ describe("панели сессии", () => {
     fireEvent.keyDown(window, { code: "KeyD", ...MOD });
     await waitFor(() => expect(rust.opened).toHaveLength(2));
     const fresh = rust.opened[1]?.pane;
-    expect(rust.opened[1]).toEqual({ session: parser?.id, pane: fresh, cols: 80, rows: 24, task: null });
+    expect(rust.opened[1]).toEqual({ session: parser?.id, pane: fresh, cols: 80, rows: 24 });
     expect(fresh).not.toBe(parser?.id);
     expect(paneNames()).toEqual(["Панель 1", "Панель 2"]);
 
@@ -510,63 +469,5 @@ describe("панели сессии", () => {
     expect(region("Панель 2").dataset.active).toBeUndefined();
     fireEvent.click(panel().getByRole("button", { name: "Codex" }));
     expect(region("Панель 2").dataset.active).toBe("true");
-  });
-});
-
-describe("действия", () => {
-  it("клавиша начинает новую сессию вкладкой, в её оболочке Claude Code получает задание", async () => {
-    const rust = fakeRust({ actions: [SUMMARY] });
-    open();
-
-    await listed("Парсер");
-    fireEvent.keyDown(window, { code: "KeyS", shiftKey: true, ...MOD });
-
-    await waitFor(() => expect(rust.opened).toHaveLength(1));
-    expect(rust.opened[0]).toMatchObject({ session: rust.created[0]?.id, task: `Сводка за ${today()}` });
-    expect(tabs()).toEqual(["Новая сессия*"]);
-  });
-
-  it("«Запустить» на экране действий открывает новую сессию с заданием", async () => {
-    const rust = fakeRust({ actions: [SUMMARY] });
-    open("/actions");
-
-    const row = (await screen.findByText("Сводка")).parentElement?.parentElement as HTMLElement;
-    fireEvent.click(within(row).getByRole("button", { name: "Запустить" }));
-
-    await waitFor(() => expect(rust.opened).toHaveLength(1));
-    expect(rust.opened[0]).toMatchObject({ session: rust.created[0]?.id, task: `Сводка за ${today()}` });
-  });
-
-  it("срок по расписанию запускает Claude Code без вкладки, а открытая потом сессия подключается к нему", async () => {
-    const since = new Date(Date.now() - 8 * DAY);
-    localStorage.setItem("sapien.actions.runs", JSON.stringify({ [DAILY.path]: { at: since.getTime(), ran: true } }));
-    const rust = fakeRust({ actions: [DAILY] });
-    open();
-
-    await waitFor(() => expect(rust.runs).toHaveLength(1));
-    expect(rust.runs[0]).toEqual({
-      session: rust.created[0]?.id,
-      task: `Изменения с ${since.toLocaleDateString("sv-SE")} по ${today()}`,
-    });
-    // Экран за действием не переключается.
-    expect(screen.getByRole("heading", { name: "Нет открытых вкладок" })).toBeDefined();
-    expect(rust.opened).toEqual([]);
-
-    await openSession("Новая сессия");
-    await waitFor(() => expect(rust.opened).toHaveLength(1));
-    expect(rust.opened[0]).toMatchObject({ session: rust.created[0]?.id, task: null });
-  });
-
-  it("Claude Code по расписанию не запустился: задание уйдёт, когда сессию откроют", async () => {
-    localStorage.setItem("sapien.actions.runs", JSON.stringify({ [DAILY.path]: { at: Date.now() - 8 * DAY, ran: true } }));
-    const rust = fakeRust({ actions: [DAILY], runFails: true });
-    open();
-
-    await waitFor(() => expect(rust.created).toHaveLength(1));
-    await settle();
-    await openSession("Новая сессия");
-
-    await waitFor(() => expect(rust.opened).toHaveLength(1));
-    expect(rust.opened[0]?.task).toMatch(/^Изменения с /);
   });
 });
