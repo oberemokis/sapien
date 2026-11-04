@@ -5,11 +5,13 @@ import { Icon } from "./icon";
 // Недоступный пункт виден серым с пометкой под названием, почему. separated
 // отделяет пункт и следующие за ним чертой сверху, heading подписывает
 // группу над пунктом. checked делает пункт выбором из нескольких с галочкой.
-// id нужен, когда подписи пунктов повторяются в разных группах.
+// critical красит пункт, который удаляет или убирает. id нужен, когда
+// подписи пунктов повторяются в разных группах.
 export type MenuItem = {
   label: string;
   onSelect: () => void;
   disabled?: boolean;
+  critical?: boolean;
   hint?: string;
   separated?: boolean;
   heading?: string;
@@ -136,7 +138,9 @@ export function ContextMenu({ x, y, items, onClose, above = false, anchor = null
             role={item.checked === undefined ? "menuitem" : "menuitemradio"}
             aria-checked={item.checked}
             disabled={item.disabled}
-            className="flex min-h-7 w-full items-center gap-4 rounded-sm py-1 pr-1.5 pl-3 text-left text-[13px] outline-none transition-colors duration-120 hover:bg-overlay-hover focus-visible:bg-overlay-hover disabled:opacity-50 disabled:hover:bg-transparent"
+            className={`flex min-h-7 w-full items-center gap-4 rounded-sm py-1 pr-1.5 pl-3 text-left text-[13px] outline-none transition-colors duration-120 hover:bg-overlay-hover focus-visible:bg-overlay-hover disabled:opacity-50 disabled:hover:bg-transparent ${
+              item.critical === true ? "text-state-fg-danger" : ""
+            }`}
             onClick={() => {
               onClose();
               item.onSelect();

@@ -26,7 +26,11 @@ function IntegrationRow({ integration }: { integration: Integration }) {
   return (
     <SettingsRow title={AGENT_NAMES[agent]} description={description}>
       {state !== "missing" && (
-        <Button disabled={toggle.isPending} onClick={() => toggle.mutate({ agent, on: !on })}>
+        <Button
+          variant={on ? "danger" : "neutral"}
+          disabled={toggle.isPending}
+          onClick={() => toggle.mutate({ agent, on: !on })}
+        >
           {on ? t("agent.settings.integrations.remove") : t("agent.settings.integrations.install")}
         </Button>
       )}

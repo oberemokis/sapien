@@ -117,7 +117,7 @@ function ProjectSessions({ project, onMenu }: ProjectProps) {
       disabled: project.missing,
       onSelect: () => newSession.mutate(project.id, { onSuccess: () => void navigate({ to: "/" }) }),
     },
-    { label: t("agent.projects.remove"), separated: true, onSelect: () => setRemoving(true) },
+    { label: t("agent.projects.remove"), separated: true, critical: true, onSelect: () => setRemoving(true) },
   ];
 
   return (
@@ -138,6 +138,7 @@ function ProjectSessions({ project, onMenu }: ProjectProps) {
           <p>{t("agent.projects.removeAsk")}</p>
           <div className="flex gap-2">
             <Button
+              variant="danger"
               disabled={remove.isPending}
               onClick={() => remove.mutate(project.id, { onSuccess: () => setRemoving(false) })}
             >
@@ -172,6 +173,7 @@ function ProjectSessions({ project, onMenu }: ProjectProps) {
                 onMenu(event, [
                   {
                     label: t("agent.sessions.delete"),
+                    critical: true,
                     disabled: session.answering,
                     hint: session.answering ? t("agent.sessions.running") : undefined,
                     onSelect: () => deleteSession.mutate(session),

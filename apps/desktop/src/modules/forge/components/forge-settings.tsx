@@ -62,6 +62,7 @@ function ForgeGroup({ forge, status }: { forge: Forge; status: ForgeStatus | und
       <SettingsRow title={t("forge.connection")} description={description}>
         {status?.kind === "connected" ? (
           <Button
+            variant="danger"
             disabled={disconnect.isPending}
             onClick={() => {
               setProblem(null);
