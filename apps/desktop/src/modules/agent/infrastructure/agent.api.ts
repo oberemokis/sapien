@@ -1,7 +1,7 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { ClaudeStatus } from "../model/claude";
-import type { Project, SessionInfo } from "../model/sessions";
+import type { Agent, Integration, Project, SessionInfo } from "../model/sessions";
 
 export function projectsList() {
   return invoke<Project[]>("projects_list");
@@ -35,25 +35,24 @@ export function agentSessionRename(id: string, title: string) {
 }
 
 // Терминал панели pane сессии session: оболочка в папке сессии, вывод
-// байтами в onData, начиная с прежнего экрана панели. Оболочка ещё
-// не идёт, и с task в ней сразу запускается Claude Code с этим заданием.
+// байтами в onData. Первое сообщение всегда прежний экран панели, пусть
+// и пустой, дальше идёт живой вывод.
 export function terminalOpen(
   session: string,
   pane: string,
   cols: number,
   rows: number,
-  task: string | null,
   onData: (bytes: Uint8Array) => void,
 ) {
   const channel = new Channel<ArrayBuffer>((data) => onData(new Uint8Array(data)));
 
-  return invoke<null>("terminal_open", { session, pane, cols, rows, task, onData: channel });
+  return invoke<null>("terminal_open", { session, pane, cols, rows, onData: channel });
 }
 
-// Действие по расписанию: Claude Code с заданием в оболочке первой панели
-// без вкладки.
-export function terminalRun(session: string, task: string) {
-  return invoke<null>("terminal_run", { session, task });
+// Оболочка панели без вкладки: при запуске окна поднимаются все открытые
+// вкладки, и агенты в них продолжают разговоры. Идущую Rust не трогает.
+export function terminalStart(session: string, pane: string) {
+  return invoke<null>("terminal_start", { session, pane });
 }
 
 export function terminalWrite(pane: string, data: string) {
@@ -86,20 +85,15 @@ export function agentClaudeStatus() {
   return invoke<ClaudeStatus>("agent_claude_status");
 }
 
-// Действия лежат файлами в папке данных приложения, общие для всех
-// проектов. path это имя файла, например «Сводка.md».
-export function actionsList() {
-  return invoke<{ path: string; text: string }[]>("actions_list");
+export function agentIntegrations() {
+  return invoke<Integration[]>("agent_integrations");
 }
 
-export function actionsCreate(name: string, text: string) {
-  return invoke<string>("actions_create", { name, text });
+// Rust дописывает хук в настройки агента или кладёт его расширение.
+export function agentIntegrationInstall(agent: Agent) {
+  return invoke<null>("agent_integration_install", { agent });
 }
 
-export function actionsWrite(path: string, text: string) {
-  return invoke<null>("actions_write", { path, text });
-}
-
-export function actionsDelete(path: string) {
-  return invoke<null>("actions_delete", { path });
+export function agentIntegrationRemove(agent: Agent) {
+  return invoke<null>("agent_integration_remove", { agent });
 }

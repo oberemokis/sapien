@@ -13,7 +13,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { SessionList, SessionSearch, SessionTabs, SessionView } from "@/modules/agent";
 import type { Project, SessionInfo } from "./model/sessions";
 import { NO_TABS } from "./model/tabs";
-import { searchStore, tabsStore } from "./store/sessions.store";
+import { collapsedStore, searchStore, sessionOrderStore, tabsStore } from "./store/sessions.store";
 
 const SAPIEN: Project = { id: "p1", name: "sapien", path: "/Users/me/sapien", missing: false };
 // Кавычка в пути: команда для терминала должна её экранировать.
@@ -131,7 +131,7 @@ function Shell() {
         <SessionTabs />
       </header>
       <aside>
-        <SessionList deferred={[]} />
+        <SessionList />
       </aside>
       <main>
         <Outlet />
@@ -230,6 +230,8 @@ afterEach(() => {
   clearMocks();
   vi.restoreAllMocks();
   tabsStore.setState(() => NO_TABS);
+  sessionOrderStore.setState(() => ({}));
+  collapsedStore.setState(() => []);
   searchStore.setState(() => false);
 });
 
@@ -245,6 +247,25 @@ describe("левая панель", () => {
 
     await openSession("Рефакторинг парсера");
     expect(within(tab(/^Рефакторинг парсера/)).getByText("агент работает")).toBeDefined();
+  });
+
+  it("ветку агентов сворачивают и раскрывают, свёрнутая сессия сама отмечает работу агента", async () => {
+    fakeRust({ answering: ["s1"] });
+    open();
+    await waitFor(() => expect(isAnswering("Рефакторинг парсера")).toBe(true));
+    // У сессии без агентов сворачивать нечего.
+    expect(panel().queryByRole("button", { name: "Свернуть агентов сессии «Тесты окна»" })).toBeNull();
+
+    fireEvent.click(panel().getByRole("button", { name: "Свернуть агентов сессии «Рефакторинг парсера»" }));
+
+    expect(panel().queryByRole("list", { name: "Агенты сессии «Рефакторинг парсера»" })).toBeNull();
+    expect(within(panel().getByRole("button", { name: /^Рефакторинг парсера/ })).getByText("агент работает")).toBeDefined();
+
+    const expand = panel().getByRole("button", { name: "Развернуть агентов сессии «Рефакторинг парсера»" });
+    expect(expand.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(expand);
+
+    expect(isAnswering("Рефакторинг парсера")).toBe(true);
   });
 
   it("«+» во вкладках начинает сессию в открытом проекте новой вкладкой", async () => {
@@ -316,6 +337,62 @@ describe("левая панель", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: "Удалить сессию" }));
     await waitFor(() => expect(sessionTitles("сайт")).toEqual([]));
     expect(rust.deleted).toEqual(["s3"]);
+  });
+
+  it("сессию переименовывают двойным нажатием или из меню, новое имя видно и во вкладке", async () => {
+    const rust = fakeRust();
+    open();
+    await openSession("Тесты окна");
+
+    fireEvent.doubleClick(panel().getByRole("button", { name: "Тесты окна" }));
+    const field = panel().getByRole<HTMLInputElement>("textbox", { name: "Имя сессии" });
+    expect(field.value).toBe("Тесты окна");
+    fireEvent.change(field, { target: { value: "Забыть" } });
+    fireEvent.keyDown(field, { key: "Escape" });
+    expect(sessionTitles("sapien")).toEqual(["Тесты окна", "Рефакторинг парсера"]);
+
+    fireEvent.contextMenu(panel().getByText("Рефакторинг парсера"));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Переименовать" }));
+    const again = panel().getByRole("textbox", { name: "Имя сессии" });
+    fireEvent.change(again, { target: { value: "Парсер" } });
+    fireEvent.blur(again);
+
+    await waitFor(() => expect(sessionTitles("sapien")).toEqual(["Тесты окна", "Парсер"]));
+    expect(rust.renamed).toEqual([{ id: "s1", title: "Парсер" }]);
+
+    fireEvent.doubleClick(panel().getByRole("button", { name: "Тесты окна" }));
+    const tabbed = panel().getByRole("textbox", { name: "Имя сессии" });
+    fireEvent.change(tabbed, { target: { value: "Релиз" } });
+    fireEvent.keyDown(tabbed, { key: "Enter" });
+    await waitFor(() => expect(tabs()).toEqual(["Релиз*"]));
+  });
+
+  it("сессию перетаскивают на новое место, порядок держится, а новая сессия встаёт наверх", async () => {
+    fakeRust();
+    open();
+    await waitFor(() => expect(sessionTitles("sapien")).toEqual(["Тесты окна", "Рефакторинг парсера"]));
+
+    // Строки по 30 px сверху вниз.
+    for (const [index, title] of ["Тесты окна", "Рефакторинг парсера"].entries()) {
+      const item = panel().getByText(title).closest("li") as HTMLElement;
+
+      vi.spyOn(item, "getBoundingClientRect").mockReturnValue(DOMRect.fromRect({ y: index * 30, height: 30 }));
+    }
+
+    // Нижнюю тащат выше середины верхней, отпущенная она не открывается.
+    const row = panel().getByRole("button", { name: "Рефакторинг парсера" });
+    fireEvent.pointerDown(row, { button: 0, clientY: 45 });
+    fireEvent.pointerMove(window, { clientY: 5 });
+    fireEvent.pointerUp(window, { clientY: 5 });
+    fireEvent.click(row);
+
+    expect(sessionTitles("sapien")).toEqual(["Рефакторинг парсера", "Тесты окна"]);
+    expect(tabs()).toEqual([]);
+
+    fireEvent.contextMenu(panel().getByText("sapien"));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Новая сессия" }));
+
+    await waitFor(() => expect(sessionTitles("sapien")).toEqual(["Новая сессия", "Рефакторинг парсера", "Тесты окна"]));
   });
 
   it("новая сессия, которую Rust не завёл, говорит об этом во вкладках и в меню проекта", async () => {

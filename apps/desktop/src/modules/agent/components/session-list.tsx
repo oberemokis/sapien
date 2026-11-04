@@ -1,4 +1,4 @@
-import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
+import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { useState, type MouseEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/core/ui/button";
@@ -6,28 +6,35 @@ import { ContextMenu, type MenuItem } from "@/core/ui/context-menu";
 import { Icon } from "@/core/ui/icon";
 import { IconButton } from "@/core/ui/icon-button";
 import { shortcutLabel } from "@/core/ui/keys";
+import { useReorder } from "@/core/ui/reorder";
 import { focusPane, usePanes } from "../interactions/panes";
 import {
   openSearch,
   openSession,
+  placeSession,
+  toggleAgents,
   useAddProject,
+  useCollapsed,
   useDeleteSession,
   useNewSession,
+  useProjectSessions,
   useProjects,
   useRemoveProject,
-  useSessions,
+  useRenameSession,
   useTabs,
 } from "../interactions/sessions";
 import { panesIn } from "../model/panes";
-import { AGENT_NAMES, sessionsOf, type Project, type SessionInfo } from "../model/sessions";
+import { AGENT_NAMES, moveSession, type Project, type SessionInfo } from "../model/sessions";
+import { RenameField } from "./rename-field";
 
 // Строка панели как строка дерева: 28 px, выбранная на заливке.
 const ROW_SHAPE =
   "flex h-7 w-full min-w-0 items-center gap-2 rounded-md px-2 text-[13px]/4 outline-none transition-colors duration-120 hover:bg-overlay-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-border-focus aria-[current=page]:bg-overlay-pressed [&_svg]:text-icon-muted";
 
-// Разделы панели бледные, сессии ярче имени своего проекта.
+// Разделы панели бледные, сессии ярче имени своего проекта. Сессию
+// перетаскивают, и текст под указателем не выделяется.
 const ROW = `${ROW_SHAPE} text-text-muted hover:text-text-base aria-[current=page]:text-text-base`;
-const SESSION_ROW = `${ROW_SHAPE} text-text-base`;
+const SESSION_ROW = `${ROW_SHAPE} text-text-base select-none`;
 const AGENT_ROW = `${ROW_SHAPE} text-text-muted hover:text-text-base`;
 
 // Ветка дерева от буквы проекта к сессии, углы прямые. Список сдвинут
@@ -90,25 +97,48 @@ type ProjectProps = {
   onMenu: (event: MouseEvent, items: MenuItem[]) => void;
 };
 
-// Проект и его сессии, свежие сверху. Над сессиями мелкая шапка: буква
-// и имя проекта, от буквы к сессиям идут линии дерева. Сессия открывается
-// вкладкой своего проекта. Правая кнопка
-// открывает меню проекта или сессии.
+// Проект и его сессии, свежие сверху, пока человек не переставил их
+// перетаскиванием. Над сессиями мелкая шапка: буква и имя проекта, от
+// буквы к сессиям идут линии дерева. Сессия открывается вкладкой своего
+// проекта. Правая кнопка открывает меню проекта или сессии, двойное
+// нажатие переименовывает сессию, как во вкладках.
 function ProjectSessions({ project, onMenu }: ProjectProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const sessions = useSessions();
   const tabs = useTabs();
   const newSession = useNewSession();
   const remove = useRemoveProject();
   const deleteSession = useDeleteSession();
+  const rename = useRenameSession();
   const onChat = useRouterState({ select: (state) => state.location.pathname === "/" });
   const [removing, setRemoving] = useState(false);
-  const list = sessionsOf(sessions.data ?? [], project.id);
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const shown = useProjectSessions(project.id);
+  const collapsed = useCollapsed();
+  const ids = shown.map((session) => session.id);
+  const { list, drop, start, pressed } = useReorder("y", ({ id, before }) => placeSession(project.id, ids, id, before));
+  let target: string | null | undefined;
+
+  // Черта показывает, куда встанет сессия: перед той, что окажется за ней.
+  if (drop !== null) {
+    const order = moveSession(ids, drop.id, drop.before);
+
+    if (order.join() !== ids.join()) {
+      target = order[order.indexOf(drop.id) + 1] ?? null;
+    }
+  }
 
   function open(session: SessionInfo) {
     openSession(session);
     void navigate({ to: "/" });
+  }
+
+  function finishRename(session: SessionInfo, title: string | null) {
+    setRenaming(null);
+
+    if (title !== null && title.trim() !== session.title) {
+      rename.mutate({ id: session.id, title });
+    }
   }
 
   const projectMenu: MenuItem[] = [
@@ -117,7 +147,7 @@ function ProjectSessions({ project, onMenu }: ProjectProps) {
       disabled: project.missing,
       onSelect: () => newSession.mutate(project.id, { onSuccess: () => void navigate({ to: "/" }) }),
     },
-    { label: t("agent.projects.remove"), separated: true, onSelect: () => setRemoving(true) },
+    { label: t("agent.projects.remove"), separated: true, critical: true, onSelect: () => setRemoving(true) },
   ];
 
   return (
@@ -138,6 +168,7 @@ function ProjectSessions({ project, onMenu }: ProjectProps) {
           <p>{t("agent.projects.removeAsk")}</p>
           <div className="flex gap-2">
             <Button
+              variant="danger"
               disabled={remove.isPending}
               onClick={() => remove.mutate(project.id, { onSuccess: () => setRemoving(false) })}
             >
@@ -158,41 +189,104 @@ function ProjectSessions({ project, onMenu }: ProjectProps) {
           {t("agent.sessions.deleteFailed")}
         </p>
       )}
-      <ul className="ml-4 flex flex-col gap-0.5">
-        {list.map((session) => (
-          <li key={session.id} className={SESSION_BRANCH}>
-            <button
-              type="button"
-              aria-current={(onChat && session.project === tabs.project && session.id === tabs.active && "page") || undefined}
-              className={SESSION_ROW}
-              onClick={() => open(session)}
-              // Сессию, в которой отвечает агент, Rust не удалит: пункт
-              // недоступен и говорит почему.
-              onContextMenu={(event) =>
-                onMenu(event, [
-                  {
-                    label: t("agent.sessions.delete"),
-                    disabled: session.answering,
-                    hint: session.answering ? t("agent.sessions.running") : undefined,
-                    onSelect: () => deleteSession.mutate(session),
-                  },
-                ])
-              }
+      {rename.isError && (
+        <p role="alert" className="px-2 pb-1 text-[12px]/[18px] text-state-fg-danger">
+          {t("agent.sessions.renameFailed")}
+        </p>
+      )}
+      <ul ref={list} className="ml-4 flex flex-col gap-0.5">
+        {shown.map((session) => {
+          const title = session.title || t("agent.sessions.untitled");
+          const branched = session.agents.length > 0;
+          const folded = branched && collapsed.includes(session.id);
+
+          return (
+            <li
+              key={session.id}
+              data-id={session.id}
+              className={`group ${SESSION_BRANCH} ${drop?.id === session.id ? "opacity-60" : ""}`}
             >
-              <span className="min-w-0 flex-1 truncate text-left">{session.title || t("agent.sessions.untitled")}</span>
-            </button>
-            <SessionAgents session={session} onOpen={open} />
-          </li>
-        ))}
+              {target === session.id && (
+                <span aria-hidden className="absolute right-0 left-2 -top-0.5 h-0.5 rounded-full bg-border-focus" />
+              )}
+              {target === null && session.id === ids.at(-1) && (
+                <span aria-hidden className="absolute right-0 -bottom-0.5 left-2 h-0.5 rounded-full bg-border-focus" />
+              )}
+              {renaming === session.id ? (
+                <RenameField
+                  title={session.title}
+                  label={t("agent.sessions.name")}
+                  className="w-full px-2"
+                  onDone={(next) => finishRename(session, next)}
+                />
+              ) : (
+                <button
+                  type="button"
+                  aria-current={(onChat && session.project === tabs.project && session.id === tabs.active && "page") || undefined}
+                  className={`${SESSION_ROW} ${branched ? "pr-7" : ""}`}
+                  onPointerDown={(event) => start(event, session.id)}
+                  onClick={() => {
+                    if (pressed()) {
+                      open(session);
+                    }
+                  }}
+                  onDoubleClick={() => setRenaming(session.id)}
+                  // Сессию, в которой отвечает агент, Rust не удалит: пункт
+                  // недоступен и говорит почему.
+                  onContextMenu={(event) =>
+                    onMenu(event, [
+                      { label: t("agent.sessions.rename"), onSelect: () => setRenaming(session.id) },
+                      {
+                        label: t("agent.sessions.delete"),
+                        separated: true,
+                        critical: true,
+                        disabled: session.answering,
+                        hint: session.answering ? t("agent.sessions.running") : undefined,
+                        onSelect: () => deleteSession.mutate(session),
+                      },
+                    ])
+                  }
+                >
+                  <span className="min-w-0 flex-1 truncate text-left">{title}</span>
+                  {/* Свёрнутая ветка не прячет, что агент работает. */}
+                  {folded && session.answering && (
+                    <>
+                      <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-bg-accent motion-safe:animate-pulse" />
+                      <span className="sr-only">{t("agent.sessions.running")}</span>
+                    </>
+                  )}
+                </button>
+              )}
+              {/* Свёрнутая ветка держит шеврон на виду, раскрытая показывает его
+                  при наведении. */}
+              {branched && renaming !== session.id && (
+                <button
+                  type="button"
+                  aria-expanded={!folded}
+                  aria-label={t(folded ? "agent.sessions.expand" : "agent.sessions.collapse", { title })}
+                  className={`absolute top-1 right-1 grid size-5 place-items-center rounded-sm text-icon-muted transition-opacity duration-120 group-hover:opacity-100 hover:bg-overlay-hover hover:text-icon-base focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-border-focus ${
+                    folded ? "" : "opacity-0"
+                  }`}
+                  onClick={() => toggleAgents(session.id)}
+                >
+                  <Icon
+                    icon="chevron-down"
+                    size={14}
+                    className={`transition-transform duration-120 ${folded ? "-rotate-90" : ""}`}
+                  />
+                </button>
+              )}
+              {!folded && <SessionAgents session={session} onOpen={open} />}
+            </li>
+          );
+        })}
       </ul>
     </li>
   );
 }
 
-// Левая панель: поиск, действия и входящие всегда наверху, ниже проекты
-// с их сессиями. deferred это действия по расписанию, которые ждут сети
-// или проекта.
-export function SessionList({ deferred }: { deferred: string[] }) {
+// Левая панель: поиск всегда наверху, ниже проекты с их сессиями.
+export function SessionList() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const projects = useProjects();
@@ -216,14 +310,6 @@ export function SessionList({ deferred }: { deferred: string[] }) {
           <span className="flex-1 text-left">{t("agent.search.open")}</span>
           <kbd className="font-sans text-[11px] text-text-faint">{shortcutLabel("K")}</kbd>
         </button>
-        <Link to="/actions" className={ROW}>
-          <Icon icon="task" className="shrink-0" />
-          {t("agent.actions.title")}
-        </Link>
-        <Link to="/inbox" className={ROW}>
-          <Icon icon="archive" className="shrink-0" />
-          {t("inbox.title")}
-        </Link>
       </nav>
       <div className="mt-3 flex h-9 shrink-0 items-center gap-1 pr-1.5 pl-3">
         <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-text-muted">{t("agent.projects.title")}</span>
@@ -242,11 +328,6 @@ export function SessionList({ deferred }: { deferred: string[] }) {
           ))}
         </ul>
       </nav>
-      {deferred.length > 0 && (
-        <output className="m-1 block rounded-md bg-state-bg-warning px-2 py-1.5 text-[12px]/[18px] shadow-[inset_0_0_0_0.5px_var(--state-border-warning)]">
-          {t("agent.actions.deferred", { names: deferred.join(", ") })}
-        </output>
-      )}
       {menu !== null && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
     </div>
   );

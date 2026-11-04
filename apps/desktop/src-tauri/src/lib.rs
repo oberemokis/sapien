@@ -10,8 +10,14 @@ mod secrets;
 mod unlock;
 mod updates;
 
-use modules::{actions, agent, forge, projects};
+use modules::{agent, forge, projects};
 use tauri::{Manager, RunEvent};
+
+/// `sapien hook <агент>`: хук агента в панели сообщает приложению её
+/// разговор и сразу выходит, окна не открывает.
+pub fn hook() {
+    agent::hook(&std::env::args().nth(2).unwrap_or_default());
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -67,15 +73,14 @@ pub fn run() {
             agent::transport::agent_session_delete,
             agent::transport::agent_session_rename,
             agent::transport::agent_claude_status,
+            agent::transport::agent_integrations,
+            agent::transport::agent_integration_install,
+            agent::transport::agent_integration_remove,
             agent::transport::terminal_open,
-            agent::transport::terminal_run,
+            agent::transport::terminal_start,
             agent::transport::terminal_write,
             agent::transport::terminal_resize,
             agent::transport::terminal_close,
-            actions::transport::actions_list,
-            actions::transport::actions_create,
-            actions::transport::actions_write,
-            actions::transport::actions_delete,
             forge::transport::forge_status,
             forge::transport::forge_connect,
             forge::transport::forge_disconnect,

@@ -22,10 +22,6 @@ type View = {
 // Терминалы по панелям.
 const views = new Map<string, View>();
 
-// Задания действий по панелям, чей терминал ещё не открыт. Задание ждёт
-// первая панель сессии: её имя совпадает с сессией.
-const tasks = new Map<string, string>();
-
 // Шрифт и размер терминала, как у opencode 2.0: значки шрифта рисуют
 // приглашения оболочки. Шрифт лежит в приложении, см. styles.css.
 const FONT_SIZE = 14;
@@ -73,7 +69,10 @@ function create(session: string, pane: string) {
     queue: Promise.resolve(),
   };
 
-  view.element.className = "h-full";
+  // Сетка клеток по центру: остаток от целых клеток и место под полосу
+  // прокрутки иначе уходят вправо и вниз, и у программы, которая красит
+  // фон (opencode), отступы по краям разные.
+  view.element.className = "grid h-full content-center [&_.xterm-screen]:mx-auto";
   view.term.loadAddon(view.fit);
   views.set(pane, view);
 
@@ -89,21 +88,38 @@ function create(session: string, pane: string) {
   return view;
 }
 
-// Оболочка панели: Rust подключает окно к идущей или запускает её, с Claude
-// Code и заданием действия, если оно ждёт.
+// Оболочка панели: Rust подключает окно к идущей или запускает её.
+// Первым приходит прежний экран панели. Запросы программ в нём, например
+// цвета или места курсора, уже получили ответ, когда шли вживую: ответ
+// терминала сейчас ушёл бы в оболочку набранным текстом.
 function start(view: View) {
-  const task = tasks.get(view.pane) ?? null;
+  let replay = true;
+  let muted = false;
 
-  tasks.delete(view.pane);
-  view.term.onData((data) => send(view, (pane) => terminalWrite(pane, data)));
+  view.term.onData((data) => {
+    if (!muted) {
+      send(view, (pane) => terminalWrite(pane, data));
+    }
+  });
   view.term.onResize(({ cols, rows }) => send(view, (pane) => terminalResize(pane, cols, rows)));
   // Закрытый терминал вывода и плашек не получает.
   const shown = () => views.get(view.pane) === view;
 
-  view.queue = terminalOpen(view.session, view.pane, view.term.cols, view.term.rows, task, (bytes) => {
-    if (shown()) {
-      view.term.write(bytes);
+  view.queue = terminalOpen(view.session, view.pane, view.term.cols, view.term.rows, (bytes) => {
+    if (!shown()) {
+      return;
     }
+
+    if (replay) {
+      replay = false;
+      muted = bytes.length > 0;
+      view.term.write(bytes, () => {
+        muted = false;
+      });
+      return;
+    }
+
+    view.term.write(bytes);
   }).then(
     () => {
       if (shown()) {
@@ -111,16 +127,9 @@ function start(view: View) {
       }
     },
     () => {
-      if (!shown()) {
-        return;
+      if (shown()) {
+        setNotice(view.pane, "failed");
       }
-
-      // Задание не пропадает: «Повторить» отправит его снова.
-      if (task !== null) {
-        tasks.set(view.pane, task);
-      }
-
-      setNotice(view.pane, "failed");
     },
   );
 }
@@ -159,17 +168,10 @@ function dispose(pane: string) {
   views.delete(pane);
 }
 
-// Claude Code с заданием запустится, когда сессию откроют: в её первой
-// панели.
-export function queueTask(session: string, task: string) {
-  tasks.set(session, task);
-}
-
 // Панель закрыли, сама или с вкладкой: оболочка доживает до конца работы
 // агента, терминал окна уходит сразу.
 export function closeTerminal(pane: string) {
   dispose(pane);
-  tasks.delete(pane);
   terminalsStore.setState((states) => Object.fromEntries(Object.entries(states).filter(([id]) => id !== pane)));
   void terminalClose(pane).catch(() => undefined);
 }

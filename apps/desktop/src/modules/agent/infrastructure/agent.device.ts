@@ -1,10 +1,51 @@
-import type { Run } from "../model/actions";
 import { parsePanes, type Panes } from "../model/panes";
+import { isIds, parseSessionOrder, type SessionOrder } from "../model/sessions";
 import { parseTabs, type Tabs } from "../model/tabs";
 
 const TABS_KEY = "sapien.agent.tabs";
 const PANES_KEY = "sapien.agent.panes";
-const RUNS_KEY = "sapien.actions.runs";
+const ORDER_KEY = "sapien.agent.order";
+const COLLAPSED_KEY = "sapien.agent.collapsed";
+
+// Сессии, у которых в левой панели свёрнута ветка агентов.
+export function readCollapsed(): string[] {
+  try {
+    const value: unknown = JSON.parse(localStorage.getItem(COLLAPSED_KEY) ?? "null");
+
+    if (isIds(value)) {
+      return value;
+    }
+  } catch {
+    // Испорченная запись: все ветки раскрыты.
+  }
+
+  return [];
+}
+
+export function writeCollapsed(sessions: string[]) {
+  try {
+    localStorage.setItem(COLLAPSED_KEY, JSON.stringify(sessions));
+  } catch {
+    // Ветки уже свёрнуты на экране, без записи они раскроются после перезапуска.
+  }
+}
+
+// Порядок сессий в левой панели, который человек задал перетаскиванием.
+export function readSessionOrder(): SessionOrder {
+  try {
+    return parseSessionOrder(JSON.parse(localStorage.getItem(ORDER_KEY) ?? "null"));
+  } catch {
+    return {};
+  }
+}
+
+export function writeSessionOrder(order: SessionOrder) {
+  try {
+    localStorage.setItem(ORDER_KEY, JSON.stringify(order));
+  } catch {
+    // Порядок уже на экране, без записи он только не переживёт перезапуск.
+  }
+}
 
 // Раскладки панелей по сессиям: после перезапуска сессия открывается
 // с теми же панелями, а в каждой новая оболочка под прежним экраном.
@@ -21,25 +62,6 @@ export function writePanes(panes: Record<string, Panes>) {
     localStorage.setItem(PANES_KEY, JSON.stringify(panes));
   } catch {
     // Панели уже на экране, без записи они только не переживут перезапуск.
-  }
-}
-
-// Когда действия по расписанию последний раз запускались, по путям
-// файлов. Без хранилища окна каждый запуск приложения замечает действия
-// заново, и сроки, пропущенные при закрытом приложении, теряются.
-export function readRuns(): Record<string, Run> {
-  try {
-    return JSON.parse(localStorage.getItem(RUNS_KEY) ?? "{}") ?? {};
-  } catch {
-    return {};
-  }
-}
-
-export function writeRun(path: string, run: Run) {
-  try {
-    localStorage.setItem(RUNS_KEY, JSON.stringify({ ...readRuns(), [path]: run }));
-  } catch {
-    // Запуск уже идёт, без записи он только может повториться после перезапуска.
   }
 }
 

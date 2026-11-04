@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { homeProject, searchSessions, sessionsOf, type Project, type SessionInfo } from "./sessions";
+import {
+  homeProject,
+  moveSession,
+  parseSessionOrder,
+  searchSessions,
+  sessionsOf,
+  type Project,
+  type SessionInfo,
+} from "./sessions";
 
 const project = (id: string, name: string): Project => ({ id, name, path: `/Users/me/${name}`, missing: false });
 
@@ -31,6 +39,27 @@ describe("сессии проекта", () => {
     ["p3", []],
   ])("проект %s: свои сессии, свежие сверху", (projectId, ids) => {
     expect(sessionsOf(SESSIONS, projectId).map((found) => found.id)).toEqual(ids);
+  });
+
+  it("порядок человека держится, а сессия, которой в нём нет, встаёт наверх", () => {
+    const order = moveSession(["s2", "s1"], "s2", null);
+    const fresh = [...SESSIONS, session("s5", "p1", "Новая", 500)];
+
+    expect(order).toEqual(["s1", "s2"]);
+    expect(sessionsOf(fresh, "p1", order).map((found) => found.id)).toEqual(["s5", "s1", "s2"]);
+  });
+
+  it.each([
+    ["перед другой", "s3", "s1", ["s3", "s1", "s2"]],
+    ["в конец", "s1", null, ["s2", "s3", "s1"]],
+    ["перед пропавшей: на месте", "s1", "s9", ["s1", "s2", "s3"]],
+  ])("сессия встаёт %s", (_, moved, before, ids) => {
+    expect(moveSession(["s1", "s2", "s3"], moved, before)).toEqual(ids);
+  });
+
+  it("из хранилища берутся только списки сессий", () => {
+    expect(parseSessionOrder({ p1: ["s1"], p2: "s2", p3: [1] })).toEqual({ p1: ["s1"] });
+    expect(parseSessionOrder(null)).toEqual({});
   });
 });
 

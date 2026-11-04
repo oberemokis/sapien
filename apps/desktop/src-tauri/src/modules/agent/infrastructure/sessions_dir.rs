@@ -1,6 +1,6 @@
 use crate::durable;
 use crate::error::AppError;
-use crate::modules::agent::domain::{Session, SessionInfo};
+use crate::modules::agent::domain::{Conversation, Session, SessionInfo};
 use crate::modules::agent::ports::Sessions;
 use serde_json::Value;
 use std::fs;
@@ -63,6 +63,51 @@ impl SessionsDir {
 
         fs::create_dir_all(dir).map_err(unwritable)?;
         durable::write(&file, bytes).map_err(unwritable)
+    }
+
+    /// Разговор агента панели лежит рядом с её экраном, `<панель>.agent`,
+    /// и удаляется вместе с сессией.
+    fn conversation_file(&self, session: &str, pane: &str) -> Option<PathBuf> {
+        Some(self.screens(session)?.join(format!("{pane}.agent"))).filter(|_| plain(pane))
+    }
+
+    /// Разговор, который панель продолжит, когда её оболочка начнётся
+    /// заново. Нечитаемый файл значит, что продолжать нечего.
+    pub fn conversation(&self, session: &str, pane: &str) -> Option<Conversation> {
+        let text = fs::read(self.conversation_file(session, pane)?).ok()?;
+
+        serde_json::from_slice(&text).ok()
+    }
+
+    /// `None`: агент из панели ушёл, и продолжать нечего.
+    pub fn save_conversation(
+        &self,
+        session: &str,
+        pane: &str,
+        conversation: Option<&Conversation>,
+    ) -> Result<(), AppError> {
+        let unwritable = |_| AppError::unavailable("session_unwritable");
+        let (Some(dir), Some(file)) =
+            (self.screens(session), self.conversation_file(session, pane))
+        else {
+            return Err(AppError::invalid("session_invalid"));
+        };
+
+        let Some(conversation) = conversation else {
+            return match fs::remove_file(&file) {
+                Err(error) if error.kind() != ErrorKind::NotFound => Err(unwritable(error)),
+                _ => Ok(()),
+            };
+        };
+        let bytes =
+            serde_json::to_vec(conversation).map_err(|_| AppError::invalid("session_invalid"))?;
+
+        if dir.is_file() {
+            fs::remove_file(&dir).map_err(unwritable)?;
+        }
+
+        fs::create_dir_all(dir).map_err(unwritable)?;
+        durable::write(&file, &bytes).map_err(unwritable)
     }
 }
 
@@ -245,10 +290,34 @@ mod tests {
         );
         assert_eq!(again.list().unwrap().len(), 2);
 
+        // Разговор агента панели тоже, пока из агента не вышли.
+        let conversation = Conversation {
+            agent: "claude".into(),
+            id: "4f1c".into(),
+            cwd: None,
+            transcript: Some("/t/4f1c.jsonl".into()),
+        };
+
+        again
+            .save_conversation("a1", "f00d", Some(&conversation))
+            .unwrap();
+        assert_eq!(
+            SessionsDir::new(data.path()).conversation("a1", "f00d"),
+            Some(conversation.clone())
+        );
+        assert_eq!(again.conversation("a1", "a1"), None);
+        again.save_conversation("a1", "f00d", None).unwrap();
+        again.save_conversation("a1", "f00d", None).unwrap();
+        assert_eq!(again.conversation("a1", "f00d"), None);
+        again
+            .save_conversation("a1", "f00d", Some(&conversation))
+            .unwrap();
+
         again.delete("a1").unwrap();
         again.delete("a1").unwrap();
         assert_eq!(saved(data.path(), "a1"), None);
         assert_eq!(again.screen("a1", "a1"), None);
+        assert_eq!(again.conversation("a1", "f00d"), None);
         assert!(!data.path().join("sessions/screens/a1").exists());
     }
 

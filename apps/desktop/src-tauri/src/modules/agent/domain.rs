@@ -134,8 +134,20 @@ impl Session {
     }
 }
 
-/// Агенты, которых sapien узнаёт в терминале. id совпадает с командой.
-pub const AGENTS: [&str; 5] = ["claude", "codex", "pi", "opencode", "gemini"];
+/// Агенты, которых sapien узнаёт в терминале.
+pub const AGENTS: [&str; 6] = ["claude", "codex", "pi", "opencode", "gemini", "cursor"];
+
+/// Команды агентов. У остальных id совпадает с командой, а CLI Cursor
+/// ставит себя и как `cursor-agent`, и как `agent`.
+const PROGRAMS: [(&str, &str); 7] = [
+    ("claude", "claude"),
+    ("codex", "codex"),
+    ("pi", "pi"),
+    ("opencode", "opencode"),
+    ("gemini", "gemini"),
+    ("cursor-agent", "cursor"),
+    ("agent", "cursor"),
+];
 
 /// Агент по командной строке процесса на переднем плане терминала.
 /// Поставленный через npm агент идёт скриптом node, поэтому смотрится
@@ -144,7 +156,170 @@ pub fn agent_of(command: &str) -> Option<&'static str> {
     command.split_whitespace().take(3).find_map(|word| {
         let name = word.rsplit('/').next()?;
 
-        AGENTS.into_iter().find(|agent| *agent == name)
+        PROGRAMS
+            .into_iter()
+            .find_map(|(program, agent)| (program == name).then_some(agent))
+    })
+}
+
+/// Интеграция агента в его настройках. `Missing`: агента на устройстве
+/// нет, нет и папки его настроек.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum IntegrationState {
+    Missing,
+    Off,
+    On,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Integration {
+    pub agent: &'static str,
+    pub state: IntegrationState,
+}
+
+/// Разговор агента в панели: его продолжает панель после перезапуска.
+/// `cwd`: папка, где агент работал, разговор ищется по ней. `transcript`:
+/// файл разговора. Пока его нет, агент разговор не записал и продолжить
+/// его не сможет.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Conversation {
+    pub agent: String,
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transcript: Option<String>,
+}
+
+/// Весть от интеграции агента: в панели `pane` идёт разговор. `source`:
+/// с чего он начался, как его называет агент («startup», «resume», «clear»).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Report {
+    pub pane: String,
+    #[serde(flatten)]
+    pub conversation: Conversation,
+    #[serde(default)]
+    pub source: String,
+}
+
+/// Сменил ли агент разговор сам: новый id с таким началом заменяет
+/// прежний. С другим началом новый id приходит от агента, которого агент
+/// панели запустил сам, а разговор панели остаётся прежним. Pi и OpenCode
+/// сообщают только о разговоре своего окна.
+fn switches(agent: &str, source: &str) -> bool {
+    matches!(
+        (agent, source),
+        ("claude", "clear" | "resume" | "compact")
+            | ("codex", "startup" | "clear" | "resume" | "compact")
+            | ("pi" | "opencode" | "cursor", _)
+    )
+}
+
+/// Принимает ли панель разговор из `report`, когда у неё уже есть
+/// `current`. id и папка идут в набранную команду, поэтому управляющих
+/// знаков в них быть не может.
+pub fn accepts(current: Option<&Conversation>, report: &Report) -> bool {
+    let next = &report.conversation;
+    let clean = |text: &str| !text.is_empty() && !text.chars().any(char::is_control);
+
+    if !AGENTS.contains(&next.agent.as_str())
+        || !clean(&next.id)
+        || !next.cwd.as_deref().is_none_or(clean)
+    {
+        return false;
+    }
+
+    match current {
+        Some(current) if current.agent == next.agent && current.id != next.id => {
+            switches(&next.agent, &report.source)
+        }
+        Some(current) => current != next,
+        None => true,
+    }
+}
+
+/// Строка в одинарных кавычках для оболочки: zsh, bash и fish читают её
+/// как есть.
+pub fn quoted(text: &str) -> String {
+    format!("'{}'", text.replace('\'', r"'\''"))
+}
+
+/// Команда, которую панель набирает в новой оболочке, чтобы агент
+/// продолжил разговор. Сначала переход в папку, где он работал.
+pub fn resume_command(conversation: &Conversation) -> Option<String> {
+    let id = quoted(&conversation.id);
+    let program = match conversation.agent.as_str() {
+        "claude" => format!("claude --resume {id}"),
+        "codex" => format!("codex resume {id}"),
+        "pi" => format!("pi --session {id}"),
+        "opencode" => format!("opencode --session {id}"),
+        "cursor" => format!("cursor-agent --resume {id}"),
+        _ => return None,
+    };
+
+    Some(match &conversation.cwd {
+        Some(cwd) => format!("cd {} && {program}", quoted(cwd)),
+        None => program,
+    })
+}
+
+/// Разговор из события хука агента `agent` (Claude Code, Codex, Cursor).
+/// `None`: событие не о разговоре панели. Хук субагента Claude Code несёт
+/// `agent_id`, а Cursor читает хуки Claude Code и зовёт их со своими
+/// событиями. `thread`: `CODEX_THREAD_ID` окружения хука, у вложенного
+/// Codex он чужой. Папку без `cwd` в событии даёт `dir` хука.
+pub fn hook_report(
+    agent: &str,
+    event: &Value,
+    pane: &str,
+    thread: Option<&str>,
+    dir: Option<String>,
+) -> Option<Report> {
+    let text = |key: &str| event[key].as_str().filter(|value| !value.is_empty());
+    let (id, source) = match agent {
+        "claude" if event.get("agent_id").is_some() || event.get("cursor_version").is_some() => {
+            return None;
+        }
+        "claude" => (text("session_id")?, text("source").unwrap_or_default()),
+        "codex" if text("transcript_path").is_none() => return None,
+        "codex" => {
+            let id = text("session_id")?;
+
+            if thread.is_some_and(|thread| thread != id) {
+                return None;
+            }
+
+            (id, text("source").unwrap_or_default())
+        }
+        "cursor" if event["is_background_agent"] == Value::Bool(true) => return None,
+        "cursor" => (
+            [
+                "session_id",
+                "sessionId",
+                "conversation_id",
+                "conversationId",
+            ]
+            .into_iter()
+            .find_map(text)?,
+            "",
+        ),
+        _ => return None,
+    };
+    let cwd = text("cwd")
+        .map(str::to_owned)
+        .or_else(|| event["workspace_roots"][0].as_str().map(str::to_owned))
+        .or(dir);
+
+    Some(Report {
+        pane: pane.to_owned(),
+        conversation: Conversation {
+            agent: agent.to_owned(),
+            id: id.to_owned(),
+            cwd,
+            transcript: text("transcript_path").map(str::to_owned),
+        },
+        source: source.to_owned(),
     })
 }
 
@@ -238,34 +413,6 @@ impl Titles {
     }
 }
 
-/// Переменная, в которой задание действия доходит до оболочки: так его
-/// не нужно экранировать ни для zsh, ни для bash, ни для fish.
-pub const TASK_VAR: &str = "SAPIEN_TASK";
-
-/// Оболочка входа сессии. С заданием она сначала запускает Claude Code
-/// с ним первым сообщением, после `--`, чтобы оно не стало флагом, а когда
-/// Claude Code кончится, уступает место обычной оболочке без задания
-/// в окружении. Действие по расписанию идёт без человека, поэтому без
-/// вопросов о разрешениях и без вопроса, согласен ли он на это.
-pub fn shell_args(task: bool, background: bool) -> Vec<String> {
-    let flags = if background {
-        r#" --permission-mode bypassPermissions --settings '{"skipDangerousModePermissionPrompt":true}'"#
-    } else {
-        ""
-    };
-
-    if !task {
-        return vec!["-l".into()];
-    }
-
-    vec![
-        "-l".into(),
-        "-i".into(),
-        "-c".into(),
-        format!(r#"claude{flags} -- "${TASK_VAR}"; exec env -u {TASK_VAR} "$SHELL" -l"#),
-    ]
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -281,9 +428,114 @@ mod tests {
         assert_eq!(agent_of("node /opt/homebrew/bin/codex"), Some("codex"));
         assert_eq!(agent_of("node --no-warnings /usr/local/bin/pi"), Some("pi"));
         assert_eq!(agent_of("opencode run"), Some("opencode"));
+        assert_eq!(
+            agent_of("/Users/me/.local/bin/cursor-agent"),
+            Some("cursor")
+        );
+        assert_eq!(agent_of("agent --resume c1"), Some("cursor"));
+        assert_eq!(agent_of("ssh-agent"), None);
         assert_eq!(agent_of("vim claude.md"), None);
         assert_eq!(agent_of("-zsh"), None);
         assert_eq!(agent_of("pnpm test"), None);
+    }
+
+    fn report(agent: &str, id: &str, source: &str) -> Report {
+        Report {
+            pane: "p".into(),
+            conversation: Conversation {
+                agent: agent.into(),
+                id: id.into(),
+                cwd: Some("/Users/me/sapien".into()),
+                transcript: None,
+            },
+            source: source.into(),
+        }
+    }
+
+    #[test]
+    fn разговор_панели_меняет_только_сам_агент_а_не_запущенный_им() {
+        let current = report("claude", "a1", "startup").conversation;
+
+        assert!(accepts(None, &report("claude", "a1", "startup")));
+        // /clear и /resume меняют разговор, а Claude Code, которого агент
+        // запустил командой, начинает свой с startup и разговор не трогает.
+        assert!(accepts(Some(&current), &report("claude", "b2", "clear")));
+        assert!(accepts(Some(&current), &report("claude", "b2", "resume")));
+        assert!(!accepts(Some(&current), &report("claude", "b2", "startup")));
+        assert!(!accepts(Some(&current), &report("claude", "a1", "resume")));
+        assert!(accepts(Some(&current), &report("codex", "c3", "startup")));
+        // id и папка идут в набранную команду: перевод строки отправил бы её раньше.
+        assert!(!accepts(None, &report("claude", "a1\rrm -rf ~", "startup")));
+        assert!(!accepts(None, &report("vim", "a1", "startup")));
+    }
+
+    #[test]
+    fn разговор_продолжается_своей_командой_агента_в_своей_папке() {
+        let mut conversation = report("claude", "4f1c", "").conversation;
+
+        assert_eq!(
+            resume_command(&conversation).unwrap(),
+            "cd '/Users/me/sapien' && claude --resume '4f1c'"
+        );
+
+        conversation.agent = "pi".into();
+        conversation.id = "/Users/me/.pi/s/O'Brien.jsonl".into();
+        conversation.cwd = None;
+        assert_eq!(
+            resume_command(&conversation).unwrap(),
+            r"pi --session '/Users/me/.pi/s/O'\''Brien.jsonl'"
+        );
+
+        for (agent, command) in [
+            ("codex", "codex resume 'x'"),
+            ("opencode", "opencode --session 'x'"),
+            ("cursor", "cursor-agent --resume 'x'"),
+        ] {
+            conversation.agent = agent.into();
+            conversation.id = "x".into();
+            assert_eq!(resume_command(&conversation).unwrap(), command);
+        }
+
+        conversation.agent = "gemini".into();
+        assert_eq!(resume_command(&conversation), None);
+    }
+
+    #[test]
+    fn хук_сообщает_разговор_панели_но_не_субагента_и_не_чужого_агента() {
+        let claude = json!({ "session_id": "a1", "source": "clear", "cwd": "/w", "transcript_path": "/t/a1.jsonl" });
+        let got = hook_report("claude", &claude, "p", None, None).unwrap();
+
+        assert_eq!(got.conversation.id, "a1");
+        assert_eq!(got.conversation.cwd.as_deref(), Some("/w"));
+        assert_eq!(got.conversation.transcript.as_deref(), Some("/t/a1.jsonl"));
+        assert_eq!(got.source, "clear");
+
+        let subagent = json!({ "session_id": "a1", "agent_id": "x" });
+        let in_cursor = json!({ "session_id": "a1", "cursor_version": "1.7" });
+
+        assert_eq!(hook_report("claude", &subagent, "p", None, None), None);
+        assert_eq!(hook_report("claude", &in_cursor, "p", None, None), None);
+
+        // Cursor зовёт разговор по-разному, папку даёт workspace_roots.
+        let cursor = json!({ "conversation_id": "c9", "workspace_roots": ["/w"] });
+        let got = hook_report("cursor", &cursor, "p", None, None).unwrap();
+
+        assert_eq!(got.conversation.id, "c9");
+        assert_eq!(got.conversation.cwd.as_deref(), Some("/w"));
+
+        // Вложенный Codex: у его хука чужой CODEX_THREAD_ID.
+        let codex = json!({ "session_id": "t2", "transcript_path": "/t.jsonl" });
+
+        assert!(hook_report("codex", &codex, "p", Some("t2"), Some("/d".into())).is_some());
+        assert_eq!(hook_report("codex", &codex, "p", Some("t1"), None), None);
+        assert_eq!(
+            hook_report("codex", &codex, "p", None, Some("/d".into()))
+                .unwrap()
+                .conversation
+                .cwd
+                .as_deref(),
+            Some("/d")
+        );
     }
 
     #[test]
@@ -334,70 +586,6 @@ mod tests {
         assert_eq!(session_name(&"я".repeat(NAME_LIMIT + 1)), None);
         assert_eq!(session_name("строка\nвторая"), None);
         assert_eq!(session_name("\x1b]0;чужой заголовок\x07"), None);
-    }
-
-    /// Скрипт оболочки с заданием `task` и поддельными `claude` и `$SHELL`,
-    /// которые пишут, с чем их позвали и что видят в окружении.
-    #[cfg(unix)]
-    fn run_shell(task: &str, background: bool) -> (String, String) {
-        use std::os::unix::fs::PermissionsExt;
-
-        let dir = tempfile::tempdir().unwrap();
-        let fake = |name: &str, script: &str| {
-            let path = dir.path().join(name);
-
-            std::fs::write(&path, format!("#!/bin/sh\n{script}\n")).unwrap();
-            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
-            path
-        };
-        let here = dir.path().display();
-
-        fake(
-            "claude",
-            &format!("printf '%s|' \"$@\" > '{here}/claude.args'"),
-        );
-        let shell = fake(
-            "shell",
-            &format!("echo \"$@ ${TASK_VAR}\" > '{here}/shell.args'"),
-        );
-        let args = shell_args(true, background);
-
-        // Без -l и -i: оболочка входа читала бы настройки того, кто
-        // запускает тесты.
-        assert_eq!(args[..3], ["-l", "-i", "-c"]);
-        let status = std::process::Command::new("/bin/sh")
-            .args(&args[2..])
-            .env_clear()
-            .env("PATH", format!("{here}:/usr/bin:/bin"))
-            .env("SHELL", &shell)
-            .env(TASK_VAR, task)
-            .status()
-            .unwrap();
-
-        assert!(status.success());
-        let read = |name| std::fs::read_to_string(dir.path().join(name)).unwrap();
-
-        (read("claude.args"), read("shell.args"))
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn задание_доходит_до_claude_code_как_есть_а_дальше_идёт_оболочка() {
-        assert_eq!(shell_args(false, false), ["-l"]);
-
-        let task = "--help 'это' \"$HOME\"\nи \\ `то`";
-        let (claude, shell) = run_shell(task, false);
-
-        assert_eq!(claude, format!("--|{task}|"));
-        // Оболочка после Claude Code входа, и задания в её окружении нет.
-        assert_eq!(shell, "-l \n");
-
-        let (claude, _) = run_shell("сводка", true);
-
-        assert_eq!(
-            claude,
-            r#"--permission-mode|bypassPermissions|--settings|{"skipDangerousModePermissionPrompt":true}|--|сводка|"#
-        );
     }
 
     #[test]

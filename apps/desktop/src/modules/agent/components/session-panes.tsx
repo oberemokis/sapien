@@ -40,7 +40,6 @@ type PaneProps = {
   pane: string;
   index: number;
   active: boolean;
-  many: boolean;
   onMenu: (event: MouseEvent, pane: string) => void;
 };
 
@@ -48,7 +47,7 @@ type PaneProps = {
 // вкладку, при возврате видит тот же терминал. Начатый заново терминал
 // получает новое место на странице. Среди нескольких панелей фоновые
 // бледнее активной.
-function PaneTerminal({ session, pane, index, active, many, onMenu }: PaneProps) {
+function PaneTerminal({ session, pane, index, active, onMenu }: PaneProps) {
   const { t } = useTranslation();
   const { notice, generation } = useTerminalState(pane);
   const attach = useCallback((host: HTMLDivElement) => attachTerminal(session, pane, host), [session, pane]);
@@ -75,7 +74,7 @@ function PaneTerminal({ session, pane, index, active, many, onMenu }: PaneProps)
     <section
       aria-label={t("agent.panes.label", { index })}
       data-active={active || undefined}
-      className="flex min-h-0 min-w-0 flex-1 flex-col transition-opacity duration-120 not-data-active:opacity-60"
+      className="flex min-h-0 min-w-0 flex-1 flex-col px-4 transition-opacity duration-120 not-data-active:opacity-60"
     >
       {notice === "exited" && (
         <Notice tone="warning" action={restart(t("agent.terminal.restart"))}>
@@ -87,7 +86,7 @@ function PaneTerminal({ session, pane, index, active, many, onMenu }: PaneProps)
         key={generation}
         ref={attach}
         data-testid="terminal"
-        className={`min-h-0 flex-1 py-2 ${many ? "px-2" : ""}`}
+        className="min-h-0 flex-1 py-2"
         onFocus={() => activatePane(session, pane)}
         onContextMenu={(event) => onMenu(event, pane)}
       />
@@ -116,7 +115,6 @@ function PaneNode({ session, node, path, active, panes, onMenu }: NodeProps) {
         pane={node.id}
         index={panes.indexOf(node.id) + 1}
         active={node.id === active}
-        many={panes.length > 1}
         onMenu={onMenu}
       />
     );
