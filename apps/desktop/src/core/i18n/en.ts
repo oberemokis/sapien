@@ -41,8 +41,11 @@ export const en: Dictionary<typeof ru> = {
       running: "agent is working",
       agents: "Agents in “{{title}}”",
       delete: "Delete session",
+      rename: "Rename",
+      name: "Session name",
       newFailed: "The session was not created.",
       deleteFailed: "The session was not deleted.",
+      renameFailed: "The name was not saved.",
     },
     tabs: {
       label: "Tabs of “{{project}}”",

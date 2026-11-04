@@ -15,11 +15,13 @@ import {
   useNewSession,
   useProjects,
   useRemoveProject,
+  useRenameSession,
   useSessions,
   useTabs,
 } from "../interactions/sessions";
 import { panesIn } from "../model/panes";
 import { AGENT_NAMES, sessionsOf, type Project, type SessionInfo } from "../model/sessions";
+import { RenameField } from "./rename-field";
 
 // Строка панели как строка дерева: 28 px, выбранная на заливке.
 const ROW_SHAPE =
@@ -92,8 +94,8 @@ type ProjectProps = {
 
 // Проект и его сессии, свежие сверху. Над сессиями мелкая шапка: буква
 // и имя проекта, от буквы к сессиям идут линии дерева. Сессия открывается
-// вкладкой своего проекта. Правая кнопка
-// открывает меню проекта или сессии.
+// вкладкой своего проекта. Правая кнопка открывает меню проекта или
+// сессии, двойное нажатие переименовывает сессию, как во вкладках.
 function ProjectSessions({ project, onMenu }: ProjectProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -102,13 +104,23 @@ function ProjectSessions({ project, onMenu }: ProjectProps) {
   const newSession = useNewSession();
   const remove = useRemoveProject();
   const deleteSession = useDeleteSession();
+  const rename = useRenameSession();
   const onChat = useRouterState({ select: (state) => state.location.pathname === "/" });
   const [removing, setRemoving] = useState(false);
+  const [renaming, setRenaming] = useState<string | null>(null);
   const list = sessionsOf(sessions.data ?? [], project.id);
 
   function open(session: SessionInfo) {
     openSession(session);
     void navigate({ to: "/" });
+  }
+
+  function finishRename(session: SessionInfo, title: string | null) {
+    setRenaming(null);
+
+    if (title !== null && title.trim() !== session.title) {
+      rename.mutate({ id: session.id, title });
+    }
   }
 
   const projectMenu: MenuItem[] = [
@@ -159,30 +171,47 @@ function ProjectSessions({ project, onMenu }: ProjectProps) {
           {t("agent.sessions.deleteFailed")}
         </p>
       )}
+      {rename.isError && (
+        <p role="alert" className="px-2 pb-1 text-[12px]/[18px] text-state-fg-danger">
+          {t("agent.sessions.renameFailed")}
+        </p>
+      )}
       <ul className="ml-4 flex flex-col gap-0.5">
         {list.map((session) => (
           <li key={session.id} className={SESSION_BRANCH}>
-            <button
-              type="button"
-              aria-current={(onChat && session.project === tabs.project && session.id === tabs.active && "page") || undefined}
-              className={SESSION_ROW}
-              onClick={() => open(session)}
-              // Сессию, в которой отвечает агент, Rust не удалит: пункт
-              // недоступен и говорит почему.
-              onContextMenu={(event) =>
-                onMenu(event, [
-                  {
-                    label: t("agent.sessions.delete"),
-                    critical: true,
-                    disabled: session.answering,
-                    hint: session.answering ? t("agent.sessions.running") : undefined,
-                    onSelect: () => deleteSession.mutate(session),
-                  },
-                ])
-              }
-            >
-              <span className="min-w-0 flex-1 truncate text-left">{session.title || t("agent.sessions.untitled")}</span>
-            </button>
+            {renaming === session.id ? (
+              <RenameField
+                title={session.title}
+                label={t("agent.sessions.name")}
+                className="w-full px-2"
+                onDone={(next) => finishRename(session, next)}
+              />
+            ) : (
+              <button
+                type="button"
+                aria-current={(onChat && session.project === tabs.project && session.id === tabs.active && "page") || undefined}
+                className={SESSION_ROW}
+                onClick={() => open(session)}
+                onDoubleClick={() => setRenaming(session.id)}
+                // Сессию, в которой отвечает агент, Rust не удалит: пункт
+                // недоступен и говорит почему.
+                onContextMenu={(event) =>
+                  onMenu(event, [
+                    { label: t("agent.sessions.rename"), onSelect: () => setRenaming(session.id) },
+                    {
+                      label: t("agent.sessions.delete"),
+                      separated: true,
+                      critical: true,
+                      disabled: session.answering,
+                      hint: session.answering ? t("agent.sessions.running") : undefined,
+                      onSelect: () => deleteSession.mutate(session),
+                    },
+                  ])
+                }
+              >
+                <span className="min-w-0 flex-1 truncate text-left">{session.title || t("agent.sessions.untitled")}</span>
+              </button>
+            )}
             <SessionAgents session={session} onOpen={open} />
           </li>
         ))}

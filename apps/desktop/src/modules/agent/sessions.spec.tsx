@@ -318,6 +318,34 @@ describe("левая панель", () => {
     expect(rust.deleted).toEqual(["s3"]);
   });
 
+  it("сессию переименовывают двойным нажатием или из меню, новое имя видно и во вкладке", async () => {
+    const rust = fakeRust();
+    open();
+    await openSession("Тесты окна");
+
+    fireEvent.doubleClick(panel().getByRole("button", { name: "Тесты окна" }));
+    const field = panel().getByRole<HTMLInputElement>("textbox", { name: "Имя сессии" });
+    expect(field.value).toBe("Тесты окна");
+    fireEvent.change(field, { target: { value: "Забыть" } });
+    fireEvent.keyDown(field, { key: "Escape" });
+    expect(sessionTitles("sapien")).toEqual(["Тесты окна", "Рефакторинг парсера"]);
+
+    fireEvent.contextMenu(panel().getByText("Рефакторинг парсера"));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Переименовать" }));
+    const again = panel().getByRole("textbox", { name: "Имя сессии" });
+    fireEvent.change(again, { target: { value: "Парсер" } });
+    fireEvent.blur(again);
+
+    await waitFor(() => expect(sessionTitles("sapien")).toEqual(["Тесты окна", "Парсер"]));
+    expect(rust.renamed).toEqual([{ id: "s1", title: "Парсер" }]);
+
+    fireEvent.doubleClick(panel().getByRole("button", { name: "Тесты окна" }));
+    const tabbed = panel().getByRole("textbox", { name: "Имя сессии" });
+    fireEvent.change(tabbed, { target: { value: "Релиз" } });
+    fireEvent.keyDown(tabbed, { key: "Enter" });
+    await waitFor(() => expect(tabs()).toEqual(["Релиз*"]));
+  });
+
   it("новая сессия, которую Rust не завёл, говорит об этом во вкладках и в меню проекта", async () => {
     const rust = fakeRust();
     open();

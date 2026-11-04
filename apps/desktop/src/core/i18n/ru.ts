@@ -36,8 +36,11 @@ export const ru = {
       running: "агент работает",
       agents: "Агенты сессии «{{title}}»",
       delete: "Удалить сессию",
+      rename: "Переименовать",
+      name: "Имя сессии",
       newFailed: "Сессия не создалась.",
       deleteFailed: "Сессия не удалилась.",
+      renameFailed: "Имя не сохранилось.",
     },
     tabs: {
       label: "Вкладки проекта «{{project}}»",

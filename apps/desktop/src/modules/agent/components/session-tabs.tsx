@@ -1,5 +1,5 @@
 import { useNavigate, useRouterState } from "@tanstack/react-router";
-import { useEffect, useRef, useState, type MouseEvent, type PointerEvent } from "react";
+import { useRef, useState, type MouseEvent, type PointerEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { ContextMenu, type MenuItem } from "@/core/ui/context-menu";
 import { Icon } from "@/core/ui/icon";
@@ -17,6 +17,7 @@ import {
 } from "../interactions/sessions";
 import type { SessionInfo } from "../model/sessions";
 import { moveTab } from "../model/tabs";
+import { RenameField } from "./rename-field";
 
 // Сдвиг указателя в пикселях, после которого нажатие на вкладку
 // становится перетаскиванием.
@@ -27,47 +28,6 @@ const DRAG_START = 4;
 type Drop = { session: string; before: string | null };
 
 type Menu = { x: number; y: number; session: SessionInfo };
-
-// Поле имени на месте вкладки. Enter и уход фокуса сохраняют, Escape
-// отменяет. null: имя не меняли.
-function RenameField({ title, onDone }: { title: string; onDone: (title: string | null) => void }) {
-  const { t } = useTranslation();
-  const input = useRef<HTMLInputElement>(null);
-  const done = useRef(false);
-
-  useEffect(() => {
-    input.current?.focus();
-    input.current?.select();
-  }, []);
-
-  function finish(value: string | null) {
-    if (!done.current) {
-      done.current = true;
-      onDone(value);
-    }
-  }
-
-  return (
-    <input
-      ref={input}
-      aria-label={t("agent.tabs.name")}
-      defaultValue={title}
-      placeholder={t("agent.sessions.untitled")}
-      maxLength={100}
-      className="h-7 w-44 rounded-md bg-overlay-pressed px-2.5 text-[13px] text-text-base outline-2 -outline-offset-2 outline-border-focus placeholder:text-text-faint"
-      onKeyDown={(event) => {
-        if (event.key === "Enter") {
-          finish(event.currentTarget.value);
-        }
-
-        if (event.key === "Escape") {
-          finish(null);
-        }
-      }}
-      onBlur={(event) => finish(event.currentTarget.value)}
-    />
-  );
-}
 
 // Вкладки открытого проекта в верхней полосе окна. Вкладка это сессия:
 // нажатие открывает её, крестик закрывает вкладку, а сессия остаётся
@@ -204,7 +164,12 @@ export function SessionTabs() {
           if (renaming === session.id) {
             return (
               <li key={session.id} data-session={session.id} className="flex shrink-0 items-center">
-                <RenameField title={session.title} onDone={(next) => finishRename(session, next)} />
+                <RenameField
+                  title={session.title}
+                  label={t("agent.tabs.name")}
+                  className="w-44 px-2.5"
+                  onDone={(next) => finishRename(session, next)}
+                />
               </li>
             );
           }
