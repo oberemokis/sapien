@@ -66,17 +66,17 @@ export function moveSession(ids: string[], session: string, before: string | nul
   return rest.toSpliced(index, 0, session);
 }
 
+export function isIds(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((id) => typeof id === "string");
+}
+
 // Порядок из хранилища окна: записи не того вида пропускаются.
 export function parseSessionOrder(value: unknown): SessionOrder {
   if (typeof value !== "object" || value === null) {
     return {};
   }
 
-  return Object.fromEntries(
-    Object.entries(value).filter(
-      (entry): entry is [string, string[]] => Array.isArray(entry[1]) && entry[1].every((id) => typeof id === "string"),
-    ),
-  );
+  return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, string[]] => isIds(entry[1])));
 }
 
 // Проект для новой сессии без явного выбора: проект открытой сессии,

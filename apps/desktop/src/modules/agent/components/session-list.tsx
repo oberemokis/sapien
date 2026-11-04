@@ -12,7 +12,9 @@ import {
   openSearch,
   openSession,
   placeSession,
+  toggleAgents,
   useAddProject,
+  useCollapsed,
   useDeleteSession,
   useNewSession,
   useProjectSessions,
@@ -112,6 +114,7 @@ function ProjectSessions({ project, onMenu }: ProjectProps) {
   const [removing, setRemoving] = useState(false);
   const [renaming, setRenaming] = useState<string | null>(null);
   const shown = useProjectSessions(project.id);
+  const collapsed = useCollapsed();
   const ids = shown.map((session) => session.id);
   const { list, drop, start, pressed } = useReorder("y", ({ id, before }) => placeSession(project.id, ids, id, before));
   let target: string | null | undefined;
@@ -192,59 +195,91 @@ function ProjectSessions({ project, onMenu }: ProjectProps) {
         </p>
       )}
       <ul ref={list} className="ml-4 flex flex-col gap-0.5">
-        {shown.map((session) => (
-          <li
-            key={session.id}
-            data-id={session.id}
-            className={`${SESSION_BRANCH} ${drop?.id === session.id ? "opacity-60" : ""}`}
-          >
-            {target === session.id && (
-              <span aria-hidden className="absolute right-0 left-2 -top-0.5 h-0.5 rounded-full bg-border-focus" />
-            )}
-            {target === null && session.id === ids.at(-1) && (
-              <span aria-hidden className="absolute right-0 -bottom-0.5 left-2 h-0.5 rounded-full bg-border-focus" />
-            )}
-            {renaming === session.id ? (
-              <RenameField
-                title={session.title}
-                label={t("agent.sessions.name")}
-                className="w-full px-2"
-                onDone={(next) => finishRename(session, next)}
-              />
-            ) : (
-              <button
-                type="button"
-                aria-current={(onChat && session.project === tabs.project && session.id === tabs.active && "page") || undefined}
-                className={SESSION_ROW}
-                onPointerDown={(event) => start(event, session.id)}
-                onClick={() => {
-                  if (pressed()) {
-                    open(session);
+        {shown.map((session) => {
+          const title = session.title || t("agent.sessions.untitled");
+          const branched = session.agents.length > 0;
+          const folded = branched && collapsed.includes(session.id);
+
+          return (
+            <li
+              key={session.id}
+              data-id={session.id}
+              className={`group ${SESSION_BRANCH} ${drop?.id === session.id ? "opacity-60" : ""}`}
+            >
+              {target === session.id && (
+                <span aria-hidden className="absolute right-0 left-2 -top-0.5 h-0.5 rounded-full bg-border-focus" />
+              )}
+              {target === null && session.id === ids.at(-1) && (
+                <span aria-hidden className="absolute right-0 -bottom-0.5 left-2 h-0.5 rounded-full bg-border-focus" />
+              )}
+              {renaming === session.id ? (
+                <RenameField
+                  title={session.title}
+                  label={t("agent.sessions.name")}
+                  className="w-full px-2"
+                  onDone={(next) => finishRename(session, next)}
+                />
+              ) : (
+                <button
+                  type="button"
+                  aria-current={(onChat && session.project === tabs.project && session.id === tabs.active && "page") || undefined}
+                  className={`${SESSION_ROW} ${branched ? "pr-7" : ""}`}
+                  onPointerDown={(event) => start(event, session.id)}
+                  onClick={() => {
+                    if (pressed()) {
+                      open(session);
+                    }
+                  }}
+                  onDoubleClick={() => setRenaming(session.id)}
+                  // Сессию, в которой отвечает агент, Rust не удалит: пункт
+                  // недоступен и говорит почему.
+                  onContextMenu={(event) =>
+                    onMenu(event, [
+                      { label: t("agent.sessions.rename"), onSelect: () => setRenaming(session.id) },
+                      {
+                        label: t("agent.sessions.delete"),
+                        separated: true,
+                        critical: true,
+                        disabled: session.answering,
+                        hint: session.answering ? t("agent.sessions.running") : undefined,
+                        onSelect: () => deleteSession.mutate(session),
+                      },
+                    ])
                   }
-                }}
-                onDoubleClick={() => setRenaming(session.id)}
-                // Сессию, в которой отвечает агент, Rust не удалит: пункт
-                // недоступен и говорит почему.
-                onContextMenu={(event) =>
-                  onMenu(event, [
-                    { label: t("agent.sessions.rename"), onSelect: () => setRenaming(session.id) },
-                    {
-                      label: t("agent.sessions.delete"),
-                      separated: true,
-                      critical: true,
-                      disabled: session.answering,
-                      hint: session.answering ? t("agent.sessions.running") : undefined,
-                      onSelect: () => deleteSession.mutate(session),
-                    },
-                  ])
-                }
-              >
-                <span className="min-w-0 flex-1 truncate text-left">{session.title || t("agent.sessions.untitled")}</span>
-              </button>
-            )}
-            <SessionAgents session={session} onOpen={open} />
-          </li>
-        ))}
+                >
+                  <span className="min-w-0 flex-1 truncate text-left">{title}</span>
+                  {/* Свёрнутая ветка не прячет, что агент работает. */}
+                  {folded && session.answering && (
+                    <>
+                      <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-bg-accent motion-safe:animate-pulse" />
+                      <span className="sr-only">{t("agent.sessions.running")}</span>
+                    </>
+                  )}
+                </button>
+              )}
+              {/* Свёрнутая ветка держит шеврон на виду, раскрытая показывает его
+                  при наведении. */}
+              {branched && renaming !== session.id && (
+                <button
+                  type="button"
+                  aria-expanded={!folded}
+                  aria-label={t(folded ? "agent.sessions.expand" : "agent.sessions.collapse", { title })}
+                  className={`absolute top-1 right-1 grid size-5 place-items-center rounded-sm text-icon-muted transition-opacity duration-120 group-hover:opacity-100 hover:bg-overlay-hover hover:text-icon-base focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-border-focus ${
+                    folded ? "" : "opacity-0"
+                  }`}
+                  onClick={() => toggleAgents(session.id)}
+                >
+                  <Icon
+                    icon="chevron-down"
+                    size={14}
+                    className={`transition-transform duration-120 ${folded ? "-rotate-90" : ""}`}
+                  />
+                </button>
+              )}
+              {!folded && <SessionAgents session={session} onOpen={open} />}
+            </li>
+          );
+        })}
       </ul>
     </li>
   );

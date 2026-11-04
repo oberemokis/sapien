@@ -13,7 +13,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { SessionList, SessionSearch, SessionTabs, SessionView } from "@/modules/agent";
 import type { Project, SessionInfo } from "./model/sessions";
 import { NO_TABS } from "./model/tabs";
-import { searchStore, sessionOrderStore, tabsStore } from "./store/sessions.store";
+import { collapsedStore, searchStore, sessionOrderStore, tabsStore } from "./store/sessions.store";
 
 const SAPIEN: Project = { id: "p1", name: "sapien", path: "/Users/me/sapien", missing: false };
 // Кавычка в пути: команда для терминала должна её экранировать.
@@ -231,6 +231,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   tabsStore.setState(() => NO_TABS);
   sessionOrderStore.setState(() => ({}));
+  collapsedStore.setState(() => []);
   searchStore.setState(() => false);
 });
 
@@ -246,6 +247,25 @@ describe("левая панель", () => {
 
     await openSession("Рефакторинг парсера");
     expect(within(tab(/^Рефакторинг парсера/)).getByText("агент работает")).toBeDefined();
+  });
+
+  it("ветку агентов сворачивают и раскрывают, свёрнутая сессия сама отмечает работу агента", async () => {
+    fakeRust({ answering: ["s1"] });
+    open();
+    await waitFor(() => expect(isAnswering("Рефакторинг парсера")).toBe(true));
+    // У сессии без агентов сворачивать нечего.
+    expect(panel().queryByRole("button", { name: "Свернуть агентов сессии «Тесты окна»" })).toBeNull();
+
+    fireEvent.click(panel().getByRole("button", { name: "Свернуть агентов сессии «Рефакторинг парсера»" }));
+
+    expect(panel().queryByRole("list", { name: "Агенты сессии «Рефакторинг парсера»" })).toBeNull();
+    expect(within(panel().getByRole("button", { name: /^Рефакторинг парсера/ })).getByText("агент работает")).toBeDefined();
+
+    const expand = panel().getByRole("button", { name: "Развернуть агентов сессии «Рефакторинг парсера»" });
+    expect(expand.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(expand);
+
+    expect(isAnswering("Рефакторинг парсера")).toBe(true);
   });
 
   it("«+» во вкладках начинает сессию в открытом проекте новой вкладкой", async () => {

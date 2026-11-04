@@ -35,6 +35,8 @@ export const ru = {
       untitled: "Новая сессия",
       running: "агент работает",
       agents: "Агенты сессии «{{title}}»",
+      collapse: "Свернуть агентов сессии «{{title}}»",
+      expand: "Развернуть агентов сессии «{{title}}»",
       delete: "Удалить сессию",
       rename: "Переименовать",
       name: "Имя сессии",

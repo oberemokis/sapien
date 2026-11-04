@@ -1,4 +1,4 @@
-import type { SessionInfo } from "./sessions";
+import { isIds, type SessionInfo } from "./sessions";
 
 // Вкладки одного проекта: открытые сессии по порядку и активная среди них.
 // pinned: закреплённые, они всегда стоят левее остальных.
@@ -11,10 +11,6 @@ export type Tabs = { project: string | null; projects: Record<string, ProjectTab
 export const NO_TABS: Tabs = { project: null, projects: {} };
 
 const EMPTY: ProjectTabs = { sessions: [], active: null, pinned: [] };
-
-function isIds(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every((id) => typeof id === "string");
-}
 
 // Вкладки проекта из хранилища. В версиях до закрепления списка
 // закреплённых нет. Закреплённые ставятся левее остальных.

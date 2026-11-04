@@ -9,6 +9,9 @@ export const tabsStore = createStore<Tabs>(NO_TABS);
 // Порядок сессий в левой панели, заданный перетаскиванием.
 export const sessionOrderStore = createStore<SessionOrder>({});
 
+// Сессии, у которых в левой панели свёрнута ветка агентов.
+export const collapsedStore = createStore<string[]>([]);
+
 // Панели по сессиям. Сессия без записи это одна панель.
 export const panesStore = createStore<Record<string, Panes>>({});
 

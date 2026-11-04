@@ -40,6 +40,8 @@ export const en: Dictionary<typeof ru> = {
       untitled: "New session",
       running: "agent is working",
       agents: "Agents in “{{title}}”",
+      collapse: "Collapse agents in “{{title}}”",
+      expand: "Expand agents in “{{title}}”",
       delete: "Delete session",
       rename: "Rename",
       name: "Session name",

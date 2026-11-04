@@ -12,10 +12,17 @@ import {
   projectsList,
   projectsRemove,
 } from "../infrastructure/agent.api";
-import { readSessionOrder, readTabs, writeSessionOrder, writeTabs } from "../infrastructure/agent.device";
+import {
+  readCollapsed,
+  readSessionOrder,
+  readTabs,
+  writeCollapsed,
+  writeSessionOrder,
+  writeTabs,
+} from "../infrastructure/agent.device";
 import { moveSession, sessionsOf, type SessionInfo } from "../model/sessions";
 import { closeTab, moveTab, NO_TABS, openTab, pinTab, visibleTabs, type Tabs } from "../model/tabs";
-import { searchStore, sessionOrderStore, tabsStore } from "../store/sessions.store";
+import { collapsedStore, searchStore, sessionOrderStore, tabsStore } from "../store/sessions.store";
 import { forgetPanes, sessionPanes } from "./panes";
 import { closeTerminal, terminalExited } from "./terminal";
 
@@ -24,6 +31,24 @@ export const SESSIONS_KEY = ["agent", "sessions"] as const;
 
 tabsStore.setState(() => readTabs() ?? NO_TABS);
 sessionOrderStore.setState(() => readSessionOrder());
+collapsedStore.setState(() => readCollapsed());
+
+// Сессии, у которых в левой панели свёрнута ветка агентов.
+export function useCollapsed() {
+  return useSelector(collapsedStore);
+}
+
+// Ветка агентов под сессией сворачивается или раскрывается.
+export function toggleAgents(session: string) {
+  collapsedStore.setState((sessions) => {
+    if (sessions.includes(session)) {
+      return sessions.filter((id) => id !== session);
+    }
+
+    return [...sessions, session];
+  });
+  writeCollapsed(collapsedStore.get());
+}
 
 export function useProjects() {
   return useQuery({ queryKey: PROJECTS_KEY, queryFn: projectsList });

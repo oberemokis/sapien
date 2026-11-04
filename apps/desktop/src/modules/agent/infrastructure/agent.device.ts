@@ -1,10 +1,34 @@
 import { parsePanes, type Panes } from "../model/panes";
-import { parseSessionOrder, type SessionOrder } from "../model/sessions";
+import { isIds, parseSessionOrder, type SessionOrder } from "../model/sessions";
 import { parseTabs, type Tabs } from "../model/tabs";
 
 const TABS_KEY = "sapien.agent.tabs";
 const PANES_KEY = "sapien.agent.panes";
 const ORDER_KEY = "sapien.agent.order";
+const COLLAPSED_KEY = "sapien.agent.collapsed";
+
+// Сессии, у которых в левой панели свёрнута ветка агентов.
+export function readCollapsed(): string[] {
+  try {
+    const value: unknown = JSON.parse(localStorage.getItem(COLLAPSED_KEY) ?? "null");
+
+    if (isIds(value)) {
+      return value;
+    }
+  } catch {
+    // Испорченная запись: все ветки раскрыты.
+  }
+
+  return [];
+}
+
+export function writeCollapsed(sessions: string[]) {
+  try {
+    localStorage.setItem(COLLAPSED_KEY, JSON.stringify(sessions));
+  } catch {
+    // Ветки уже свёрнуты на экране, без записи они раскроются после перезапуска.
+  }
+}
 
 // Порядок сессий в левой панели, который человек задал перетаскиванием.
 export function readSessionOrder(): SessionOrder {
