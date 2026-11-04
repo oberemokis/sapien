@@ -89,16 +89,37 @@ function create(session: string, pane: string) {
 }
 
 // Оболочка панели: Rust подключает окно к идущей или запускает её.
+// Первым приходит прежний экран панели. Запросы программ в нём, например
+// цвета или места курсора, уже получили ответ, когда шли вживую: ответ
+// терминала сейчас ушёл бы в оболочку набранным текстом.
 function start(view: View) {
-  view.term.onData((data) => send(view, (pane) => terminalWrite(pane, data)));
+  let replay = true;
+  let muted = false;
+
+  view.term.onData((data) => {
+    if (!muted) {
+      send(view, (pane) => terminalWrite(pane, data));
+    }
+  });
   view.term.onResize(({ cols, rows }) => send(view, (pane) => terminalResize(pane, cols, rows)));
   // Закрытый терминал вывода и плашек не получает.
   const shown = () => views.get(view.pane) === view;
 
   view.queue = terminalOpen(view.session, view.pane, view.term.cols, view.term.rows, (bytes) => {
-    if (shown()) {
-      view.term.write(bytes);
+    if (!shown()) {
+      return;
     }
+
+    if (replay) {
+      replay = false;
+      muted = bytes.length > 0;
+      view.term.write(bytes, () => {
+        muted = false;
+      });
+      return;
+    }
+
+    view.term.write(bytes);
   }).then(
     () => {
       if (shown()) {

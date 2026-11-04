@@ -35,7 +35,8 @@ export function agentSessionRename(id: string, title: string) {
 }
 
 // Терминал панели pane сессии session: оболочка в папке сессии, вывод
-// байтами в onData, начиная с прежнего экрана панели.
+// байтами в onData. Первое сообщение всегда прежний экран панели, пусть
+// и пустой, дальше идёт живой вывод.
 export function terminalOpen(
   session: string,
   pane: string,

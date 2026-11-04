@@ -26,13 +26,22 @@ export class Terminal {
     this.element = parent;
   }
 
-  write(data: string | Uint8Array) {
-    if (typeof data === "string") {
-      this.element?.append(data);
-      return;
+  // Как настоящий, отвечает на запрос вида терминала (DA1) по ходу разбора
+  // и зовёт done, когда кусок разобран.
+  write(data: string | Uint8Array, done?: () => void) {
+    let text = data;
+
+    if (typeof text !== "string") {
+      text = this.decoder.decode(text, { stream: true });
     }
 
-    this.element?.append(this.decoder.decode(data, { stream: true }));
+    this.element?.append(text.replaceAll("\x1b[c", ""));
+
+    if (text.includes("\x1b[c")) {
+      this.type("\x1b[?1;2c");
+    }
+
+    done?.();
   }
 
   onData(listener: Listener<string>) {

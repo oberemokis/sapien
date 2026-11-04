@@ -179,13 +179,17 @@ pub struct Integration {
 }
 
 /// Разговор агента в панели: его продолжает панель после перезапуска.
-/// `cwd`: папка, где агент работал, разговор ищется по ней.
+/// `cwd`: папка, где агент работал, разговор ищется по ней. `transcript`:
+/// файл разговора. Пока его нет, агент разговор не записал и продолжить
+/// его не сможет.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Conversation {
     pub agent: String,
     pub id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cwd: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transcript: Option<String>,
 }
 
 /// Весть от интеграции агента: в панели `pane` идёт разговор. `source`:
@@ -313,6 +317,7 @@ pub fn hook_report(
             agent: agent.to_owned(),
             id: id.to_owned(),
             cwd,
+            transcript: text("transcript_path").map(str::to_owned),
         },
         source: source.to_owned(),
     })
@@ -441,6 +446,7 @@ mod tests {
                 agent: agent.into(),
                 id: id.into(),
                 cwd: Some("/Users/me/sapien".into()),
+                transcript: None,
             },
             source: source.into(),
         }
@@ -496,11 +502,12 @@ mod tests {
 
     #[test]
     fn хук_сообщает_разговор_панели_но_не_субагента_и_не_чужого_агента() {
-        let claude = json!({ "session_id": "a1", "source": "clear", "cwd": "/w" });
+        let claude = json!({ "session_id": "a1", "source": "clear", "cwd": "/w", "transcript_path": "/t/a1.jsonl" });
         let got = hook_report("claude", &claude, "p", None, None).unwrap();
 
         assert_eq!(got.conversation.id, "a1");
         assert_eq!(got.conversation.cwd.as_deref(), Some("/w"));
+        assert_eq!(got.conversation.transcript.as_deref(), Some("/t/a1.jsonl"));
         assert_eq!(got.source, "clear");
 
         let subagent = json!({ "session_id": "a1", "agent_id": "x" });

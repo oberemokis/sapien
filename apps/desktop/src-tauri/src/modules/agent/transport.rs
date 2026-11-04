@@ -14,7 +14,7 @@ use crate::error::AppError;
 use serde_json::json;
 use std::collections::HashMap;
 use std::ffi::OsString;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
 use std::time::{Duration, Instant};
 use tauri::ipc::{Channel, InvokeResponseBody};
@@ -76,12 +76,16 @@ const SILENCE: Duration = Duration::from_secs(600);
 const SCREEN: usize = 256 * 1024;
 
 /// Конец прежнего экрана: выйти из второго экрана полноэкранной программы,
-/// вернуть курсор, выключить мышь и вставку скобками, сбросить цвет.
-/// Новая оболочка начинается с чистой строки. Второй экран закрывает 1047,
-/// а не 1049: тот ставит курсор туда, где его никто не сохранял, и новая
-/// оболочка писала бы поверх прежнего экрана.
-const RESET: &[u8] =
-    b"\x1b[?1047l\x1b[?25h\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?2004l\x1b[0m\r\n";
+/// вернуть курсор, выключить мышь, вести о фокусе и вставку скобками,
+/// сбросить цвет. Новая оболочка начинается с чистой строки. Второй экран
+/// закрывает 1047, а не 1049: тот ставит курсор туда, где его никто не
+/// сохранял, и новая оболочка писала бы поверх прежнего экрана.
+const RESET: &[u8] = b"\x1b[?1047l\x1b[?25h\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?1004l\x1b[?2004l\x1b[0m\r\n";
+
+/// Сколько оболочка молчит после первого вывода, прежде чем панель наберёт
+/// в ней команду продолжения: к этому времени она дописала приглашение
+/// и читает строку сама, а набранное не повторяется над приглашением.
+const READY: Duration = Duration::from_millis(300);
 
 /// Размер терминала, который запустили без вкладки, пока её не открыли.
 const BACKGROUND_SIZE: (u16, u16) = (120, 40);
@@ -130,6 +134,10 @@ struct Watch {
     title: Option<String>,
     /// Разговор агента, который панель продолжит после перезапуска.
     conversation: Option<Conversation>,
+    /// Команда продолжения разговора, которую панель наберёт, когда
+    /// оболочка будет готова, и когда оболочка последний раз писала.
+    resume: Option<String>,
+    printed: Option<Instant>,
     /// Терминал останавливает приложение: агент уходит не сам, и его
     /// разговор остаётся панели.
     closing: bool,
@@ -252,6 +260,8 @@ fn pane_environment<R: Runtime>(app: &AppHandle<R>, pane: &str) -> Vec<(OsString
 /// с прежним экраном панели над ней. Агент, который работал в панели,
 /// продолжает свой разговор: оболочка получает команду, как набранную.
 /// Без канала оболочку запустили без вкладки, и вывод только помнится.
+/// С каналом первым сообщением идёт прежний экран, пусть и пустой: на
+/// запросы программ в нём окно не отвечает.
 fn start(
     app: &AppHandle,
     terms: &mut HashMap<String, Arc<Term>>,
@@ -262,14 +272,25 @@ fn start(
     let store = sessions(app)?;
     let dir = use_case::folder(&store, &ProjectFolders(app.clone()), session)?;
     let mut screen = store.screen(session, pane).unwrap_or_default();
-    let conversation = store.conversation(session, pane);
+    let mut conversation = store.conversation(session, pane);
 
     if !screen.is_empty() {
         screen.extend_from_slice(RESET);
+    }
 
-        if let Some(channel) = &channel {
-            let _ = channel.send(InvokeResponseBody::Raw(screen.clone()));
-        }
+    if let Some(channel) = &channel {
+        let _ = channel.send(InvokeResponseBody::Raw(screen.clone()));
+    }
+
+    // Агент сообщил разговор, но записать его не успел, например в нём
+    // не было ни одного сообщения: продолжать нечего.
+    if conversation
+        .as_ref()
+        .and_then(|conversation| conversation.transcript.as_deref())
+        .is_some_and(|transcript| !Path::new(transcript).exists())
+    {
+        conversation = None;
+        let _ = store.save_conversation(session, pane, None);
     }
 
     let resume = conversation.as_ref().and_then(resume_command);
@@ -287,6 +308,8 @@ fn start(
         titles: Titles::default(),
         title: None,
         conversation,
+        resume,
+        printed: None,
         closing: false,
     }));
     let (into, seen, events, id) = (
@@ -308,6 +331,8 @@ fn start(
         move |bytes| {
             let title = {
                 let mut watch = lock(&seen);
+
+                watch.printed = Some(Instant::now());
 
                 if watch.poked.elapsed() > ECHO {
                     watch.worked = Instant::now();
@@ -345,11 +370,6 @@ fn start(
         },
         move || exited(&ended, &gone),
     )?;
-
-    // Оболочка прочтёт команду, когда будет готова: терминал держит набранное.
-    if let Some(resume) = resume {
-        let _ = pty.write(format!("{resume}\r").as_bytes());
-    }
 
     terms.insert(
         pane.to_owned(),
@@ -473,6 +493,17 @@ fn watch<R: Runtime>(app: &AppHandle<R>) {
             if forgot {
                 let _ = sessions(app)
                     .and_then(|store| store.save_conversation(&term.session, &pane, None));
+            }
+
+            let resume = {
+                let mut watch = lock(&term.watch);
+                let ready = watch.printed.is_some_and(|at| at.elapsed() > READY);
+
+                ready.then(|| watch.resume.take()).flatten()
+            };
+
+            if let Some(resume) = resume {
+                let _ = term.pty.write(format!("{resume}\r").as_bytes());
             }
 
             let idle = {
@@ -621,10 +652,8 @@ pub async fn terminal_open(
     {
         let mut output = lock(&term.output);
 
-        if !output.screen.is_empty() {
-            let _ = on_data.send(InvokeResponseBody::Raw(output.screen.clone()));
-        }
-
+        // Первым сообщением, как и у новой оболочки, идёт уже написанное.
+        let _ = on_data.send(InvokeResponseBody::Raw(output.screen.clone()));
         output.channel = Some(on_data);
         output.closed = false;
     }
@@ -674,7 +703,18 @@ pub async fn terminal_write(
         .find(&pane)
         .ok_or(AppError::not_found("terminal_missing"))?;
 
-    lock(&term.watch).poked = Instant::now();
+    {
+        let mut watch = lock(&term.watch);
+
+        watch.poked = Instant::now();
+
+        // Человек начал набирать сам: команда продолжения легла бы в его
+        // строку. Ответы терминала на запросы оболочки начинаются с ESC.
+        if !data.starts_with('\x1b') {
+            watch.resume = None;
+        }
+    }
+
     term.pty.write(data.as_bytes())
 }
 

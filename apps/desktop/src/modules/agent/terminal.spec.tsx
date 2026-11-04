@@ -270,6 +270,26 @@ describe("терминал сессии", () => {
     );
   });
 
+  it("на запросы программ в прежнем экране терминал не отвечает, а на живые отвечает", async () => {
+    const rust = fakeRust();
+    const [parser] = rust.sessions;
+    open();
+
+    await openSession("Парсер");
+    await waitFor(() => expect(rust.opened).toHaveLength(1));
+
+    // Прежний экран: агент при запуске спросил вид терминала.
+    print(rust, parser?.id ?? "", "$ claude\x1b[c\r\n");
+    print(rust, parser?.id ?? "", "$ ");
+    await settle();
+    expect(shownText()).toContain("$ claude");
+    expect(rust.written).toEqual([]);
+
+    // Живая программа спрашивает и ответ получает.
+    print(rust, parser?.id ?? "", "\x1b[c");
+    await waitFor(() => expect(rust.written).toEqual([{ pane: parser?.id, data: "\x1b[?1;2c" }]));
+  });
+
   it("другая вкладка не закрывает терминал: по возвращении тот же вывод, оболочка не запускается заново", async () => {
     const rust = fakeRust();
     const [parser, tests] = rust.sessions;

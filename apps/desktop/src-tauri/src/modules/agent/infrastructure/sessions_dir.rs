@@ -295,6 +295,7 @@ mod tests {
             agent: "claude".into(),
             id: "4f1c".into(),
             cwd: None,
+            transcript: Some("/t/4f1c.jsonl".into()),
         };
 
         again

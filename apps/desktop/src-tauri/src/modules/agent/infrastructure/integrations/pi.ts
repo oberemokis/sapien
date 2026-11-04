@@ -19,15 +19,20 @@ export default function sapien(pi) {
     }
 
     const manager = ctx.sessionManager;
-    const id = manager?.getSessionFile?.() || manager?.getSessionId?.();
+    const file = manager?.getSessionFile?.();
+    const id = file || manager?.getSessionId?.();
 
     if (typeof id !== "string" || id === "") {
       return;
     }
 
+    // Файл разговора: пока его нет, продолжать после перезапуска нечего.
+    const transcript = file || undefined;
     const connection = net.createConnection(socket);
 
     connection.on("error", () => connection.destroy());
-    connection.end(JSON.stringify({ pane, agent: "pi", id, cwd: process.cwd(), source: event?.reason ?? "" }));
+    connection.end(
+      JSON.stringify({ pane, agent: "pi", id, cwd: process.cwd(), transcript, source: event?.reason ?? "" }),
+    );
   });
 }
