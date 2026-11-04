@@ -74,8 +74,9 @@ export function SessionView() {
     );
   }
 
+  // Отступ внутри панелей: границы между ними идут от края до края.
   return (
-    <div className="flex min-h-0 flex-1 flex-col px-4">
+    <div className="flex min-h-0 flex-1 flex-col">
       {project !== undefined && <SessionPanes session={session.id} />}
     </div>
   );
