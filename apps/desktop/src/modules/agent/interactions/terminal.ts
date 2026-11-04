@@ -69,7 +69,10 @@ function create(session: string, pane: string) {
     queue: Promise.resolve(),
   };
 
-  view.element.className = "h-full";
+  // Сетка клеток по центру: остаток от целых клеток и место под полосу
+  // прокрутки иначе уходят вправо и вниз, и у программы, которая красит
+  // фон (opencode), отступы по краям разные.
+  view.element.className = "grid h-full content-center [&_.xterm-screen]:mx-auto";
   view.term.loadAddon(view.fit);
   views.set(pane, view);
 
