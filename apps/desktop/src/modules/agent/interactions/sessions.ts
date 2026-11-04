@@ -12,10 +12,10 @@ import {
   projectsList,
   projectsRemove,
 } from "../infrastructure/agent.api";
-import { readTabs, writeTabs } from "../infrastructure/agent.device";
-import type { SessionInfo } from "../model/sessions";
+import { readSessionOrder, readTabs, writeSessionOrder, writeTabs } from "../infrastructure/agent.device";
+import { moveSession, sessionsOf, type SessionInfo } from "../model/sessions";
 import { closeTab, moveTab, NO_TABS, openTab, pinTab, visibleTabs, type Tabs } from "../model/tabs";
-import { searchStore, tabsStore } from "../store/sessions.store";
+import { searchStore, sessionOrderStore, tabsStore } from "../store/sessions.store";
 import { forgetPanes, sessionPanes } from "./panes";
 import { closeTerminal, terminalExited } from "./terminal";
 
@@ -23,6 +23,7 @@ export const PROJECTS_KEY = ["agent", "projects"] as const;
 export const SESSIONS_KEY = ["agent", "sessions"] as const;
 
 tabsStore.setState(() => readTabs() ?? NO_TABS);
+sessionOrderStore.setState(() => readSessionOrder());
 
 export function useProjects() {
   return useQuery({ queryKey: PROJECTS_KEY, queryFn: projectsList });
@@ -30,6 +31,21 @@ export function useProjects() {
 
 export function useSessions() {
   return useQuery({ queryKey: SESSIONS_KEY, queryFn: agentSessions });
+}
+
+// Сессии проекта в левой панели, в порядке, который задал человек.
+export function useProjectSessions(project: string) {
+  const sessions = useSessions();
+  const order = useSelector(sessionOrderStore, (all) => all[project]);
+
+  return sessionsOf(sessions.data ?? [], project, order);
+}
+
+// Сессия встаёт в левой панели перед before, с null в конец. Запоминается
+// весь порядок проекта, каким его видно: shown.
+export function placeSession(project: string, shown: string[], session: string, before: string | null) {
+  sessionOrderStore.setState((all) => ({ ...all, [project]: moveSession(shown, session, before) }));
+  writeSessionOrder(sessionOrderStore.get());
 }
 
 // Открытый проект и его вкладки. Сессий, которых больше нет, вкладки не

@@ -1,8 +1,27 @@
 import { parsePanes, type Panes } from "../model/panes";
+import { parseSessionOrder, type SessionOrder } from "../model/sessions";
 import { parseTabs, type Tabs } from "../model/tabs";
 
 const TABS_KEY = "sapien.agent.tabs";
 const PANES_KEY = "sapien.agent.panes";
+const ORDER_KEY = "sapien.agent.order";
+
+// Порядок сессий в левой панели, который человек задал перетаскиванием.
+export function readSessionOrder(): SessionOrder {
+  try {
+    return parseSessionOrder(JSON.parse(localStorage.getItem(ORDER_KEY) ?? "null"));
+  } catch {
+    return {};
+  }
+}
+
+export function writeSessionOrder(order: SessionOrder) {
+  try {
+    localStorage.setItem(ORDER_KEY, JSON.stringify(order));
+  } catch {
+    // Порядок уже на экране, без записи он только не переживёт перезапуск.
+  }
+}
 
 // Раскладки панелей по сессиям: после перезапуска сессия открывается
 // с теми же панелями, а в каждой новая оболочка под прежним экраном.

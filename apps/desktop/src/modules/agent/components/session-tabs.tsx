@@ -1,9 +1,10 @@
 import { useNavigate, useRouterState } from "@tanstack/react-router";
-import { useRef, useState, type MouseEvent, type PointerEvent } from "react";
+import { useState, type MouseEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { ContextMenu, type MenuItem } from "@/core/ui/context-menu";
 import { Icon } from "@/core/ui/icon";
 import { IconButton } from "@/core/ui/icon-button";
+import { useReorder } from "@/core/ui/reorder";
 import {
   closeSession,
   moveSessionTab,
@@ -18,14 +19,6 @@ import {
 import type { SessionInfo } from "../model/sessions";
 import { moveTab } from "../model/tabs";
 import { RenameField } from "./rename-field";
-
-// Сдвиг указателя в пикселях, после которого нажатие на вкладку
-// становится перетаскиванием.
-const DRAG_START = 4;
-
-// Куда встанет перетаскиваемая вкладка session: перед вкладкой before,
-// с null в конец.
-type Drop = { session: string; before: string | null };
 
 type Menu = { x: number; y: number; session: SessionInfo };
 
@@ -48,10 +41,11 @@ export function SessionTabs() {
   const onChat = useRouterState({ select: (state) => state.location.pathname === "/" });
   const [renaming, setRenaming] = useState<string | null>(null);
   const [menu, setMenu] = useState<Menu | null>(null);
-  const [drop, setDrop] = useState<Drop | null>(null);
-  const list = useRef<HTMLUListElement>(null);
-  // Отпущенная после перетаскивания вкладка не открывается.
-  const dragged = useRef(false);
+  const { list, drop, start, pressed } = useReorder("x", ({ id, before }) => {
+    if (tabs.project !== null) {
+      moveSessionTab({ id, project: tabs.project }, before);
+    }
+  });
   const project = projects.data?.find((candidate) => candidate.id === tabs.project);
 
   if (project === undefined) {
@@ -65,65 +59,17 @@ export function SessionTabs() {
   // Черта показывает, куда встанет вкладка: перед той, что окажется за ней.
   // Закреплённая не уходит к обычным, поэтому место берётся из модели.
   if (drop !== null) {
-    const order = moveTab({ project: project.id, projects: { [project.id]: own } }, project.id, drop.session, drop.before)
+    const order = moveTab({ project: project.id, projects: { [project.id]: own } }, project.id, drop.id, drop.before)
       .projects[project.id]?.sessions;
 
     if (order !== undefined && order.join() !== tabs.sessions.join()) {
-      target = order[order.indexOf(drop.session) + 1] ?? null;
+      target = order[order.indexOf(drop.id) + 1] ?? null;
     }
   }
 
   function show(session: SessionInfo) {
     openSession(session);
     void navigate({ to: "/" });
-  }
-
-  // Вкладка, перед которой встанет перетаскиваемая, по середине вкладок
-  // под указателем.
-  function beforeAt(x: number, session: string) {
-    const shown = [...(list.current?.querySelectorAll<HTMLElement>(":scope > li") ?? [])];
-    const found = shown.find((item) => {
-      const box = item.getBoundingClientRect();
-
-      return item.dataset.session !== session && x < box.left + box.width / 2;
-    });
-
-    return found?.dataset.session ?? null;
-  }
-
-  function startDrag(event: PointerEvent, session: SessionInfo) {
-    dragged.current = false;
-
-    if (event.button !== 0) {
-      return;
-    }
-
-    const from = event.clientX;
-    let before: string | null | undefined;
-
-    const move = (moved: globalThis.PointerEvent) => {
-      if (before === undefined && Math.abs(moved.clientX - from) < DRAG_START) {
-        return;
-      }
-
-      before = beforeAt(moved.clientX, session.id);
-      setDrop({ session: session.id, before });
-    };
-    const end = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", end);
-      window.removeEventListener("pointercancel", end);
-      setDrop(null);
-
-      if (before !== undefined) {
-        dragged.current = true;
-        moveSessionTab(session, before);
-      }
-    };
-
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", end);
-    window.addEventListener("pointercancel", end);
   }
 
   function finishRename(session: SessionInfo, title: string | null) {
@@ -163,7 +109,7 @@ export function SessionTabs() {
 
           if (renaming === session.id) {
             return (
-              <li key={session.id} data-session={session.id} className="flex shrink-0 items-center">
+              <li key={session.id} data-id={session.id} className="flex shrink-0 items-center">
                 <RenameField
                   title={session.title}
                   label={t("agent.tabs.name")}
@@ -177,11 +123,11 @@ export function SessionTabs() {
           return (
             <li
               key={session.id}
-              data-session={session.id}
+              data-id={session.id}
               className={`group relative flex h-7 min-w-0 items-center rounded-md transition-colors duration-120 select-none ${
                 pinned ? "shrink-0" : "max-w-52 shrink"
               } ${selected ? "bg-overlay-pressed text-text-base" : "text-text-muted hover:bg-overlay-hover hover:text-text-base"} ${
-                drop?.session === session.id ? "opacity-60" : ""
+                drop?.id === session.id ? "opacity-60" : ""
               }`}
             >
               {target === session.id && (
@@ -197,13 +143,11 @@ export function SessionTabs() {
                 className={`flex h-full min-w-0 flex-1 items-center gap-2 rounded-md pl-2.5 text-[13px] outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-border-focus ${
                   pinned ? "pr-2.5" : "pr-7"
                 }`}
-                onPointerDown={(event) => startDrag(event, session)}
+                onPointerDown={(event) => start(event, session.id)}
                 onClick={() => {
-                  if (!dragged.current) {
+                  if (pressed()) {
                     show(session);
                   }
-
-                  dragged.current = false;
                 }}
                 onDoubleClick={() => setRenaming(session.id)}
                 onContextMenu={(event) => openMenu(event, session)}

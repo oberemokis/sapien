@@ -6,30 +6,33 @@ import { ContextMenu, type MenuItem } from "@/core/ui/context-menu";
 import { Icon } from "@/core/ui/icon";
 import { IconButton } from "@/core/ui/icon-button";
 import { shortcutLabel } from "@/core/ui/keys";
+import { useReorder } from "@/core/ui/reorder";
 import { focusPane, usePanes } from "../interactions/panes";
 import {
   openSearch,
   openSession,
+  placeSession,
   useAddProject,
   useDeleteSession,
   useNewSession,
+  useProjectSessions,
   useProjects,
   useRemoveProject,
   useRenameSession,
-  useSessions,
   useTabs,
 } from "../interactions/sessions";
 import { panesIn } from "../model/panes";
-import { AGENT_NAMES, sessionsOf, type Project, type SessionInfo } from "../model/sessions";
+import { AGENT_NAMES, moveSession, type Project, type SessionInfo } from "../model/sessions";
 import { RenameField } from "./rename-field";
 
 // Строка панели как строка дерева: 28 px, выбранная на заливке.
 const ROW_SHAPE =
   "flex h-7 w-full min-w-0 items-center gap-2 rounded-md px-2 text-[13px]/4 outline-none transition-colors duration-120 hover:bg-overlay-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-border-focus aria-[current=page]:bg-overlay-pressed [&_svg]:text-icon-muted";
 
-// Разделы панели бледные, сессии ярче имени своего проекта.
+// Разделы панели бледные, сессии ярче имени своего проекта. Сессию
+// перетаскивают, и текст под указателем не выделяется.
 const ROW = `${ROW_SHAPE} text-text-muted hover:text-text-base aria-[current=page]:text-text-base`;
-const SESSION_ROW = `${ROW_SHAPE} text-text-base`;
+const SESSION_ROW = `${ROW_SHAPE} text-text-base select-none`;
 const AGENT_ROW = `${ROW_SHAPE} text-text-muted hover:text-text-base`;
 
 // Ветка дерева от буквы проекта к сессии, углы прямые. Список сдвинут
@@ -92,14 +95,14 @@ type ProjectProps = {
   onMenu: (event: MouseEvent, items: MenuItem[]) => void;
 };
 
-// Проект и его сессии, свежие сверху. Над сессиями мелкая шапка: буква
-// и имя проекта, от буквы к сессиям идут линии дерева. Сессия открывается
-// вкладкой своего проекта. Правая кнопка открывает меню проекта или
-// сессии, двойное нажатие переименовывает сессию, как во вкладках.
+// Проект и его сессии, свежие сверху, пока человек не переставил их
+// перетаскиванием. Над сессиями мелкая шапка: буква и имя проекта, от
+// буквы к сессиям идут линии дерева. Сессия открывается вкладкой своего
+// проекта. Правая кнопка открывает меню проекта или сессии, двойное
+// нажатие переименовывает сессию, как во вкладках.
 function ProjectSessions({ project, onMenu }: ProjectProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const sessions = useSessions();
   const tabs = useTabs();
   const newSession = useNewSession();
   const remove = useRemoveProject();
@@ -108,7 +111,19 @@ function ProjectSessions({ project, onMenu }: ProjectProps) {
   const onChat = useRouterState({ select: (state) => state.location.pathname === "/" });
   const [removing, setRemoving] = useState(false);
   const [renaming, setRenaming] = useState<string | null>(null);
-  const list = sessionsOf(sessions.data ?? [], project.id);
+  const shown = useProjectSessions(project.id);
+  const ids = shown.map((session) => session.id);
+  const { list, drop, start, pressed } = useReorder("y", ({ id, before }) => placeSession(project.id, ids, id, before));
+  let target: string | null | undefined;
+
+  // Черта показывает, куда встанет сессия: перед той, что окажется за ней.
+  if (drop !== null) {
+    const order = moveSession(ids, drop.id, drop.before);
+
+    if (order.join() !== ids.join()) {
+      target = order[order.indexOf(drop.id) + 1] ?? null;
+    }
+  }
 
   function open(session: SessionInfo) {
     openSession(session);
@@ -176,9 +191,19 @@ function ProjectSessions({ project, onMenu }: ProjectProps) {
           {t("agent.sessions.renameFailed")}
         </p>
       )}
-      <ul className="ml-4 flex flex-col gap-0.5">
-        {list.map((session) => (
-          <li key={session.id} className={SESSION_BRANCH}>
+      <ul ref={list} className="ml-4 flex flex-col gap-0.5">
+        {shown.map((session) => (
+          <li
+            key={session.id}
+            data-id={session.id}
+            className={`${SESSION_BRANCH} ${drop?.id === session.id ? "opacity-60" : ""}`}
+          >
+            {target === session.id && (
+              <span aria-hidden className="absolute right-0 left-2 -top-0.5 h-0.5 rounded-full bg-border-focus" />
+            )}
+            {target === null && session.id === ids.at(-1) && (
+              <span aria-hidden className="absolute right-0 -bottom-0.5 left-2 h-0.5 rounded-full bg-border-focus" />
+            )}
             {renaming === session.id ? (
               <RenameField
                 title={session.title}
@@ -191,7 +216,12 @@ function ProjectSessions({ project, onMenu }: ProjectProps) {
                 type="button"
                 aria-current={(onChat && session.project === tabs.project && session.id === tabs.active && "page") || undefined}
                 className={SESSION_ROW}
-                onClick={() => open(session)}
+                onPointerDown={(event) => start(event, session.id)}
+                onClick={() => {
+                  if (pressed()) {
+                    open(session);
+                  }
+                }}
                 onDoubleClick={() => setRenaming(session.id)}
                 // Сессию, в которой отвечает агент, Rust не удалит: пункт
                 // недоступен и говорит почему.

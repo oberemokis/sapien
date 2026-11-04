@@ -13,7 +13,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { SessionList, SessionSearch, SessionTabs, SessionView } from "@/modules/agent";
 import type { Project, SessionInfo } from "./model/sessions";
 import { NO_TABS } from "./model/tabs";
-import { searchStore, tabsStore } from "./store/sessions.store";
+import { searchStore, sessionOrderStore, tabsStore } from "./store/sessions.store";
 
 const SAPIEN: Project = { id: "p1", name: "sapien", path: "/Users/me/sapien", missing: false };
 // Кавычка в пути: команда для терминала должна её экранировать.
@@ -230,6 +230,7 @@ afterEach(() => {
   clearMocks();
   vi.restoreAllMocks();
   tabsStore.setState(() => NO_TABS);
+  sessionOrderStore.setState(() => ({}));
   searchStore.setState(() => false);
 });
 
@@ -344,6 +345,34 @@ describe("левая панель", () => {
     fireEvent.change(tabbed, { target: { value: "Релиз" } });
     fireEvent.keyDown(tabbed, { key: "Enter" });
     await waitFor(() => expect(tabs()).toEqual(["Релиз*"]));
+  });
+
+  it("сессию перетаскивают на новое место, порядок держится, а новая сессия встаёт наверх", async () => {
+    fakeRust();
+    open();
+    await waitFor(() => expect(sessionTitles("sapien")).toEqual(["Тесты окна", "Рефакторинг парсера"]));
+
+    // Строки по 30 px сверху вниз.
+    for (const [index, title] of ["Тесты окна", "Рефакторинг парсера"].entries()) {
+      const item = panel().getByText(title).closest("li") as HTMLElement;
+
+      vi.spyOn(item, "getBoundingClientRect").mockReturnValue(DOMRect.fromRect({ y: index * 30, height: 30 }));
+    }
+
+    // Нижнюю тащат выше середины верхней, отпущенная она не открывается.
+    const row = panel().getByRole("button", { name: "Рефакторинг парсера" });
+    fireEvent.pointerDown(row, { button: 0, clientY: 45 });
+    fireEvent.pointerMove(window, { clientY: 5 });
+    fireEvent.pointerUp(window, { clientY: 5 });
+    fireEvent.click(row);
+
+    expect(sessionTitles("sapien")).toEqual(["Рефакторинг парсера", "Тесты окна"]);
+    expect(tabs()).toEqual([]);
+
+    fireEvent.contextMenu(panel().getByText("sapien"));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Новая сессия" }));
+
+    await waitFor(() => expect(sessionTitles("sapien")).toEqual(["Новая сессия", "Рефакторинг парсера", "Тесты окна"]));
   });
 
   it("новая сессия, которую Rust не завёл, говорит об этом во вкладках и в меню проекта", async () => {
