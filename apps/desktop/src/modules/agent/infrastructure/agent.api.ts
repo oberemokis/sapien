@@ -1,7 +1,7 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { ClaudeStatus } from "../model/claude";
-import type { Project, SessionInfo } from "../model/sessions";
+import type { Agent, Integration, Project, SessionInfo } from "../model/sessions";
 
 export function projectsList() {
   return invoke<Project[]>("projects_list");
@@ -48,6 +48,12 @@ export function terminalOpen(
   return invoke<null>("terminal_open", { session, pane, cols, rows, onData: channel });
 }
 
+// Оболочка панели без вкладки: при запуске окна поднимаются все открытые
+// вкладки, и агенты в них продолжают разговоры. Идущую Rust не трогает.
+export function terminalStart(session: string, pane: string) {
+  return invoke<null>("terminal_start", { session, pane });
+}
+
 export function terminalWrite(pane: string, data: string) {
   return invoke<null>("terminal_write", { pane, data });
 }
@@ -76,4 +82,17 @@ export function onTerminalExited(handler: (pane: string) => void) {
 // Есть ли Claude Code на устройстве, его версия и вход.
 export function agentClaudeStatus() {
   return invoke<ClaudeStatus>("agent_claude_status");
+}
+
+export function agentIntegrations() {
+  return invoke<Integration[]>("agent_integrations");
+}
+
+// Rust дописывает хук в настройки агента или кладёт его расширение.
+export function agentIntegrationInstall(agent: Agent) {
+  return invoke<null>("agent_integration_install", { agent });
+}
+
+export function agentIntegrationRemove(agent: Agent) {
+  return invoke<null>("agent_integration_remove", { agent });
 }

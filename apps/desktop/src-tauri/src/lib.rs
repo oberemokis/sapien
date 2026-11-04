@@ -13,6 +13,12 @@ mod updates;
 use modules::{agent, forge, projects};
 use tauri::{Manager, RunEvent};
 
+/// `sapien hook <агент>`: хук агента в панели сообщает приложению её
+/// разговор и сразу выходит, окна не открывает.
+pub fn hook() {
+    agent::hook(&std::env::args().nth(2).unwrap_or_default());
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Меню сначала на английском: язык окна приходит командой
@@ -67,7 +73,11 @@ pub fn run() {
             agent::transport::agent_session_delete,
             agent::transport::agent_session_rename,
             agent::transport::agent_claude_status,
+            agent::transport::agent_integrations,
+            agent::transport::agent_integration_install,
+            agent::transport::agent_integration_remove,
             agent::transport::terminal_open,
+            agent::transport::terminal_start,
             agent::transport::terminal_write,
             agent::transport::terminal_resize,
             agent::transport::terminal_close,

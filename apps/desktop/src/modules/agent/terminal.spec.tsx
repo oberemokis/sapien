@@ -13,7 +13,7 @@ import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { Terminal } from "@/test-xterm";
-import { SessionList, SessionTabs, SessionView, useAgentEvents } from "@/modules/agent";
+import { Restoring, SessionList, SessionTabs, SessionView, useAgentEvents, useRestoredTabs } from "@/modules/agent";
 import type { ClaudeStatus } from "./model/claude";
 import type { Project, SessionInfo } from "./model/sessions";
 import { NO_TABS } from "./model/tabs";
@@ -52,6 +52,8 @@ function fakeRust({ answers = [] as string[] } = {}) {
     received: 0,
     written: [] as { pane: string; data: string }[],
     closed: [] as string[],
+    // Панели, запущенные без вкладки, сессия/панель.
+    started: [] as string[],
     answers: [...answers],
   };
 
@@ -85,6 +87,14 @@ function fakeRust({ answers = [] as string[] } = {}) {
           rust.written.push(written);
           return null;
         }
+        case "terminal_start": {
+          const { session: id, pane } = args as { session: string; pane: string };
+
+          // Оболочка запускается не мгновенно: окно успевает показать загрузку.
+          await new Promise((resolve) => setTimeout(resolve, 30));
+          rust.started.push(`${id}/${pane}`);
+          return null;
+        }
         case "terminal_resize":
           return null;
         case "terminal_close":
@@ -107,7 +117,13 @@ function print(rust: ReturnType<typeof fakeRust>, pane: string, text: string) {
 
 // Оболочка окна, как pages/_shell.tsx.
 function Shell() {
+  const ready = useRestoredTabs();
+
   useAgentEvents();
+
+  if (!ready) {
+    return <Restoring />;
+  }
 
   return (
     <>
@@ -344,6 +360,45 @@ describe("терминал сессии", () => {
 
     await waitFor(() => expect(agentRows("Парсер")).toEqual(["Codex*", "Claude Code"]));
     expect(agentRows("Тесты")).toEqual([]);
+  });
+});
+
+describe("открытие окна", () => {
+  it("поднимает панели всех открытых вкладок, и вкладка потом подключается к своей оболочке", async () => {
+    const rust = fakeRust();
+    const [parser, tests] = rust.sessions;
+    const [first, second] = [parser?.id ?? "", "правая"];
+
+    // Парсер поделён надвое, Тесты открыты фоновой вкладкой, а вкладка
+    // проекта, которого больше нет, не поднимается.
+    tabsStore.setState(() => ({
+      project: "p1",
+      projects: {
+        p1: { sessions: [first, tests?.id ?? ""], active: first, pinned: [] },
+        p9: { sessions: ["чужая"], active: "чужая", pinned: [] },
+      },
+    }));
+    panesStore.setState(() => ({
+      [first]: {
+        layout: {
+          kind: "split",
+          direction: "row",
+          ratio: 0.5,
+          first: { kind: "pane", id: first },
+          second: { kind: "pane", id: second },
+        },
+        active: first,
+      },
+    }));
+    open();
+
+    expect(await screen.findByText("Восстанавливаю вкладки…")).toBeDefined();
+    expect(tabs()).toEqual([]);
+    await waitFor(() => expect(tabs()).toEqual(["Парсер*", "Тесты"]));
+    expect(rust.started.toSorted()).toEqual([`${first}/${first}`, `${first}/${second}`, `${tests?.id}/${tests?.id}`]);
+
+    // Видимая вкладка подключается к уже идущим оболочкам.
+    await waitFor(() => expect(rust.opened.map((opened) => opened.pane).toSorted()).toEqual([first, second].toSorted()));
   });
 });
 

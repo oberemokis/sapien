@@ -3,7 +3,7 @@
 export type Project = { id: string; name: string; path: string; missing: boolean };
 
 // Агенты, которых Rust узнаёт в терминале, как AGENTS в domain.rs.
-export type Agent = "claude" | "codex" | "pi" | "opencode" | "gemini";
+export type Agent = "claude" | "codex" | "pi" | "opencode" | "gemini" | "cursor";
 
 // Названия агентов: это имена программ, на язык окна они не переводятся.
 export const AGENT_NAMES: Record<Agent, string> = {
@@ -12,7 +12,13 @@ export const AGENT_NAMES: Record<Agent, string> = {
   pi: "Pi",
   opencode: "OpenCode",
   gemini: "Gemini CLI",
+  cursor: "Cursor",
 };
+
+// Интеграция агента в его настройках, как Integration в Rust. Она сообщает
+// sapien разговор панели, и после перезапуска агент продолжает его.
+// missing: агента на устройстве нет.
+export type Integration = { agent: Agent; state: "missing" | "off" | "on" };
 
 // Агент на переднем плане панели pane и работает ли он, как PaneAgent в Rust.
 export type PaneAgent = { pane: string; agent: Agent; answering: boolean };

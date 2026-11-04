@@ -1,5 +1,10 @@
-use super::domain::{ClaudeStatus, PaneAgent, SessionInfo, Titles, agent_of, session_title};
+use super::domain::{
+    ClaudeStatus, Conversation, Integration, PaneAgent, Report, SessionInfo, Titles, accepts,
+    agent_of, resume_command, session_title,
+};
 use super::infrastructure::claude_code::ClaudeCode;
+use super::infrastructure::hooks;
+use super::infrastructure::integrations::Integrations;
 use super::infrastructure::neighbours::ProjectFolders;
 use super::infrastructure::sessions_dir::SessionsDir;
 use super::infrastructure::terminal::{Command, Pty, command_line, shell_environment, user_shell};
@@ -8,8 +13,9 @@ use crate::durable;
 use crate::error::AppError;
 use serde_json::json;
 use std::collections::HashMap;
+use std::ffi::OsString;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
 use std::time::{Duration, Instant};
 use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::{AppHandle, Emitter, Manager, Runtime, State};
@@ -77,11 +83,16 @@ const SCREEN: usize = 256 * 1024;
 const RESET: &[u8] =
     b"\x1b[?1047l\x1b[?25h\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?2004l\x1b[0m\r\n";
 
+/// Размер терминала, который запустили без вкладки, пока её не открыли.
+const BACKGROUND_SIZE: (u16, u16) = (120, 40);
+
 /// Вывод терминала: куда он идёт и что из него помнится.
 struct Output {
     /// Канал вкладки. Без неё вывод только помнится.
     channel: Option<Channel>,
     screen: Vec<u8>,
+    /// Панель закрыли: терминал доживает до конца работы агента.
+    closed: bool,
 }
 
 impl Output {
@@ -117,6 +128,11 @@ struct Watch {
     titles: Titles,
     /// Последнее имя сессии от агента.
     title: Option<String>,
+    /// Разговор агента, который панель продолжит после перезапуска.
+    conversation: Option<Conversation>,
+    /// Терминал останавливает приложение: агент уходит не сам, и его
+    /// разговор остаётся панели.
+    closing: bool,
 }
 
 /// Давно прошедший миг: с него агент ещё не работал.
@@ -134,10 +150,20 @@ struct Term {
     watch: Arc<Mutex<Watch>>,
 }
 
-/// Терминалы по панелям. У каждой панели сессии своя оболочка.
+impl Term {
+    /// Терминал останавливает приложение, а не человек выходом из агента.
+    fn halt(&self) {
+        lock(&self.watch).closing = true;
+        self.pty.stop();
+    }
+}
+
+/// Терминалы по панелям. У каждой панели сессии своя оболочка. `socket`:
+/// куда интеграции агентов сообщают разговоры панелей.
 #[derive(Default)]
 pub struct Terminals {
     terms: Mutex<HashMap<String, Arc<Term>>>,
+    socket: OnceLock<PathBuf>,
 }
 
 impl Terminals {
@@ -174,7 +200,7 @@ impl Terminals {
     fn stop(&self, session: &str) {
         lock(&self.terms).retain(|_, term| {
             if term.session == session {
-                term.pty.stop();
+                term.halt();
             }
 
             term.session != session
@@ -205,27 +231,52 @@ fn named<R: Runtime>(app: &AppHandle<R>, session: &str, title: String) {
     }
 }
 
+/// Окружение оболочки панели `pane`: по нему интеграции агентов находят
+/// приложение и свою панель.
+fn pane_environment<R: Runtime>(app: &AppHandle<R>, pane: &str) -> Vec<(OsString, OsString)> {
+    let mut env = shell_environment();
+
+    if let Some(socket) = app.state::<Terminals>().socket.get() {
+        env.push(("SAPIEN_SOCKET".into(), socket.into()));
+        env.push(("SAPIEN_PANE".into(), pane.into()));
+
+        if let Ok(bin) = std::env::current_exe() {
+            env.push(("SAPIEN_BIN".into(), bin.into()));
+        }
+    }
+
+    env
+}
+
 /// Запускает оболочку панели `pane` сессии `session` в папке её проекта,
-/// с прежним экраном панели над ней.
+/// с прежним экраном панели над ней. Агент, который работал в панели,
+/// продолжает свой разговор: оболочка получает команду, как набранную.
+/// Без канала оболочку запустили без вкладки, и вывод только помнится.
 fn start(
     app: &AppHandle,
     terms: &mut HashMap<String, Arc<Term>>,
     (session, pane): (&str, &str),
-    channel: Channel,
+    channel: Option<Channel>,
     (cols, rows): (u16, u16),
 ) -> Result<(), AppError> {
     let store = sessions(app)?;
     let dir = use_case::folder(&store, &ProjectFolders(app.clone()), session)?;
     let mut screen = store.screen(session, pane).unwrap_or_default();
+    let conversation = store.conversation(session, pane);
 
     if !screen.is_empty() {
         screen.extend_from_slice(RESET);
-        let _ = channel.send(InvokeResponseBody::Raw(screen.clone()));
+
+        if let Some(channel) = &channel {
+            let _ = channel.send(InvokeResponseBody::Raw(screen.clone()));
+        }
     }
 
+    let resume = conversation.as_ref().and_then(resume_command);
     let output = Arc::new(Mutex::new(Output {
-        channel: Some(channel),
+        channel,
         screen,
+        closed: false,
     }));
     let watch = Arc::new(Mutex::new(Watch {
         agent: None,
@@ -235,6 +286,8 @@ fn start(
         answering: false,
         titles: Titles::default(),
         title: None,
+        conversation,
+        closing: false,
     }));
     let (into, seen, events, id) = (
         output.clone(),
@@ -247,7 +300,7 @@ fn start(
         Command {
             program: &user_shell(),
             args: &["-l".into()],
-            env: shell_environment(),
+            env: pane_environment(app, pane),
             dir: &dir,
             cols,
             rows,
@@ -293,6 +346,11 @@ fn start(
         move || exited(&ended, &gone),
     )?;
 
+    // Оболочка прочтёт команду, когда будет готова: терминал держит набранное.
+    if let Some(resume) = resume {
+        let _ = pty.write(format!("{resume}\r").as_bytes());
+    }
+
     terms.insert(
         pane.to_owned(),
         Arc::new(Term {
@@ -321,8 +379,9 @@ fn exited<R: Runtime>(app: &AppHandle<R>, pane: &str) {
 }
 
 /// Что делает терминал: какой агент на переднем плане и работает ли он.
-/// Отвечает, поменялось ли это и взялся ли агент только что за работу.
-fn look(term: &Term) -> (bool, bool) {
+/// Отвечает, поменялось ли это, взялся ли агент только что за работу
+/// и вышел ли из него человек, так что продолжать больше нечего.
+fn look(term: &Term) -> (bool, bool, bool) {
     let front = term.pty.foreground();
     let mut watch = lock(&term.watch);
     let before = (watch.agent, watch.answering);
@@ -354,10 +413,38 @@ fn look(term: &Term) -> (bool, bool) {
 
     watch.answering = watch.agent.is_some() && watch.worked.elapsed() < QUIET;
 
+    // На переднем плане снова оболочка: из агента вышли. Агент, которого
+    // остановило приложение, свой разговор помнит.
+    let left = before.0.is_some() && watch.agent.is_none() && front.is_none() && !watch.closing;
+    let forgot = left && watch.conversation.take().is_some();
+
     (
         (watch.agent, watch.answering) != before,
         watch.answering && !before.1,
+        forgot,
     )
+}
+
+/// Интеграция агента сообщила разговор панели: панель продолжит его после
+/// перезапуска.
+fn reported<R: Runtime>(app: &AppHandle<R>, report: Report) {
+    let Some(term) = app.state::<Terminals>().find(&report.pane) else {
+        return;
+    };
+
+    {
+        let mut watch = lock(&term.watch);
+
+        if !accepts(watch.conversation.as_ref(), &report) {
+            return;
+        }
+
+        watch.conversation = Some(report.conversation.clone());
+    }
+
+    let _ = sessions(app).and_then(|store| {
+        store.save_conversation(&term.session, &report.pane, Some(&report.conversation))
+    });
 }
 
 /// Сторож терминалов: узнаёт агентов и их работу, поднимает сессию,
@@ -367,14 +454,14 @@ fn watch<R: Runtime>(app: &AppHandle<R>) {
     loop {
         std::thread::sleep(TICK);
 
-        let terms: Vec<Arc<Term>> = lock(&app.state::<Terminals>().terms)
-            .values()
-            .cloned()
+        let terms: Vec<(String, Arc<Term>)> = lock(&app.state::<Terminals>().terms)
+            .iter()
+            .map(|(pane, term)| (pane.clone(), term.clone()))
             .collect();
         let mut news = false;
 
-        for term in terms {
-            let (different, started) = look(&term);
+        for (pane, term) in terms {
+            let (different, started, forgot) = look(&term);
 
             news |= different;
 
@@ -383,14 +470,19 @@ fn watch<R: Runtime>(app: &AppHandle<R>) {
                     .and_then(|store| use_case::touch(&store, &term.session, None, durable::now()));
             }
 
+            if forgot {
+                let _ = sessions(app)
+                    .and_then(|store| store.save_conversation(&term.session, &pane, None));
+            }
+
             let idle = {
                 let watch = lock(&term.watch);
 
                 !watch.answering && watch.worked.elapsed() > SILENCE
             };
 
-            if idle && lock(&term.output).channel.is_none() {
-                term.pty.stop();
+            if idle && lock(&term.output).closed {
+                term.halt();
             }
         }
 
@@ -400,22 +492,45 @@ fn watch<R: Runtime>(app: &AppHandle<R>) {
     }
 }
 
-/// Дверь для запуска приложения: сторож терминалов.
+/// Дверь для запуска приложения: сторож терминалов и сокет интеграций
+/// агентов. Без сокета терминалы работают, а разговоры агентов после
+/// перезапуска не продолжаются.
 pub fn start_terminals<R: Runtime>(app: &AppHandle<R>) {
     let watched = app.clone();
+    let told = app.clone();
+
+    match data_dir(app).map(|data| hooks::listen(&data, move |report| reported(&told, report))) {
+        Ok(Ok(socket)) => {
+            let _ = app.state::<Terminals>().socket.set(socket);
+        }
+        _ => log::warn!("сокет интеграций агентов не открылся"),
+    }
 
     std::thread::spawn(move || watch(&watched));
 }
 
 /// Дверь для выхода из приложения: экраны остаются панелям, а оболочки
-/// и всё, что в них идёт, уходят с приложением.
+/// и всё, что в них идёт, уходят с приложением. Разговоры агентов панели
+/// продолжат при следующем запуске.
 pub fn stop_terminals<R: Runtime>(app: &AppHandle<R>) {
     let terms = std::mem::take(&mut *lock(&app.state::<Terminals>().terms));
 
     for (pane, term) in terms {
         keep_screen(app, &pane, &term);
-        term.pty.stop();
+        term.halt();
     }
+}
+
+/// Дверь для подкоманды `sapien hook <агент>`: хук агента в панели
+/// сообщает приложению её разговор.
+pub fn hook(agent: &str) {
+    hooks::forward(
+        agent,
+        std::io::stdin(),
+        std::env::var_os("SAPIEN_SOCKET"),
+        std::env::var("SAPIEN_PANE").ok(),
+        std::env::var("CODEX_THREAD_ID").ok(),
+    );
 }
 
 /// Сессии всех проектов, свежие первыми.
@@ -478,9 +593,9 @@ pub fn forget_project<R: Runtime>(app: &AppHandle<R>, project: &str) -> Result<(
 // а через него же канал отдаёт вывод окну.
 
 /// Терминал панели `pane` сессии `session` размером `cols` на `rows`.
-/// Оболочка панели уже идёт, например окно перезагрузили, и вывод
-/// переключается в `on_data`, начиная с того, что уже на экране. Иначе она
-/// запускается.
+/// Оболочка панели уже идёт, например окно перезагрузили или её запустили
+/// без вкладки, и вывод переключается в `on_data`, начиная с того, что уже
+/// на экране. Иначе она запускается.
 #[tauri::command]
 pub async fn terminal_open(
     app: AppHandle,
@@ -494,7 +609,13 @@ pub async fn terminal_open(
     let mut terms = lock(&terminals.terms);
 
     let Some(term) = terms.get(&pane).cloned() else {
-        return start(&app, &mut terms, (&session, &pane), on_data, (cols, rows));
+        return start(
+            &app,
+            &mut terms,
+            (&session, &pane),
+            Some(on_data),
+            (cols, rows),
+        );
     };
 
     {
@@ -505,14 +626,40 @@ pub async fn terminal_open(
         }
 
         output.channel = Some(on_data);
+        output.closed = false;
     }
 
-    lock(&term.watch).poked = Instant::now();
+    {
+        let mut watch = lock(&term.watch);
+
+        watch.poked = Instant::now();
+        watch.closing = false;
+    }
+
     // Два новых размера заставляют полноэкранную программу перерисоваться
     // в новом окне.
     term.pty.resize(cols.saturating_sub(1).max(1), rows);
     term.pty.resize(cols, rows);
     Ok(())
+}
+
+/// Оболочка панели `pane` сессии `session` запускается без вкладки:
+/// при запуске приложения поднимаются все открытые вкладки, и агенты
+/// в них продолжают разговоры. Идущую оболочку не трогает.
+#[tauri::command]
+pub async fn terminal_start(
+    app: AppHandle,
+    terminals: State<'_, Terminals>,
+    session: String,
+    pane: String,
+) -> Result<(), AppError> {
+    let mut terms = lock(&terminals.terms);
+
+    if terms.contains_key(&pane) {
+        return Ok(());
+    }
+
+    start(&app, &mut terms, (&session, &pane), None, BACKGROUND_SIZE)
 }
 
 /// Ввод с клавиатуры в панель `pane`. Оболочка уже кончилась, значит,
@@ -551,14 +698,50 @@ pub async fn terminal_resize(
 #[tauri::command]
 pub async fn terminal_close(terminals: State<'_, Terminals>, pane: String) -> Result<(), AppError> {
     if let Some(term) = terminals.find(&pane) {
-        lock(&term.output).channel = None;
+        {
+            let mut output = lock(&term.output);
 
-        if !lock(&term.watch).answering {
+            output.channel = None;
+            output.closed = true;
+        }
+
+        let mut watch = lock(&term.watch);
+
+        // Вкладку могут открыть снова: агент в ней продолжит разговор.
+        watch.closing = true;
+
+        if !watch.answering {
+            drop(watch);
             term.pty.stop();
         }
     }
 
     Ok(())
+}
+
+/// Интеграции агентов в их настройках.
+#[tauri::command]
+pub fn agent_integrations(app: AppHandle) -> Result<Vec<Integration>, AppError> {
+    Ok(integrations(&app)?.list())
+}
+
+#[tauri::command]
+pub fn agent_integration_install(app: AppHandle, agent: String) -> Result<(), AppError> {
+    integrations(&app)?.install(&agent)
+}
+
+#[tauri::command]
+pub fn agent_integration_remove(app: AppHandle, agent: String) -> Result<(), AppError> {
+    integrations(&app)?.remove(&agent)
+}
+
+fn integrations<R: Runtime>(app: &AppHandle<R>) -> Result<Integrations, AppError> {
+    let home = app
+        .path()
+        .home_dir()
+        .map_err(|_| AppError::unavailable("data_dir_unavailable"))?;
+
+    Ok(Integrations::new(&home))
 }
 
 /// Есть ли Claude Code, какой версии и как выполнен вход.

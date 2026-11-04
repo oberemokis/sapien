@@ -103,7 +103,21 @@ export const en: Dictionary<typeof ru> = {
         logged_out: "Not signed in: run claude in a terminal and sign in with /login using your Claude subscription.",
         not_subscription: "Signed in without a subscription: sign in with /login using a claude.ai account.",
       },
+      integrations: {
+        title: "Resuming conversations",
+        description:
+          "The integration tells sapien which agent conversation runs in a pane, and after the app restarts the agent resumes it. It adds a hook to the agent's settings or places its own extension there.",
+        missing: "Not found on this device.",
+        off: "Not connected.",
+        on: "Connected: conversations resume after a restart.",
+        codexTrust: "Codex asks whether to trust the hook: allow it in /hooks.",
+        install: "Connect",
+        remove: "Disconnect",
+        failed: "Could not change the agent's settings.",
+        loadFailed: "Could not read the agents' settings.",
+      },
     },
+    restoring: "Restoring tabs…",
   },
   forge: {
     title: "Integrations",

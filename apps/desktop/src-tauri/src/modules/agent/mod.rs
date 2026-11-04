@@ -13,4 +13,4 @@ mod use_case;
 pub mod transport;
 
 pub use infrastructure::sessions_dir::without_chat;
-pub use transport::{Terminals, start_terminals, stop_terminals};
+pub use transport::{Terminals, hook, start_terminals, stop_terminals};
