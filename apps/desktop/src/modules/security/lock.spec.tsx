@@ -112,7 +112,7 @@ describe("блокировка окна", () => {
 
     fireEvent.click(toggle);
     await waitFor(() => expect(toggle).toHaveProperty("checked", true));
-    expect(parseLockSettings(localStorage.getItem("sapien.lock")).enabled).toBe(true);
+    expect(JSON.parse(localStorage.getItem("sapien.lock") ?? "null")).toMatchObject({ enabled: true });
   });
 
   it("проверка не прошла или системе нечем спросить: блокировка не включается, и видно почему", async () => {
@@ -225,7 +225,15 @@ describe("блокировка окна", () => {
 
   it("испорченная настройка даёт выключенную блокировку", () => {
     expect(parseLockSettings("{")).toEqual({ enabled: false, minutes: 5 });
-    expect(parseLockSettings(JSON.stringify({ enabled: "yes", minutes: 7 }))).toEqual({ enabled: false, minutes: 5 });
-    expect(parseLockSettings(JSON.stringify({ enabled: true, minutes: 15 }))).toEqual({ enabled: true, minutes: 15 });
+    expect(parseLockSettings({ enabled: "yes", minutes: 7 })).toEqual({ enabled: false, minutes: 5 });
+    expect(parseLockSettings({ enabled: true, minutes: 15 })).toEqual({ enabled: true, minutes: 15 });
+  });
+
+  it("побитая запись в хранилище не закрывает окно", () => {
+    localStorage.setItem("sapien.lock", "{");
+
+    launch();
+
+    expect(lockScreen()).toBeNull();
   });
 });

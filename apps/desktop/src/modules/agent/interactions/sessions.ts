@@ -12,16 +12,9 @@ import {
   projectsList,
   projectsRemove,
 } from "../infrastructure/agent.api";
-import {
-  readCollapsed,
-  readSessionOrder,
-  readTabs,
-  writeCollapsed,
-  writeSessionOrder,
-  writeTabs,
-} from "../infrastructure/agent.device";
+import { collapsedSetting, sessionOrderSetting, tabsSetting } from "../infrastructure/agent.device";
 import { moveSession, sessionsOf, type SessionInfo } from "../model/sessions";
-import { closeTab, moveTab, NO_TABS, openTab, pinTab, visibleTabs, type Tabs } from "../model/tabs";
+import { closeTab, moveTab, openTab, pinTab, visibleTabs, type Tabs } from "../model/tabs";
 import { collapsedStore, searchStore, sessionOrderStore, tabsStore } from "../store/sessions.store";
 import { forgetPanes, sessionPanes } from "./panes";
 import { closeTerminal, terminalExited } from "./terminal";
@@ -29,9 +22,9 @@ import { closeTerminal, terminalExited } from "./terminal";
 export const PROJECTS_KEY = ["agent", "projects"] as const;
 export const SESSIONS_KEY = ["agent", "sessions"] as const;
 
-tabsStore.setState(() => readTabs() ?? NO_TABS);
-sessionOrderStore.setState(() => readSessionOrder());
-collapsedStore.setState(() => readCollapsed());
+tabsStore.setState(() => tabsSetting.read());
+sessionOrderStore.setState(() => sessionOrderSetting.read());
+collapsedStore.setState(() => collapsedSetting.read());
 
 // Сессии, у которых в левой панели свёрнута ветка агентов.
 export function useCollapsed() {
@@ -47,7 +40,7 @@ export function toggleAgents(session: string) {
 
     return [...sessions, session];
   });
-  writeCollapsed(collapsedStore.get());
+  collapsedSetting.write(collapsedStore.get());
 }
 
 export function useProjects() {
@@ -70,7 +63,7 @@ export function useProjectSessions(project: string) {
 // весь порядок проекта, каким его видно: shown.
 export function placeSession(project: string, shown: string[], session: string, before: string | null) {
   sessionOrderStore.setState((all) => ({ ...all, [project]: moveSession(shown, session, before) }));
-  writeSessionOrder(sessionOrderStore.get());
+  sessionOrderSetting.write(sessionOrderStore.get());
 }
 
 // Открытый проект и его вкладки. Сессий, которых больше нет, вкладки не
@@ -92,7 +85,7 @@ export function useActiveSession() {
 
 function changeTabs(change: (tabs: Tabs) => Tabs) {
   tabsStore.setState(change);
-  writeTabs(tabsStore.get());
+  tabsSetting.write(tabsStore.get());
 }
 
 // Сессия открывается вкладкой своего проекта, а окно переходит к вкладкам

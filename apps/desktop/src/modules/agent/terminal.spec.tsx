@@ -12,7 +12,7 @@ import { emit } from "@tauri-apps/api/event";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { Terminal } from "@/test-xterm";
+import { Terminal } from "@sapien/testing/xterm";
 import { Restoring, SessionList, SessionTabs, SessionView, useAgentEvents, useRestoredTabs } from "@/modules/agent";
 import type { ClaudeStatus } from "./model/claude";
 import type { Project, SessionInfo } from "./model/sessions";

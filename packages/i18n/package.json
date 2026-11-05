@@ -1,0 +1,24 @@
+{
+  "name": "@sapien/i18n",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "i18next": "catalog:",
+    "react": "catalog:",
+    "react-i18next": "catalog:"
+  },
+  "devDependencies": {
+    "@sapien/testing": "workspace:*",
+    "@types/react": "catalog:",
+    "happy-dom": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

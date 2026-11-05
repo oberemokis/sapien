@@ -8,19 +8,9 @@ export type LockSettings = { enabled: boolean; minutes: LockMinutes };
 
 export const DEFAULT_LOCK_SETTINGS: LockSettings = { enabled: false, minutes: 5 };
 
-function parseJson(raw: string | null): unknown {
-  try {
-    return JSON.parse(raw ?? "null");
-  } catch {
-    return null;
-  }
-}
-
-// Сохранённое могло побиться или остаться от другой версии: тогда
-// значения по умолчанию, а не падение на старте.
-export function parseLockSettings(raw: string | null): LockSettings {
-  const stored = parseJson(raw);
-
+// Сохранённое могло остаться от другой версии: тогда значения
+// по умолчанию, а не падение на старте.
+export function parseLockSettings(stored: unknown): LockSettings {
   if (typeof stored !== "object" || stored === null) {
     return DEFAULT_LOCK_SETTINGS;
   }

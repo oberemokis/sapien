@@ -23,6 +23,9 @@ apps/desktop          @sapien/desktop
   src-tauri/          Rust: точка входа, команды, права окна, иконки
 
 packages/ui           @sapien/ui: кнопки, иконки, меню, строки настроек, токены темы
+packages/i18n         @sapien/i18n: запуск i18next и типы словарей
+packages/device       @sapien/device: настройки устройства в localStorage
+packages/testing      @sapien/testing: настройка vitest и подделка xterm
 scripts/              проверка направления зависимостей
 ```
 

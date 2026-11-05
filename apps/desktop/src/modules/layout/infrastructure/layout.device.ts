@@ -1,30 +1,17 @@
+import { defineSetting } from "@sapien/device";
 import { isTauri } from "@tauri-apps/api/core";
-import type { LayoutState } from "../model/layout";
+import { INITIAL_LAYOUT, parseLayout } from "../model/layout";
 
-const STORAGE_KEY = "sapien.layout";
+export const layoutSetting = defineSetting({
+  key: "sapien.layout",
+  parse: parseLayout,
+  fallback: INITIAL_LAYOUT,
+});
 
 // Окно Tauri рисует кнопки macOS поверх страницы: верхнюю полосу отдаёт ей
 // titleBarStyle Overlay в tauri.conf.json. В браузере кнопок нет.
 export function hasWindowButtons() {
   return isTauri();
-}
-
-// Хранилище окна бывает закрыто политикой: тогда раскладка живёт до
-// закрытия окна, а приложение не падает.
-export function readLayout(): unknown {
-  try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "null");
-  } catch {
-    return null;
-  }
-}
-
-export function writeLayout(layout: LayoutState) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(layout));
-  } catch {
-    // Раскладка уже на экране, без записи она только не переживёт перезапуск.
-  }
 }
 
 export function windowWidth() {

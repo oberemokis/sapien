@@ -1,23 +1,13 @@
 import { useSelector } from "@tanstack/react-store";
 import { useLayoutEffect, useSyncExternalStore } from "react";
-import {
-  paintTheme,
-  readThemePreference,
-  subscribeSystemTheme,
-  systemPrefersDark,
-  writeThemePreference,
-} from "../infrastructure/theme.device";
-import {
-  parseThemePreference,
-  resolveTheme,
-  type ThemePreference,
-} from "../model/theme";
+import { paintTheme, subscribeSystemTheme, systemPrefersDark, themeSetting } from "../infrastructure/theme.device";
+import { resolveTheme, type ThemePreference } from "../model/theme";
 import { themePreferenceStore } from "../store/theme.store";
 
 // Зовётся один раз до первой отрисовки: иначе окно сначала мигнёт тёмной
 // темой у того, кто выбрал светлую.
 export function restoreTheme() {
-  const preference = parseThemePreference(readThemePreference());
+  const preference = themeSetting.read();
 
   themePreferenceStore.setState(() => preference);
   paintTheme(resolveTheme(preference, systemPrefersDark()));
@@ -29,7 +19,7 @@ export function useThemePreference() {
 
 export function setThemePreference(preference: ThemePreference) {
   themePreferenceStore.setState(() => preference);
-  writeThemePreference(preference);
+  themeSetting.write(preference);
 }
 
 // Держит класс темы на html в согласии с выбором, а при «как в системе»
