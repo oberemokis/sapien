@@ -3,9 +3,7 @@
 # а версия у всех крейтов одна.
 [workspace]
 resolver = "3"
-# crates/* встанет сюда с первым крейтом: шаблон без совпадений Cargo
-# считает путём и падает.
-members = ["apps/desktop/src-tauri"]
+members = ["apps/desktop/src-tauri", "crates/*"]
 
 [workspace.package]
 edition = "2024"
@@ -13,6 +11,7 @@ edition = "2024"
 # Версии, общие для крейтов. Крейт берёт их строкой `x.workspace = true`
 # и при нужде добавляет свои features.
 [workspace.dependencies]
+sapien-kernel = { path = "crates/kernel" }
 libc = "0.2.191"
 log = "0.4.34"
 serde = { version = "1", features = ["derive"] }

@@ -1,5 +1,5 @@
 use super::domain::{Session, SessionInfo};
-use crate::error::AppError;
+use sapien_kernel::AppError;
 use std::path::PathBuf;
 
 /// Проекты, в которых работает агент.

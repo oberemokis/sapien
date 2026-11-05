@@ -1,8 +1,8 @@
 use super::domain::{Forge, ForgeStatus, ForgeStatuses};
 use super::infrastructure::{AccountsFile, Http};
 use super::use_case;
-use crate::error::AppError;
 use crate::secrets::Secrets;
+use sapien_kernel::AppError;
 use tauri::{AppHandle, Manager, Runtime, State};
 
 fn accounts<R: Runtime>(app: &AppHandle<R>) -> Result<AccountsFile, AppError> {

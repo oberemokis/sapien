@@ -1,5 +1,5 @@
 use super::domain::{Forge, ForgeStatuses};
-use crate::error::AppError;
+use sapien_kernel::AppError;
 
 /// API сервера.
 pub trait Api {

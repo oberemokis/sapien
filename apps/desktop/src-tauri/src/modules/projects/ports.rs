@@ -1,5 +1,5 @@
 use super::domain::Project;
-use crate::error::AppError;
+use sapien_kernel::AppError;
 
 /// Где лежит список проектов, по порядку добавления.
 pub trait Shelf {

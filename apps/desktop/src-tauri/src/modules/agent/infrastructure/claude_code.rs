@@ -1,5 +1,5 @@
-use crate::error::AppError;
 use crate::modules::agent::domain::{ClaudeState, ClaudeStatus};
+use sapien_kernel::AppError;
 use serde_json::Value;
 use std::ffi::OsString;
 use std::io::ErrorKind;

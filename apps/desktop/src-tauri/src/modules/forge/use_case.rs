@@ -1,7 +1,7 @@
 use super::domain::{Forge, ForgeStatus, ForgeStatuses, parse_host};
 use super::ports::{Accounts, Api};
-use crate::error::AppError;
 use crate::secrets::{SecretName, Secrets};
+use sapien_kernel::AppError;
 
 fn secret(forge: Forge) -> SecretName {
     match forge {

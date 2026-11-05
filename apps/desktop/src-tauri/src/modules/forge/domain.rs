@@ -1,4 +1,4 @@
-use crate::error::AppError;
+use sapien_kernel::AppError;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use url::Url;

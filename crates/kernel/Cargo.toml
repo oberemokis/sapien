@@ -1,0 +1,15 @@
+# Общее ядро без Tauri: ошибка команды, запись файла целиком, перенос
+# формата данных. Крейты доменов берут его вместо своих копий.
+[package]
+name = "sapien-kernel"
+edition.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+serde.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
