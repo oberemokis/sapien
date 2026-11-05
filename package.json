@@ -9,9 +9,9 @@
     "bundle": "pnpm --filter @sapien/desktop tauri build",
     "test": "turbo run test",
     "typecheck": "turbo run typecheck",
-    "lint": "oxlint && node scripts/check-boundaries.mjs && cargo fmt --check --manifest-path apps/desktop/src-tauri/Cargo.toml && secretlint \"**/*\" --secretlintignore .gitignore",
+    "lint": "oxlint && node scripts/check-boundaries.mjs && cargo fmt --all --check && cargo clippy --workspace --all-targets --quiet -- -D warnings && secretlint \"**/*\" --secretlintignore .gitignore",
     "prepare": "husky",
-    "audit:deps": "pnpm audit --prod --audit-level high && cargo audit --file apps/desktop/src-tauri/Cargo.lock"
+    "audit:deps": "pnpm audit --prod --audit-level high && cargo audit --file Cargo.lock"
   },
   "devDependencies": {
     "@secretlint/secretlint-rule-preset-recommend": "^13.1.0",

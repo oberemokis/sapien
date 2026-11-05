@@ -11,12 +11,13 @@
 | Состояние | TanStack Query для данных из Rust, TanStack Store для остального |
 | Локализация | i18next и react-i18next |
 | Сборка | Vite 8, turbo, pnpm 11 |
-| Проверки | tsc, oxlint, `scripts/check-boundaries.mjs`, cargo check и rustfmt, secretlint, pnpm audit и cargo audit |
+| Проверки | tsc, oxlint, `scripts/check-boundaries.mjs`, cargo check, clippy и rustfmt, secretlint, pnpm audit и cargo audit |
 | Тесты | vitest, Testing Library, happy-dom, cargo test |
 
 ## Раскладка
 
 ```
+Cargo.toml            Cargo workspace: члены, общие версии, lints, profile.release
 apps/desktop          @sapien/desktop
   src/                интерфейс: app/, core/, modules/<модуль>/, pages/
   src-tauri/          Rust: точка входа, команды, права окна, иконки
@@ -33,7 +34,7 @@ scripts/              проверка направления зависимос
 pnpm install
 pnpm dev              # окно приложения (Vite на 1420 и Rust)
 pnpm dev:web          # интерфейс в браузере, команды Rust там недоступны
-pnpm bundle           # бандл под текущую систему в src-tauri/target/release/bundle
+pnpm bundle           # бандл под текущую систему в target/release/bundle
 ```
 
 Порт Vite закреплён на 1420: его ждёт `devUrl` в `src-tauri/tauri.conf.json`, и занятый порт роняет запуск, а не уводит Vite на соседний.
@@ -43,8 +44,8 @@ pnpm bundle           # бандл под текущую систему в src-t
 ## Проверки
 
 ```bash
-pnpm typecheck        # tsc и cargo check
-pnpm lint             # oxlint, границы слоёв, cargo fmt --check, секреты
+pnpm typecheck        # tsc и cargo check по всему workspace
+pnpm lint             # oxlint, границы слоёв, cargo fmt, clippy без предупреждений, секреты
 pnpm audit:deps       # известные уязвимости: pnpm audit и cargo audit
 pnpm test             # vitest и cargo test
 ```
