@@ -10,17 +10,15 @@
   "scripts": {
     "typecheck": "tsc --noEmit"
   },
-  "dependencies": {
+  "devDependencies": {
     "@testing-library/dom": "catalog:",
     "@testing-library/react": "catalog:",
-    "react": "catalog:",
-    "react-dom": "catalog:",
-    "vitest": "catalog:"
-  },
-  "devDependencies": {
     "@types/node": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
-    "typescript": "catalog:"
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   }
 }
