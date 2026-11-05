@@ -3,6 +3,9 @@ dist
 dist-ssr
 *.local
 
+# рабочие копии веток (git worktree), правило в CLAUDE.md
+/.worktrees/
+
 # local env (keep the committed template)
 .env
 .env.*
