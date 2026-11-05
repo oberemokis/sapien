@@ -3493,7 +3493,7 @@ dependencies = [
  "sapien-kernel",
  "sapien-projects",
  "sapien-sessions",
- "sapien-terminal",
+ "sapien-workspace",
  "serde",
  "serde_json",
  "tauri",
@@ -3568,6 +3568,19 @@ dependencies = [
  "libc",
  "portable-pty",
  "sapien-kernel",
+ "tempfile",
+]
+
+[[package]]
+name = "sapien-workspace"
+version = "0.0.0"
+dependencies = [
+ "log",
+ "sapien-agents",
+ "sapien-kernel",
+ "sapien-sessions",
+ "sapien-terminal",
+ "serde_json",
  "tempfile",
 ]
 
