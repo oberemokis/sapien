@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSelector } from "@tanstack/react-store";
 import { useEffect } from "react";
-import { commands, events, type SessionInfo } from "@sapien/ipc";
+import { commands, events, type Project, type SessionInfo } from "@sapien/ipc";
 import { collapsedSetting, sessionOrderSetting, tabsSetting } from "../infrastructure/agent.device";
 import { moveSession, sessionsOf } from "../model/sessions";
 import { closeTab, moveTab, openTab, pinTab, visibleTabs, type Tabs } from "../model/tabs";
@@ -9,7 +9,6 @@ import { collapsedStore, searchStore, sessionOrderStore, tabsStore } from "../st
 import { forgetPanes, sessionPanes } from "./panes";
 import { closeTerminal, terminalExited } from "./terminal";
 
-export const PROJECTS_KEY = ["agent", "projects"] as const;
 export const SESSIONS_KEY = ["agent", "sessions"] as const;
 
 tabsStore.setState(() => tabsSetting.read());
@@ -31,10 +30,6 @@ export function toggleAgents(session: string) {
     return [...sessions, session];
   });
   collapsedSetting.write(collapsedStore.get());
-}
-
-export function useProjects() {
-  return useQuery({ queryKey: PROJECTS_KEY, queryFn: commands.projectsList });
 }
 
 export function useSessions() {
@@ -148,33 +143,18 @@ export function useNewSession() {
 }
 
 // Новый проект начинается с пустой сессии в нём: за этим его и добавляют.
-export function useAddProject() {
-  const queryClient = useQueryClient();
+// Добавление проекта ждёт её, поэтому отдаётся промис.
+export function useStartSession() {
   const newSession = useNewSession();
 
-  return useMutation({
-    mutationFn: commands.projectsAdd,
-    onSuccess: async (project) => {
-      await queryClient.invalidateQueries({ queryKey: PROJECTS_KEY });
-
-      if (project !== null) {
-        await newSession.mutateAsync(project.id);
-      }
-    },
-  });
+  return (project: Project) => newSession.mutateAsync(project.id);
 }
 
-export function useRemoveProject() {
+// Убранный проект уносит и свои сессии.
+export function useRefreshSessions() {
   const queryClient = useQueryClient();
 
-  return useMutation({
-    mutationFn: commands.projectsRemove,
-    onSettled: () =>
-      Promise.all([
-        queryClient.invalidateQueries({ queryKey: PROJECTS_KEY }),
-        queryClient.invalidateQueries({ queryKey: SESSIONS_KEY }),
-      ]),
-  });
+  return () => queryClient.invalidateQueries({ queryKey: SESSIONS_KEY });
 }
 
 // Имя сессии одно на вкладку и строку в левой панели.

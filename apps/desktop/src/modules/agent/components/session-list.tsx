@@ -1,26 +1,27 @@
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { useState, type MouseEvent } from "react";
 import { useTranslation } from "react-i18next";
-import { Button, ContextMenu, Icon, IconButton, type MenuItem, shortcutLabel, useReorder } from "@sapien/ui";
+import { agentName } from "@sapien/agents";
+import { ProjectHeader, ProjectList, ProjectsHeader, RemoveProject } from "@sapien/projects";
+import { ContextMenu, Icon, type MenuItem, shortcutLabel, useReorder } from "@sapien/ui";
 import { focusPane, usePanes } from "../interactions/panes";
 import {
   openSearch,
   openSession,
   placeSession,
   toggleAgents,
-  useAddProject,
   useCollapsed,
   useDeleteSession,
   useNewSession,
   useProjectSessions,
-  useProjects,
-  useRemoveProject,
+  useRefreshSessions,
   useRenameSession,
+  useStartSession,
   useTabs,
 } from "../interactions/sessions";
 import { panesIn } from "../model/panes";
 import type { Project, SessionInfo } from "@sapien/ipc";
-import { agentName, moveSession } from "../model/sessions";
+import { moveSession } from "../model/sessions";
 import { RenameField } from "./rename-field";
 
 // Строка панели как строка дерева: 28 px, выбранная на заливке.
@@ -99,11 +100,11 @@ type ProjectProps = {
 // проекта. Правая кнопка открывает меню проекта или сессии, двойное
 // нажатие переименовывает сессию, как во вкладках.
 function ProjectSessions({ project, onMenu }: ProjectProps) {
-  const { t } = useTranslation();
+  const { t } = useTranslation(["translation", "projects"]);
   const navigate = useNavigate();
   const tabs = useTabs();
   const newSession = useNewSession();
-  const remove = useRemoveProject();
+  const refreshSessions = useRefreshSessions();
   const deleteSession = useDeleteSession();
   const rename = useRenameSession();
   const onChat = useRouterState({ select: (state) => state.location.pathname === "/" });
@@ -143,38 +144,13 @@ function ProjectSessions({ project, onMenu }: ProjectProps) {
       disabled: project.missing,
       onSelect: () => newSession.mutate(project.id, { onSuccess: () => void navigate({ to: "/" }) }),
     },
-    { label: t("agent.projects.remove"), separated: true, critical: true, onSelect: () => setRemoving(true) },
+    { label: t("projects:remove"), separated: true, critical: true, onSelect: () => setRemoving(true) },
   ];
 
   return (
     <li className="flex flex-col">
-      <div
-        title={project.path}
-        className="flex h-6 items-center gap-2 px-2 text-[12px]/4 text-text-faint"
-        onContextMenu={(event) => onMenu(event, projectMenu)}
-      >
-        <span aria-hidden className="grid size-4 shrink-0 place-items-center rounded-[4px] bg-overlay-pressed text-[10px] font-medium text-text-muted uppercase">
-          {project.name.slice(0, 1)}
-        </span>
-        <span className="min-w-0 flex-1 truncate">{project.name}</span>
-        {project.missing && <span className="shrink-0">{t("agent.projects.missing")}</span>}
-      </div>
-      {removing && (
-        <div role="alert" className="mx-1 my-1 flex flex-col gap-2 rounded-md bg-bg-layer-01 p-2 text-[13px]/5 shadow-[inset_0_0_0_0.5px_var(--border-border-muted)]">
-          <p>{t("agent.projects.removeAsk")}</p>
-          <div className="flex gap-2">
-            <Button
-              variant="danger"
-              disabled={remove.isPending}
-              onClick={() => remove.mutate(project.id, { onSuccess: () => setRemoving(false) })}
-            >
-              {t("agent.projects.removeYes")}
-            </Button>
-            <Button onClick={() => setRemoving(false)}>{t("agent.projects.removeNo")}</Button>
-          </div>
-          {remove.isError && <p className="text-state-fg-danger">{t("agent.projects.removeFailed")}</p>}
-        </div>
-      )}
+      <ProjectHeader project={project} onContextMenu={(event) => onMenu(event, projectMenu)} />
+      {removing && <RemoveProject project={project} onRemoved={refreshSessions} onClose={() => setRemoving(false)} />}
       {newSession.isError && (
         <p role="alert" className="px-2 pb-1 text-[12px]/[18px] text-state-fg-danger">
           {t("agent.sessions.newFailed")}
@@ -285,12 +261,12 @@ function ProjectSessions({ project, onMenu }: ProjectProps) {
 export function SessionList() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const projects = useProjects();
-  const add = useAddProject();
+  const startSession = useStartSession();
   const [menu, setMenu] = useState<Menu | null>(null);
 
-  function addProject() {
-    add.mutate(undefined, { onSuccess: () => void navigate({ to: "/" }) });
+  async function startIn(project: Project) {
+    await startSession(project);
+    void navigate({ to: "/" });
   }
 
   function openMenu(event: MouseEvent, items: MenuItem[]) {
@@ -307,22 +283,9 @@ export function SessionList() {
           <kbd className="font-sans text-[11px] text-text-faint">{shortcutLabel("K")}</kbd>
         </button>
       </nav>
-      <div className="mt-3 flex h-9 shrink-0 items-center gap-1 pr-1.5 pl-3">
-        <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-text-muted">{t("agent.projects.title")}</span>
-        <IconButton icon="folder-add-left" label={t("agent.projects.add")} onClick={addProject} />
-      </div>
-      {add.isError && (
-        <p role="alert" className="px-3 pb-1 text-[12px]/[18px] text-state-fg-danger">
-          {t("agent.projects.addFailed")}
-        </p>
-      )}
+      <ProjectsHeader onAdded={startIn} />
       <nav aria-label={t("agent.sessions.title")} className="min-h-0 flex-1 overflow-y-auto p-1 pt-0">
-        {projects.data?.length === 0 && <p className="p-2 text-[13px]/5 text-text-muted">{t("agent.projects.empty")}</p>}
-        <ul className="flex flex-col gap-3">
-          {projects.data?.map((project) => (
-            <ProjectSessions key={project.id} project={project} onMenu={openMenu} />
-          ))}
-        </ul>
+        <ProjectList>{(project) => <ProjectSessions key={project.id} project={project} onMenu={openMenu} />}</ProjectList>
       </nav>
       {menu !== null && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
     </div>

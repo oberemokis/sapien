@@ -1,4 +1,3 @@
-export { AgentSettings } from "./components/agent-settings";
 export { Restoring } from "./components/restoring";
 export { SessionList } from "./components/session-list";
 export { SessionSearch } from "./components/session-search";

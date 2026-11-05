@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
+import { useAddProject, useProjects } from "@sapien/projects";
 import { Button, Icon } from "@sapien/ui";
-import { useActiveSession, useAddProject, useNewSession, useProjects, useSessions, useTabs } from "../interactions/sessions";
+import { useActiveSession, useNewSession, useSessions, useStartSession, useTabs } from "../interactions/sessions";
 import { homeProject } from "../model/sessions";
 import { Notice } from "./notice";
 import { SessionPanes } from "./session-panes";
@@ -8,11 +9,11 @@ import { SessionPanes } from "./session-panes";
 // Без открытых вкладок: первый шаг, добавить папку проекта, или новая
 // сессия в открытом проекте, а без него в последнем.
 function Welcome() {
-  const { t } = useTranslation();
+  const { t } = useTranslation(["translation", "projects"]);
   const projects = useProjects();
   const sessions = useSessions();
   const tabs = useTabs();
-  const add = useAddProject();
+  const add = useAddProject(useStartSession());
   const newSession = useNewSession();
   const current = projects.data?.find((project) => project.id === tabs.project && !project.missing);
   const project = current?.id ?? homeProject(projects.data ?? [], sessions.data ?? [], null);
@@ -35,7 +36,7 @@ function Welcome() {
         </div>
         {project === null ? (
           <Button variant="submit" disabled={add.isPending} onClick={() => add.mutate()}>
-            {t("agent.projects.add")}
+            {t("projects:add")}
           </Button>
         ) : (
           <Button variant="submit" disabled={newSession.isPending} onClick={() => newSession.mutate(project)}>
@@ -44,7 +45,7 @@ function Welcome() {
         )}
         {(add.isError || newSession.isError) && (
           <p role="alert" className="text-[13px] text-state-fg-danger">
-            {t("agent.projects.addFailed")}
+            {t("projects:addFailed")}
           </p>
         )}
       </div>
