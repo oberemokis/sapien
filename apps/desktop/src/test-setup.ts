@@ -2,7 +2,7 @@ import { Terminal } from "@sapien/testing/xterm";
 import { changeLanguage } from "i18next";
 import { afterEach, vi } from "vitest";
 // Компоненты берут строки из словаря, как в приложении.
-import "@/core/i18n/i18n";
+import "@/app/i18n/i18n";
 
 // Общую уборку за тестом делает @sapien/testing/setup, здесь то, что знает
 // только окно.

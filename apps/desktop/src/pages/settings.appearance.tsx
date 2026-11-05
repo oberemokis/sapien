@@ -1,4 +1,4 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { AppearanceSettings } from "@/modules/appearance";
+import { AppearanceSettings } from "@sapien/appearance";
 
 export const Route = createFileRoute("/settings/appearance")({ component: AppearanceSettings });

@@ -1,0 +1,132 @@
+import type { Dictionary } from "@sapien/i18n";
+import type { ru } from "./ru";
+
+export const en: Dictionary<typeof ru> = {
+  agent: {
+    session: {
+      projectMissing:
+        "The project folder is no longer on disk: {{path}}. The terminal opens in it, so the session will continue once the folder is back.",
+    },
+    terminal: {
+      exited: "The shell has exited.",
+      restart: "Open a new one",
+      failed: "The shell did not start.",
+      retry: "Retry",
+    },
+    panes: {
+      label: "Pane {{index}}",
+      splitRight: "Split right",
+      splitLeft: "Split left",
+      splitDown: "Split down",
+      splitUp: "Split up",
+      close: "Close pane",
+      last: "The last pane closes with its tab",
+      resize: "Pane border",
+    },
+    sessions: {
+      sections: "Sections",
+      title: "Sessions",
+      new: "New session",
+      untitled: "New session",
+      running: "agent is working",
+      agents: "Agents in “{{title}}”",
+      collapse: "Collapse agents in “{{title}}”",
+      expand: "Expand agents in “{{title}}”",
+      delete: "Delete session",
+      rename: "Rename",
+      name: "Session name",
+      newFailed: "The session was not created.",
+      deleteFailed: "The session was not deleted.",
+      renameFailed: "The name was not saved.",
+    },
+    tabs: {
+      label: "Tabs of “{{project}}”",
+      new: "New session in “{{project}}”",
+      close: "Close tab “{{title}}”",
+      closeItem: "Close tab",
+      rename: "Rename",
+      name: "Tab name",
+      renameFailed: "The name was not saved.",
+      pin: "Pin",
+      unpin: "Unpin",
+      pinned: "pinned",
+    },
+    projects: {
+      title: "Projects",
+      add: "Add project",
+      addFailed: "Could not add the project or start a session, please try again.",
+      empty: "No projects yet. Add a folder for the agent to work in.",
+      missing: "folder missing",
+      remove: "Remove project",
+      removeAsk: "Remove the project from the list? Its sessions will be deleted, the folder on disk stays.",
+      removeYes: "Remove",
+      removeNo: "Cancel",
+      removeFailed: "Could not remove the project. If the agent is responding in it, stop the response.",
+    },
+    search: {
+      open: "Search",
+      title: "Search sessions",
+      placeholder: "Session or project name",
+      recent: "Recent",
+      none: "No sessions yet.",
+      nothing: "Nothing found",
+      keys: {
+        open: "open",
+        close: "close",
+      },
+    },
+    welcome: {
+      firstTitle: "Start with a project folder",
+      firstText:
+        "The agent works in a folder on disk: it reads and edits its files and runs commands. Each project has its own sessions.",
+      title: "No open tabs",
+      text: "Open a session on the left or start a new one: it opens as a tab.",
+    },
+    settings: {
+      title: "Agent",
+      description: "The agent uses your Claude subscription through Claude Code on this device.",
+      claude: {
+        description:
+          "Claude Code signed in with a subscription. Messages and the files the agent reads go to Anthropic through it, and Claude Code keeps the conversation itself.",
+        checking: "Checking Claude Code…",
+        failed: "Could not check Claude Code.",
+        check: "Check again",
+        version: "Version {{version}}.",
+        ready: "Signed in with a Claude subscription.",
+        missing: "Not found. Install it with curl -fsSL https://claude.ai/install.sh | bash and sign in.",
+        outdated: "Version 2.1.299 or newer is required: update with claude update.",
+        logged_out: "Not signed in: run claude in a terminal and sign in with /login using your Claude subscription.",
+        not_subscription: "Signed in without a subscription: sign in with /login using a claude.ai account.",
+      },
+      integrations: {
+        title: "Resuming conversations",
+        description:
+          "The integration tells sapien which agent conversation runs in a pane, and after the app restarts the agent resumes it. It adds a hook to the agent's settings or places its own extension there.",
+        missing: "Not found on this device.",
+        off: "Not connected.",
+        on: "Connected: conversations resume after a restart.",
+        codexTrust: "Codex asks whether to trust the hook: allow it in /hooks.",
+        install: "Connect",
+        remove: "Disconnect",
+        failed: "Could not change the agent's settings.",
+        loadFailed: "Could not read the agents' settings.",
+      },
+    },
+    restoring: "Restoring tabs…",
+  },
+  inbox: {
+    title: "Inbox",
+    empty: "Pull requests, issues and mentions from GitHub and GitLab will show up here. Connect them in settings first.",
+    settings: "Open integrations",
+  },
+  settings: {
+    title: "Settings",
+    back: "Back",
+    sections: "Settings sections",
+    groups: {
+      app: "App",
+      agents: "Agents",
+      workspace: "Workspace",
+    },
+  },
+};
