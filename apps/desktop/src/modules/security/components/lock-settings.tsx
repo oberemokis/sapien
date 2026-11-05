@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next";
-import { SettingsGroup, SettingsRow, SettingsSection, SettingsSelect, SWITCH } from "@/core/ui/settings";
+import { SettingsGroup, SettingsRow, SettingsSection, SettingsSelect, SWITCH } from "@sapien/ui";
 import { setLockMinutes, useLockSettings, useLockToggle } from "../interactions/lock";
 import { LOCK_MINUTES } from "../model/lock";
 

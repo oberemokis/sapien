@@ -1,7 +1,6 @@
 import { useId, useLayoutEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { Button } from "@/core/ui/button";
-import { Icon } from "@/core/ui/icon";
+import { Button, Icon } from "@sapien/ui";
 import { useIdleLock, useLocked, useShortcutsBlocked, useUnlock } from "../interactions/lock";
 
 // Глухая заглушка на всё окно. Модальное окно встаёт поверх остальных

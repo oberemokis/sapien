@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
-import { Icon } from "@/core/ui/icon";
+import { Icon } from "@sapien/ui";
 
 // «Входящие»: пока заглушка. Что сюда выводить из GitHub и GitLab, решим
 // вместе с тем, что агент умеет с ними делать.

@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
-import { Icon } from "@/core/ui/icon";
+import { Icon } from "@sapien/ui";
 import { useCloseSettings } from "./navigation";
 import { SETTINGS_GROUPS } from "./sections";
 

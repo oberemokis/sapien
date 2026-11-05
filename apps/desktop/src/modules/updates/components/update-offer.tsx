@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { openLink } from "@/core/links/open-link";
-import { Button } from "@/core/ui/button";
+import { Button } from "@sapien/ui";
 import { useAppVersion, useUpdateInstall, useUpdateOffer } from "../interactions/update";
 import { percentOf, releaseItems, releaseUrl, type UpdateProgress } from "../model/update";
 

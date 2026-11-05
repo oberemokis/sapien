@@ -1,6 +1,5 @@
 import { useTranslation } from "react-i18next";
-import { Button } from "@/core/ui/button";
-import { Icon } from "@/core/ui/icon";
+import { Button, Icon } from "@sapien/ui";
 import { useActiveSession, useAddProject, useNewSession, useProjects, useSessions, useTabs } from "../interactions/sessions";
 import { homeProject } from "../model/sessions";
 import { Notice } from "./notice";
