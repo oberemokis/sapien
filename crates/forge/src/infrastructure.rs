@@ -1,6 +1,6 @@
-use super::domain::{Forge, ForgeStatuses, login, user_url};
-use super::ports::{Accounts, Api};
+use crate::domain::{Forge, ForgeStatuses, login, user_url};
 use crate::egress;
+use crate::ports::{Accounts, Api};
 use reqwest::Client;
 use reqwest::header::{ACCEPT, AUTHORIZATION, HeaderName, HeaderValue, USER_AGENT};
 use sapien_kernel::{AppError, durable};
@@ -117,7 +117,7 @@ impl Accounts for AccountsFile {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::modules::forge::domain::ForgeStatus;
+    use crate::domain::ForgeStatus;
 
     #[test]
     fn подключения_переживают_перезапуск() {

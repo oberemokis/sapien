@@ -11,6 +11,7 @@ edition = "2024"
 # Версии, общие для крейтов. Крейт берёт их строкой `x.workspace = true`
 # и при нужде добавляет свои features.
 [workspace.dependencies]
+sapien-forge = { path = "crates/forge" }
 sapien-kernel = { path = "crates/kernel" }
 sapien-projects = { path = "crates/projects" }
 libc = "0.2.191"

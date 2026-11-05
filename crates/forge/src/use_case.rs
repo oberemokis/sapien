@@ -1,5 +1,5 @@
-use super::domain::{Forge, ForgeStatus, ForgeStatuses, parse_host};
-use super::ports::{Accounts, Api};
+use crate::domain::{Forge, ForgeStatus, ForgeStatuses, parse_host};
+use crate::ports::{Accounts, Api};
 use crate::secrets::{SecretName, Secrets};
 use sapien_kernel::AppError;
 
@@ -70,7 +70,15 @@ pub fn disconnect(
 mod tests {
     use super::*;
     use std::sync::Mutex;
-    use tauri::async_runtime::block_on;
+
+    /// Поддельный сервер отвечает сразу, сети нет: хватает однопоточного
+    /// исполнителя tokio, приложение для теста не нужно.
+    fn block_on<F: Future>(future: F) -> F::Output {
+        tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap()
+            .block_on(future)
+    }
 
     /// Сервер, который принимает один токен и помнит, куда его спрашивали.
     struct FakeApi {

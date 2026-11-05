@@ -1,0 +1,23 @@
+# GitHub и GitLab по токену, вместе с хранилищем секретов и сторожем
+# адресов: другого потребителя у них нет. Без Tauri: сервисы собирает
+# корень композиции приложения, команды живут там же.
+[package]
+name = "sapien-forge"
+edition.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+keyring = "4.2.0"
+log.workspace = true
+reqwest = { version = "0.13.5", default-features = false, features = ["native-tls", "json", "system-proxy"] }
+sapien-kernel.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+url.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+tokio = { workspace = true, features = ["rt"] }

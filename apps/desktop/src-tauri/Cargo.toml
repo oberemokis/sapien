@@ -17,12 +17,11 @@ workspace = true
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-keyring = "4.2.0"
 log.workspace = true
 # Псевдотерминал для интерактивного Claude Code во вкладке.
 portable-pty = "0.9.0"
-reqwest = { version = "0.13.5", default-features = false, features = ["native-tls", "json", "system-proxy"] }
 robius-authentication = "0.3.1"
+sapien-forge.workspace = true
 sapien-kernel.workspace = true
 sapien-projects.workspace = true
 serde.workspace = true
@@ -35,7 +34,6 @@ tauri-plugin-opener = "2.5.5"
 # (v1Compatible), а createUpdaterArtifacts пишет установщик и AppImage как есть.
 tauri-plugin-updater = { version = "2.12.0", default-features = false, features = ["native-tls", "system-proxy"] }
 tokio.workspace = true
-url.workspace = true
 
 # Терминал останавливается: SIGHUP группе оболочки и группе на переднем
 # плане, чтобы вместе с оболочкой ушли и её команды.
