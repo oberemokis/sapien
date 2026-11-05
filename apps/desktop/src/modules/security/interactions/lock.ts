@@ -2,7 +2,7 @@ import { useMutation } from "@tanstack/react-query";
 import { useSelector } from "@tanstack/react-store";
 import { useEffect, useLayoutEffect } from "react";
 import { blockShortcuts, lockSetting, subscribeActivity, subscribeReturn } from "../infrastructure/lock.device";
-import { appUnlock } from "../infrastructure/lock.api";
+import { commands } from "@sapien/ipc";
 import {
   idleFor,
   unlockFailureOf,
@@ -59,7 +59,7 @@ function failureOf(mutation: { isError: boolean; error: unknown }): UnlockFailur
 // тот, кто и так сидит у открытого окна, без проверки.
 export function useLockToggle() {
   const enable = useMutation({
-    mutationFn: appUnlock,
+    mutationFn: commands.appUnlock,
     onSuccess: () => saveSettings({ enabled: true }),
   });
 
@@ -82,7 +82,7 @@ export function useLockToggle() {
 // случайного взгляда.
 export function useUnlock() {
   const unlock = useMutation({
-    mutationFn: appUnlock,
+    mutationFn: commands.appUnlock,
     onSuccess: () => setLocked(false),
     onError: (error) => {
       if (unlockFailureOf(error) === "unavailable") {

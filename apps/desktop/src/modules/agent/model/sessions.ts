@@ -1,39 +1,20 @@
-// Проект это папка на диске, где работает агент, как Project в Rust.
-// missing: папки больше нет, сессии видны, но новый ответ не начнётся.
-export type Project = { id: string; name: string; path: string; missing: boolean };
+import type { Project, SessionInfo } from "@sapien/ipc";
 
-// Агенты, которых Rust узнаёт в терминале, как AGENTS в domain.rs.
-export type Agent = "claude" | "codex" | "pi" | "opencode" | "gemini" | "cursor";
+// Названия агентов из AGENTS крейта sapien-agents: это имена программ,
+// на язык окна они не переводятся.
+const AGENT_NAMES = new Map([
+  ["claude", "Claude Code"],
+  ["codex", "Codex"],
+  ["pi", "Pi"],
+  ["opencode", "OpenCode"],
+  ["gemini", "Gemini CLI"],
+  ["cursor", "Cursor"],
+]);
 
-// Названия агентов: это имена программ, на язык окна они не переводятся.
-export const AGENT_NAMES: Record<Agent, string> = {
-  claude: "Claude Code",
-  codex: "Codex",
-  pi: "Pi",
-  opencode: "OpenCode",
-  gemini: "Gemini CLI",
-  cursor: "Cursor",
-};
-
-// Интеграция агента в его настройках, как Integration в Rust. Она сообщает
-// sapien разговор панели, и после перезапуска агент продолжает его.
-// missing: агента на устройстве нет.
-export type Integration = { agent: Agent; state: "missing" | "off" | "on" };
-
-// Агент на переднем плане панели pane и работает ли он, как PaneAgent в Rust.
-export type PaneAgent = { pane: string; agent: Agent; answering: boolean };
-
-// Сессия это терминалы в папке проекта, как SessionInfo в Rust. title
-// пустой, пока агент её не назвал. updated в миллисекундах. agents: кто
-// сейчас запущен в её панелях, answering: хоть один из них работает.
-export type SessionInfo = {
-  id: string;
-  project: string;
-  title: string;
-  updated: number;
-  answering: boolean;
-  agents: PaneAgent[];
-};
+// Агента, которого Rust уже узнаёт, а окно ещё нет, оно называет как Rust.
+export function agentName(agent: string) {
+  return AGENT_NAMES.get(agent) ?? agent;
+}
 
 // Порядок сессий в левой панели по проектам: его задают перетаскиванием.
 // У проекта без записи сессии идут свежими сверху.

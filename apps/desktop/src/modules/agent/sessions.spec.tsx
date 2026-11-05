@@ -11,7 +11,7 @@ import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SessionList, SessionSearch, SessionTabs, SessionView } from "@/modules/agent";
-import type { Project, SessionInfo } from "./model/sessions";
+import type { Project, SessionInfo } from "@sapien/ipc";
 import { NO_TABS } from "./model/tabs";
 import { collapsedStore, searchStore, sessionOrderStore, tabsStore } from "./store/sessions.store";
 

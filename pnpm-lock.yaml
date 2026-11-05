@@ -9,6 +9,9 @@ catalogs:
     '@tanstack/react-query':
       specifier: ^5.105.0
       version: 5.105.0
+    '@tauri-apps/api':
+      specifier: ^2.12.4
+      version: 2.12.4
     '@testing-library/dom':
       specifier: ^10.4.2
       version: 10.4.2
@@ -89,6 +92,9 @@ importers:
       '@sapien/i18n':
         specifier: workspace:*
         version: link:../../packages/i18n
+      '@sapien/ipc':
+        specifier: workspace:*
+        version: link:../../packages/ipc
       '@sapien/ui':
         specifier: workspace:*
         version: link:../../packages/ui
@@ -102,7 +108,7 @@ importers:
         specifier: ^0.11.2
         version: 0.11.2(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       '@tauri-apps/api':
-        specifier: ^2.12.4
+        specifier: 'catalog:'
         version: 2.12.4
       '@xterm/addon-fit':
         specifier: ^0.11.0
@@ -211,6 +217,16 @@ importers:
       vitest:
         specifier: 'catalog:'
         version: 4.1.12(@types/node@22.20.5)(happy-dom@20.14.6)(vite@8.3.5(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15))
+
+  packages/ipc:
+    dependencies:
+      '@tauri-apps/api':
+        specifier: 'catalog:'
+        version: 2.12.4
+    devDependencies:
+      typescript:
+        specifier: 'catalog:'
+        version: 6.0.3
 
   packages/testing:
     devDependencies:

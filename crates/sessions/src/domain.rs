@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use specta::Type;
 
 /// Сессия sapien: терминал в папке проекта `project`, в котором человек
 /// запускает агентов. Заголовок пустой, пока его не дал агент или человек.
@@ -23,12 +24,14 @@ pub struct Session {
 /// Сессия в списке окна. Список читает её прямо из файла сессии.
 /// `agents`: агенты на переднем плане её панелей, `answering`: хоть один
 /// из них работает. Этих двух в файле нет.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionInfo {
     pub id: String,
     pub project: String,
     pub title: String,
+    /// Миллисекунды Unix укладываются в number окна без потерь.
+    #[specta(type = u32)]
     pub updated: u64,
     #[serde(skip_deserializing)]
     pub answering: bool,
@@ -37,7 +40,7 @@ pub struct SessionInfo {
 }
 
 /// Агент в панели `pane` сессии и работает ли он.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct PaneAgent {
     pub pane: String,

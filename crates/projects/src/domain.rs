@@ -1,9 +1,10 @@
 use serde::Serialize;
+use specta::Type;
 use std::path::Path;
 
 /// Проект: папка на диске, в которой работает агент. Имя это имя папки.
 /// `missing`: папки сейчас нет на диске, её убрали или переименовали.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct Project {
     pub id: String,

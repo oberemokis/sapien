@@ -3,7 +3,7 @@ import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { ForgeSettings } from "@/modules/forge";
-import type { Forge, ForgeStatus, ForgeStatuses } from "./model/forge";
+import type { Forge, ForgeStatus, ForgeStatuses } from "@sapien/ipc";
 
 type Connect = { forge: Forge; host: string | null; token: string };
 

@@ -1,3 +1,4 @@
+import type { Project, SessionInfo } from "@sapien/ipc";
 import { describe, expect, it } from "vitest";
 import {
   homeProject,
@@ -5,8 +6,6 @@ import {
   parseSessionOrder,
   searchSessions,
   sessionsOf,
-  type Project,
-  type SessionInfo,
 } from "./sessions";
 
 const project = (id: string, name: string): Project => ({ id, name, path: `/Users/me/${name}`, missing: false });

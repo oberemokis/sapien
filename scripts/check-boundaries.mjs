@@ -181,6 +181,20 @@ const rules = [
     hint: "выше infrastructure ходят за данными модуля, а не за командой",
   },
   {
+    // Команды и события Rust зовут interactions: кеш запросов и подписки
+    // живут там. Тип из пакета годится любому слою, в сборку он не попадает.
+    name: "команды Rust зовут interactions",
+    files: `${UI}/src/**/*.{ts,tsx}`,
+    forbidden: (spec, isType, file) =>
+      !isType &&
+      !isSpec(file) &&
+      !/^apps\/[^/]+\/src\/(core|modules\/[^/]+\/(interactions|infrastructure))\//.test(
+        file,
+      ) &&
+      isPackage(spec, ["@sapien/ipc"]),
+    hint: "экран и модель получают данные из interactions",
+  },
+  {
     // Тест исключён по той же причине, что и у соседей: он подменяет границу
     // процесса и знает, какой файл её держит.
     name: "экран не ходит в infrastructure",

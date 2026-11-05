@@ -1,8 +1,8 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { useOnline } from "@/core/network/online";
-import { appVersion, updateCheck, updateInstall } from "../infrastructure/updates.api";
-import { updateProblemOf, type Update, type UpdateProblem, type UpdateProgress } from "../model/update";
+import { Channel, commands, type Available, type Progress } from "@sapien/ipc";
+import { updateProblemOf, type UpdateProblem } from "../model/update";
 
 const CHECK_KEY = ["updates", "check"] as const;
 
@@ -18,7 +18,7 @@ function problemOf({ isError, error }: { isError: boolean; error: unknown }): Up
 }
 
 export function useAppVersion() {
-  return useQuery({ queryKey: ["updates", "version"], queryFn: appVersion, staleTime: Infinity }).data;
+  return useQuery({ queryKey: ["updates", "version"], queryFn: commands.appVersion, staleTime: Infinity }).data;
 }
 
 // Последний релиз GitHub. Без сети проверки нет вовсе, а не ошибка:
@@ -28,7 +28,7 @@ export function useUpdateCheck() {
   const online = useOnline();
   const check = useQuery({
     queryKey: CHECK_KEY,
-    queryFn: updateCheck,
+    queryFn: commands.appUpdateCheck,
     enabled: online,
     staleTime: CHECK_EVERY,
     refetchInterval: CHECK_EVERY,
@@ -51,7 +51,7 @@ export function useUpdateCheck() {
 export function useUpdateOffer() {
   const { update, checkedAt } = useUpdateCheck();
   const [deferredAt, setDeferredAt] = useState(0);
-  let offered: Update | null = null;
+  let offered: Available | null = null;
 
   if (checkedAt > deferredAt) {
     offered = update ?? null;
@@ -63,9 +63,9 @@ export function useUpdateOffer() {
 // Загрузка и установка. Удачная перезапускает приложение и сюда не
 // возвращается, а отказ оставляет установленную версию работать.
 export function useUpdateInstall() {
-  const [progress, setProgress] = useState<UpdateProgress | null>(null);
+  const [progress, setProgress] = useState<Progress | null>(null);
   const install = useMutation({
-    mutationFn: () => updateInstall(setProgress),
+    mutationFn: () => commands.appUpdateInstall(new Channel<Progress>(setProgress)),
     onMutate: () => setProgress(null),
   });
 

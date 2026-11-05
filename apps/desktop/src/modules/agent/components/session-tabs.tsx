@@ -13,7 +13,7 @@ import {
   useSessions,
   useTabs,
 } from "../interactions/sessions";
-import type { SessionInfo } from "../model/sessions";
+import type { SessionInfo } from "@sapien/ipc";
 import { moveTab } from "../model/tabs";
 import { RenameField } from "./rename-field";
 

@@ -16,6 +16,7 @@ reqwest = { version = "0.13.5", default-features = false, features = ["native-tl
 sapien-kernel.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+specta.workspace = true
 url.workspace = true
 
 [dev-dependencies]

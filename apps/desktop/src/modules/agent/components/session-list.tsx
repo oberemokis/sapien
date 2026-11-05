@@ -19,7 +19,8 @@ import {
   useTabs,
 } from "../interactions/sessions";
 import { panesIn } from "../model/panes";
-import { AGENT_NAMES, moveSession, type Project, type SessionInfo } from "../model/sessions";
+import type { Project, SessionInfo } from "@sapien/ipc";
+import { agentName, moveSession } from "../model/sessions";
 import { RenameField } from "./rename-field";
 
 // Строка панели как строка дерева: 28 px, выбранная на заливке.
@@ -71,7 +72,7 @@ function SessionAgents({ session, onOpen }: { session: SessionInfo; onOpen: (ses
               focusPane(session.id, running.pane);
             }}
           >
-            <span className="min-w-0 flex-1 truncate text-left">{AGENT_NAMES[running.agent]}</span>
+            <span className="min-w-0 flex-1 truncate text-left">{agentName(running.agent)}</span>
             {running.answering && (
               <>
                 <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-bg-accent motion-safe:animate-pulse" />

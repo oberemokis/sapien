@@ -59,6 +59,7 @@ pub fn main_window<R: Runtime>(app: &App<R>) -> tauri::Result<()> {
 
 /// Ссылка из текста заметки. Годится ли адрес, решает Rust, а не окно.
 #[tauri::command]
+#[specta::specta]
 pub fn open_link(app: AppHandle, url: String) -> Result<(), AppError> {
     let url = Url::parse(&url)
         .ok()

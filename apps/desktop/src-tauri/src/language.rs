@@ -44,6 +44,7 @@ pub fn current<R: Runtime>(app: &AppHandle<R>) -> Language {
 /// Меню перестраивается целиком: у пунктов macOS нет смены подписи на месте
 /// для стандартных действий вроде «Службы».
 #[tauri::command]
+#[specta::specta]
 pub fn app_set_language(app: AppHandle, language: String) -> Result<(), AppError> {
     let language = Language::of(&language).ok_or(AppError::invalid("language_unknown"))?;
 

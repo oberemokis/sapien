@@ -14,8 +14,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { afterEach, describe, expect, it } from "vitest";
 import { Terminal } from "@sapien/testing/xterm";
 import { Restoring, SessionList, SessionTabs, SessionView, useAgentEvents, useRestoredTabs } from "@/modules/agent";
-import type { ClaudeStatus } from "./model/claude";
-import type { Project, SessionInfo } from "./model/sessions";
+import type { ClaudeStatus, Project, SessionInfo } from "@sapien/ipc";
 import { NO_TABS } from "./model/tabs";
 import { panesStore, tabsStore } from "./store/sessions.store";
 

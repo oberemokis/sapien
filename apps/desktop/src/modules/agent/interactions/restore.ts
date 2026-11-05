@@ -1,7 +1,6 @@
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { terminalStart } from "../infrastructure/agent.api";
-import type { Project, SessionInfo } from "../model/sessions";
+import { commands, type Project, type SessionInfo } from "@sapien/ipc";
 import { tabsStore } from "../store/sessions.store";
 import { sessionPanes } from "./panes";
 import { useProjects, useSessions } from "./sessions";
@@ -27,7 +26,7 @@ async function restore(projects: Project[], sessions: SessionInfo[]) {
     .filter(([project]) => usable.has(project))
     .flatMap(([, tabs]) => tabs.sessions)
     .filter((session) => known.has(session))
-    .flatMap((session) => sessionPanes(session).map((pane) => terminalStart(session, pane).catch(() => null)));
+    .flatMap((session) => sessionPanes(session).map((pane) => commands.terminalStart(session, pane).catch(() => null)));
   let timer: ReturnType<typeof setTimeout> | undefined;
   const late = new Promise((resolve) => {
     timer = setTimeout(resolve, RESTORE_WAIT);

@@ -4,7 +4,7 @@ import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { UpdateOffer } from "@/modules/updates";
-import type { Update, UpdateProgress } from "./model/update";
+import type { Available, Progress } from "@sapien/ipc";
 
 const HOUR = 3_600_000;
 
@@ -14,12 +14,12 @@ const NOTES = `## What's Changed
 
 **Full Changelog**: https://github.com/oberemokis/sapien/compare/v0.1.0...v0.2.0`;
 
-const UPDATE: Update = { version: "0.2.0", notes: NOTES };
+const UPDATE: Available = { version: "0.2.0", notes: NOTES };
 
-type Release = { latest: Update | null; failure?: string };
+type Release = { latest: Available | null; failure?: string };
 
 // Сообщение в канал так, как его шлёт Rust. Каналы mockIPC держит здесь.
-function toChannel(channel: Channel<UpdateProgress>, index: number, message: UpdateProgress) {
+function toChannel(channel: Channel<Progress>, index: number, message: Progress) {
   const internals = (window as unknown as { __TAURI_INTERNALS__: { runCallback: (id: number, data: unknown) => void } })
     .__TAURI_INTERNALS__;
 
@@ -46,7 +46,7 @@ function fakeRust(release: Release) {
         return release.latest;
       case "app_update_install": {
         rust.installs += 1;
-        const { onEvent } = args as { onEvent: Channel<UpdateProgress> };
+        const { onEvent } = args as { onEvent: Channel<Progress> };
 
         toChannel(onEvent, 0, { kind: "chunk", received: 512, total: 1024 });
 

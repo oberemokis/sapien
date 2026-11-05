@@ -29,7 +29,8 @@
   "ignorePatterns": [
     "**/src-tauri/target/**",
     "**/src-tauri/gen/**",
-    "**/route-tree.gen.ts"
+    "**/route-tree.gen.ts",
+    "**/bindings.gen.ts"
   ],
   "overrides": [
     {

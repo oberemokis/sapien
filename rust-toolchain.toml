@@ -1,0 +1,9 @@
+# Один Rust для машины, CI и релиза: rustup ставит эту версию сам при первом
+# вызове cargo в репозитории. Без файла машина собирала своим stable, а CI
+# свежим, и specta 2 RC (нужен Rust 1.93 и новее) падал только на машине.
+# Новая версия Rust приходит правкой этого файла.
+[toolchain]
+channel = "1.99.0"
+components = ["clippy", "rustfmt"]
+# Релиз собирает одно приложение на Apple Silicon и Intel.
+targets = ["aarch64-apple-darwin", "x86_64-apple-darwin"]

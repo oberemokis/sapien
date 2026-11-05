@@ -2,7 +2,8 @@ import { useTranslation } from "react-i18next";
 import { Button, SettingsGroup, SettingsRow, SettingsSection } from "@sapien/ui";
 import { useClaudeStatus } from "../interactions/claude";
 import { useIntegrations, useToggleIntegration } from "../interactions/integrations";
-import { AGENT_NAMES, type Integration } from "../model/sessions";
+import type { Integration } from "@sapien/ipc";
+import { agentName } from "../model/sessions";
 
 // Строка интеграции агента: что с ней сейчас и кнопка поставить или снять.
 // Без агента на устройстве ставить её некуда.
@@ -23,7 +24,7 @@ function IntegrationRow({ integration }: { integration: Integration }) {
   }
 
   return (
-    <SettingsRow title={AGENT_NAMES[agent]} description={description}>
+    <SettingsRow title={agentName(agent)} description={description}>
       {state !== "missing" && (
         <Button
           variant={on ? "danger" : "neutral"}
