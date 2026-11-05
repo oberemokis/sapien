@@ -40,7 +40,11 @@ impl SessionsDir {
     }
 
     fn screen_file(&self, session: &str, pane: &str) -> Option<PathBuf> {
-        Some(self.screens(session)?.join(pane)).filter(|_| plain(pane))
+        if !plain(pane) {
+            return None;
+        }
+
+        Some(self.screens(session)?.join(pane))
     }
 
     /// Вывод терминала панели `pane` сессии `session`, каким он был, когда
@@ -68,7 +72,11 @@ impl SessionsDir {
     /// Разговор агента панели лежит рядом с её экраном, `<панель>.agent`,
     /// и удаляется вместе с сессией.
     fn conversation_file(&self, session: &str, pane: &str) -> Option<PathBuf> {
-        Some(self.screens(session)?.join(format!("{pane}.agent"))).filter(|_| plain(pane))
+        if !plain(pane) {
+            return None;
+        }
+
+        Some(self.screens(session)?.join(format!("{pane}.agent")))
     }
 
     /// Разговор, который панель продолжит, когда её оболочка начнётся
