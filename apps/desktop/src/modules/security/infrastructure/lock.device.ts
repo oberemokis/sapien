@@ -1,24 +1,13 @@
-import type { LockSettings } from "../model/lock";
+import { defineSetting } from "@sapien/device";
+import { DEFAULT_LOCK_SETTINGS, parseLockSettings } from "../model/lock";
 
-const STORAGE_KEY = "sapien.lock";
-
-// Блокировка это настройка устройства, как тема. Хранилище окна бывает
-// закрыто политикой: тогда блокировка выключена, а приложение не падает.
-export function readLockSettings(): string | null {
-  try {
-    return localStorage.getItem(STORAGE_KEY);
-  } catch {
-    return null;
-  }
-}
-
-export function writeLockSettings(settings: LockSettings) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
-  } catch {
-    // Выбор работает до закрытия окна, только не переживёт перезапуск.
-  }
-}
+// Блокировка это настройка устройства, как тема. Закрытое хранилище окна
+// оставляет её выключенной.
+export const lockSetting = defineSetting({
+  key: "sapien.lock",
+  parse: parseLockSettings,
+  fallback: DEFAULT_LOCK_SETTINGS,
+});
 
 // Чем человек показывает, что он у окна. Колесо и движение мыши тоже:
 // читать длинную заметку можно и без кликов.

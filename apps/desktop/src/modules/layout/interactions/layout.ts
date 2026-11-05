@@ -1,18 +1,7 @@
 import { useSelector } from "@tanstack/react-store";
 import { useSyncExternalStore } from "react";
-import {
-  hasWindowButtons,
-  readLayout,
-  subscribeWindowWidth,
-  windowWidth,
-  writeLayout,
-} from "../infrastructure/layout.device";
-import {
-  fitLayout,
-  parseLayout,
-  resizePanel,
-  type LayoutState,
-} from "../model/layout";
+import { hasWindowButtons, layoutSetting, subscribeWindowWidth, windowWidth } from "../infrastructure/layout.device";
+import { fitLayout, resizePanel, type LayoutState } from "../model/layout";
 import { layoutStore } from "../store/layout.store";
 
 type Panel = keyof LayoutState;
@@ -20,7 +9,7 @@ type Panel = keyof LayoutState;
 export const windowButtonsVisible = hasWindowButtons();
 
 export function restoreLayout() {
-  layoutStore.setState(() => parseLayout(readLayout()));
+  layoutStore.setState(() => layoutSetting.read());
 }
 
 export function useWindowWidth() {
@@ -46,7 +35,7 @@ export function togglePanel(panel: Panel) {
       open: !fitLayout(layout, windowWidth())[panel].visible,
     },
   }));
-  writeLayout(layoutStore.get());
+  layoutSetting.write(layoutStore.get());
 }
 
 // Показывает панель, если её не видно, и не трогает видимую: например,
@@ -64,5 +53,5 @@ export function resizeLayoutPanel(panel: Panel, width: number) {
 }
 
 export function saveLayout() {
-  writeLayout(layoutStore.get());
+  layoutSetting.write(layoutStore.get());
 }

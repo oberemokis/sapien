@@ -1,5 +1,5 @@
 import { useSelector } from "@tanstack/react-store";
-import { readPanes, writePanes } from "../infrastructure/agent.device";
+import { panesSetting } from "../infrastructure/agent.device";
 import {
   closePane as withoutPane,
   panesIn,
@@ -13,7 +13,7 @@ import {
 import { panesStore } from "../store/sessions.store";
 import { closeTerminal, focusTerminal } from "./terminal";
 
-panesStore.setState(() => readPanes());
+panesStore.setState(() => panesSetting.read());
 
 function panesOf(session: string) {
   return panesStore.get()[session] ?? singlePane(session);
@@ -25,7 +25,7 @@ function setPanes(session: string, change: (panes: Panes) => Panes) {
 
 // Раскладка запоминается, когда её поменяли, а не на каждом шаге протяжки.
 export function savePanes() {
-  writePanes(panesStore.get());
+  panesSetting.write(panesStore.get());
 }
 
 export function usePanes(session: string) {

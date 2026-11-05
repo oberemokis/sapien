@@ -1,17 +1,10 @@
 import { useMutation } from "@tanstack/react-query";
 import { useSelector } from "@tanstack/react-store";
 import { useEffect, useLayoutEffect } from "react";
-import {
-  blockShortcuts,
-  readLockSettings,
-  subscribeActivity,
-  subscribeReturn,
-  writeLockSettings,
-} from "../infrastructure/lock.device";
+import { blockShortcuts, lockSetting, subscribeActivity, subscribeReturn } from "../infrastructure/lock.device";
 import { appUnlock } from "../infrastructure/lock.api";
 import {
   idleFor,
-  parseLockSettings,
   unlockFailureOf,
   type LockMinutes,
   type LockSettings,
@@ -25,7 +18,7 @@ const CHECK_INTERVAL = 5_000;
 // Зовётся до первой отрисовки. Включённая блокировка закрывает окно
 // с запуска: иначе перезапуск открывал бы его без проверки.
 export function restoreLock() {
-  const settings = parseLockSettings(readLockSettings());
+  const settings = lockSetting.read();
 
   lockStore.setState(() => ({ settings, locked: settings.enabled }));
 }
@@ -42,7 +35,7 @@ function saveSettings(change: Partial<LockSettings>) {
   const settings = { ...lockStore.get().settings, ...change };
 
   lockStore.setState((state) => ({ ...state, settings }));
-  writeLockSettings(settings);
+  lockSetting.write(settings);
 }
 
 function setLocked(locked: boolean) {

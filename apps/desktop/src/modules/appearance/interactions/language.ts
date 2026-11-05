@@ -1,6 +1,6 @@
 import { changeLanguage } from "i18next";
 import { useTranslation } from "react-i18next";
-import { paintLanguage, readLanguage, writeLanguage } from "../infrastructure/language.device";
+import { languageSetting, paintLanguage } from "../infrastructure/language.device";
 import { parseLanguage, type Language } from "../model/language";
 
 function applyLanguage(language: Language) {
@@ -11,7 +11,7 @@ function applyLanguage(language: Language) {
 // Зовётся один раз до первой отрисовки, как тема: иначе окно мигнёт
 // английским у того, кто выбрал русский.
 export function restoreLanguage() {
-  applyLanguage(parseLanguage(readLanguage()));
+  applyLanguage(languageSetting.read());
 }
 
 // Текущий язык держит i18next, отдельного стора нет.
@@ -20,6 +20,6 @@ export function useLanguage() {
 }
 
 export function setLanguage(language: Language) {
-  writeLanguage(language);
+  languageSetting.write(language);
   applyLanguage(language);
 }

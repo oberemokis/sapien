@@ -1,7 +1,5 @@
+import type { Dictionary } from "@sapien/i18n";
 import type { ru } from "./ru";
-
-// Те же ключи, что у основного словаря, но любые строки.
-type Dictionary<T> = { [K in keyof T]: T[K] extends string ? string : Dictionary<T[K]> };
 
 export const en: Dictionary<typeof ru> = {
   layout: {
