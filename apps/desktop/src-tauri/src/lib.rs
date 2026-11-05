@@ -1,15 +1,14 @@
 mod commands;
 mod data_format;
-mod egress;
 mod language;
 mod links;
 mod menu;
 mod modules;
-mod secrets;
 mod unlock;
 mod updates;
 
-use modules::{agent, forge};
+use modules::agent;
+use sapien_forge::{AccountsFile, Http, Secrets};
 use sapien_projects::ProjectsFile;
 use tauri::{Manager, RunEvent};
 
@@ -27,7 +26,8 @@ pub fn run() {
         .menu(|app| menu::build(app, language::Language::default()))
         .on_menu_event(menu::handle)
         // Лог в папке логов приложения и в терминале: туда пишутся отказы
-        // запросов из egress.rs. Ниже предупреждения не пишется ничего.
+        // запросов из egress.rs крейта sapien-forge. Ниже предупреждения
+        // не пишется ничего.
         .plugin(
             tauri_plugin_log::Builder::new()
                 .level(log::LevelFilter::Warn)
@@ -44,8 +44,8 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(updates::Pending::default())
         .manage(language::AppLanguage::default())
-        .manage(secrets::Secrets::default())
-        .manage(forge::Http::default())
+        .manage(Secrets::default())
+        .manage(Http::default())
         .manage(agent::Terminals::default())
         .setup(|app| {
             // До окна: никто не должен прочитать файлы приложения
@@ -60,6 +60,7 @@ pub fn run() {
             // из State. Раньше терминалов: подъём панели спрашивает папку
             // проекта.
             app.manage(ProjectsFile::new(&data_dir));
+            app.manage(AccountsFile::new(&data_dir));
             agent::start_terminals(app.handle());
             links::main_window(app)?;
             Ok(())
@@ -87,9 +88,9 @@ pub fn run() {
             agent::transport::terminal_write,
             agent::transport::terminal_resize,
             agent::transport::terminal_close,
-            forge::transport::forge_status,
-            forge::transport::forge_connect,
-            forge::transport::forge_disconnect,
+            commands::forge::forge_status,
+            commands::forge::forge_connect,
+            commands::forge::forge_disconnect,
         ])
         .build(tauri::generate_context!())
         .expect("error while running tauri application")

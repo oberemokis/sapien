@@ -3486,12 +3486,11 @@ dependencies = [
 name = "sapien"
 version = "0.0.0"
 dependencies = [
- "keyring",
  "libc",
  "log",
  "portable-pty",
- "reqwest",
  "robius-authentication",
+ "sapien-forge",
  "sapien-kernel",
  "sapien-projects",
  "serde",
@@ -3502,6 +3501,20 @@ dependencies = [
  "tauri-plugin-log",
  "tauri-plugin-opener",
  "tauri-plugin-updater",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
+name = "sapien-forge"
+version = "0.0.0"
+dependencies = [
+ "keyring",
+ "log",
+ "reqwest",
+ "sapien-kernel",
+ "serde",
+ "serde_json",
  "tempfile",
  "tokio",
  "url",
