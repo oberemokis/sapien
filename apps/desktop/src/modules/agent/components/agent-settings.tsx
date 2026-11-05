@@ -1,6 +1,5 @@
 import { useTranslation } from "react-i18next";
-import { Button } from "@/core/ui/button";
-import { SettingsGroup, SettingsRow, SettingsSection } from "@/core/ui/settings";
+import { Button, SettingsGroup, SettingsRow, SettingsSection } from "@sapien/ui";
 import { useClaudeStatus } from "../interactions/claude";
 import { useIntegrations, useToggleIntegration } from "../interactions/integrations";
 import { AGENT_NAMES, type Integration } from "../model/sessions";

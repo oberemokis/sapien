@@ -1,12 +1,7 @@
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { useState, type MouseEvent } from "react";
 import { useTranslation } from "react-i18next";
-import { Button } from "@/core/ui/button";
-import { ContextMenu, type MenuItem } from "@/core/ui/context-menu";
-import { Icon } from "@/core/ui/icon";
-import { IconButton } from "@/core/ui/icon-button";
-import { shortcutLabel } from "@/core/ui/keys";
-import { useReorder } from "@/core/ui/reorder";
+import { Button, ContextMenu, Icon, IconButton, type MenuItem, shortcutLabel, useReorder } from "@sapien/ui";
 import { focusPane, usePanes } from "../interactions/panes";
 import {
   openSearch,

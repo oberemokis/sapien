@@ -1,6 +1,6 @@
 import { useId } from "react";
 import { useTranslation } from "react-i18next";
-import { SettingsGroup, SettingsRow, SettingsSection, SettingsSelect } from "@/core/ui/settings";
+import { SettingsGroup, SettingsRow, SettingsSection, SettingsSelect } from "@sapien/ui";
 import { setLanguage, useLanguage } from "../interactions/language";
 import { setUiScale, useUiScale } from "../interactions/scale";
 import { setThemePreference, useThemePreference } from "../interactions/theme";

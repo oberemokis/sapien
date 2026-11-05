@@ -21,7 +21,7 @@ export function writeThemePreference(preference: ThemePreference) {
   }
 }
 
-// Тёмные значения лежат на :root, светлые включает класс: см. styles.css.
+// Тёмные значения лежат на :root, светлые включает класс: см. theme.css в @sapien/ui.
 export function paintTheme(theme: Theme) {
   document.documentElement.classList.toggle("theme-light", theme === "light");
 }

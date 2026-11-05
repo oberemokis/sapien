@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState, type MouseEvent } from "react";
 import { useTranslation } from "react-i18next";
-import { ContextMenu, type MenuItem } from "@/core/ui/context-menu";
-import { hasModKey } from "@/core/ui/keys";
+import { ContextMenu, hasModKey, type MenuItem } from "@sapien/ui";
 import {
   activatePane,
   closePane,

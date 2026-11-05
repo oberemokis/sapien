@@ -1,7 +1,6 @@
 import { useEffect, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { IconButton } from "@/core/ui/icon-button";
-import { hasModKey, shortcutLabel } from "@/core/ui/keys";
+import { hasModKey, IconButton, shortcutLabel } from "@sapien/ui";
 import {
   togglePanel,
   useFittedLayout,

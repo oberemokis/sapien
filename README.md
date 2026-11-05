@@ -22,7 +22,7 @@ apps/desktop          @sapien/desktop
   src/                интерфейс: app/, core/, modules/<модуль>/, pages/
   src-tauri/          Rust: точка входа, команды, права окна, иконки
 
-packages/             пусто, пакет появляется при втором потребителе
+packages/ui           @sapien/ui: кнопки, иконки, меню, строки настроек, токены темы
 scripts/              проверка направления зависимостей
 ```
 

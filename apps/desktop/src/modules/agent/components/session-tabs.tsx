@@ -1,10 +1,7 @@
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { useState, type MouseEvent } from "react";
 import { useTranslation } from "react-i18next";
-import { ContextMenu, type MenuItem } from "@/core/ui/context-menu";
-import { Icon } from "@/core/ui/icon";
-import { IconButton } from "@/core/ui/icon-button";
-import { useReorder } from "@/core/ui/reorder";
+import { ContextMenu, Icon, IconButton, type MenuItem, useReorder } from "@sapien/ui";
 import {
   closeSession,
   moveSessionTab,
