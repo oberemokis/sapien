@@ -1,7 +1,6 @@
 use crate::modules::agent;
 use sapien_kernel::{AppError, durable};
 use sapien_projects::{Project, ProjectsFile};
-use std::path::PathBuf;
 use tauri::{AppHandle, State};
 use tauri_plugin_dialog::DialogExt;
 
@@ -45,12 +44,4 @@ pub fn projects_remove(
 ) -> Result<(), AppError> {
     agent::transport::forget_project(&app, &id)?;
     sapien_projects::remove(&*shelf, &id)
-}
-
-/// Папку проекта агенту даёт список проектов. Проекты об агенте не знают,
-/// связку держит приложение.
-impl agent::Projects for ProjectsFile {
-    fn folder(&self, id: &str) -> Option<PathBuf> {
-        sapien_projects::folder(self, id)
-    }
 }

@@ -5,7 +5,7 @@
 //! (`SAPIEN_SOCKET`, `SAPIEN_PANE`), которое наследуют. Слушает сокет
 //! открытое приложение.
 
-use super::super::domain::{Report, hook_report};
+use super::domain::{Report, hook_report};
 use serde_json::Value;
 use std::ffi::OsString;
 use std::fs;

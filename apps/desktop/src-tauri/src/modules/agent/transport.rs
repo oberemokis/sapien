@@ -1,15 +1,11 @@
-use super::domain::{
-    ClaudeStatus, Conversation, Integration, PaneAgent, Report, SessionInfo, Titles, accepts,
-    agent_of, resume_command, session_title,
+use sapien_agents::{
+    ClaudeCode, ClaudeStatus, Conversation, Integration, Integrations, Report, Titles, accepts,
+    agent_of, hooks, resume_command, session_title,
 };
-use super::infrastructure::claude_code::ClaudeCode;
-use super::infrastructure::hooks;
-use super::infrastructure::integrations::Integrations;
-use super::infrastructure::sessions_dir::SessionsDir;
-use super::infrastructure::terminal::{Command, Pty, command_line, shell_environment, user_shell};
-use super::use_case;
 use sapien_kernel::{AppError, durable};
 use sapien_projects::ProjectsFile;
+use sapien_sessions::{PaneAgent, PaneFiles, Projects, SessionInfo, SessionsDir};
+use sapien_terminal::{Command, Pty, Screen, command_line, shell_environment, user_shell};
 use serde_json::json;
 use std::collections::HashMap;
 use std::ffi::OsString;
@@ -27,6 +23,20 @@ fn data_dir<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, AppError> {
 
 fn sessions<R: Runtime>(app: &AppHandle<R>) -> Result<SessionsDir, AppError> {
     Ok(SessionsDir::new(&data_dir(app)?))
+}
+
+/// Папку проекта сессии даёт список проектов. Проекты о сессиях не знают,
+/// связку держит приложение.
+struct Folders<'a>(&'a ProjectsFile);
+
+impl Projects for Folders<'_> {
+    fn folder(&self, id: &str) -> Option<PathBuf> {
+        sapien_projects::folder(self.0, id)
+    }
+}
+
+fn folders<R: Runtime>(app: &AppHandle<R>) -> Folders<'_> {
+    Folders(app.state::<ProjectsFile>().inner())
 }
 
 /// Claude Code устройства. Проверки он проходит в папке данных
@@ -71,16 +81,6 @@ const SETTLE: Duration = Duration::from_secs(3);
 /// Сколько живёт терминал закрытой вкладки, в котором ничего не происходит.
 const SILENCE: Duration = Duration::from_secs(600);
 
-/// Сколько вывода помнится для нового окна и следующего запуска.
-const SCREEN: usize = 256 * 1024;
-
-/// Конец прежнего экрана: выйти из второго экрана полноэкранной программы,
-/// вернуть курсор, выключить мышь, вести о фокусе и вставку скобками,
-/// сбросить цвет. Новая оболочка начинается с чистой строки. Второй экран
-/// закрывает 1047, а не 1049: тот ставит курсор туда, где его никто не
-/// сохранял, и новая оболочка писала бы поверх прежнего экрана.
-const RESET: &[u8] = b"\x1b[?1047l\x1b[?25h\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?1004l\x1b[?2004l\x1b[0m\r\n";
-
 /// Сколько оболочка молчит после первого вывода, прежде чем панель наберёт
 /// в ней команду продолжения: к этому времени она дописала приглашение
 /// и читает строку сама, а набранное не повторяется над приглашением.
@@ -93,29 +93,9 @@ const BACKGROUND_SIZE: (u16, u16) = (120, 40);
 struct Output {
     /// Канал вкладки. Без неё вывод только помнится.
     channel: Option<Channel>,
-    screen: Vec<u8>,
+    screen: Screen,
     /// Панель закрыли: терминал доживает до конца работы агента.
     closed: bool,
-}
-
-impl Output {
-    fn push(&mut self, bytes: &[u8]) {
-        self.screen.extend_from_slice(bytes);
-
-        if self.screen.len() > 2 * SCREEN {
-            self.screen.drain(..self.screen.len() - SCREEN);
-
-            // Срез мог прийтись на середину буквы или последовательности:
-            // экран начинается со следующей строки.
-            let line = self
-                .screen
-                .iter()
-                .position(|&byte| byte == b'\n')
-                .map_or(0, |at| at + 1);
-
-            self.screen.drain(..line);
-        }
-    }
 }
 
 /// Что известно о терминале по его процессам и выводу.
@@ -221,7 +201,7 @@ fn changed<R: Runtime>(app: &AppHandle<R>) {
 
 /// Последний экран терминала остаётся панели `pane` до следующего запуска.
 fn keep_screen<R: Runtime>(app: &AppHandle<R>, pane: &str, term: &Term) {
-    let screen = lock(&term.output).screen.clone();
+    let screen = lock(&term.output).screen.bytes().to_vec();
 
     if let Ok(store) = sessions(app) {
         let _ = store.save_screen(&term.session, pane, &screen);
@@ -231,7 +211,7 @@ fn keep_screen<R: Runtime>(app: &AppHandle<R>, pane: &str, term: &Term) {
 /// Агент сессии назвал её заголовком терминала.
 fn named<R: Runtime>(app: &AppHandle<R>, session: &str, title: String) {
     let renamed = sessions(app)
-        .and_then(|store| use_case::touch(&store, session, Some(title), durable::now()));
+        .and_then(|store| sapien_sessions::touch(&store, session, Some(title), durable::now()));
 
     if renamed == Ok(true) {
         changed(app);
@@ -269,16 +249,15 @@ fn start(
     (cols, rows): (u16, u16),
 ) -> Result<(), AppError> {
     let store = sessions(app)?;
-    let dir = use_case::folder(&store, &*app.state::<ProjectsFile>(), session)?;
-    let mut screen = store.screen(session, pane).unwrap_or_default();
-    let mut conversation = store.conversation(session, pane);
-
-    if !screen.is_empty() {
-        screen.extend_from_slice(RESET);
-    }
+    let dir = sapien_sessions::folder(&store, &folders(app), session)?;
+    let screen = Screen::resumed(store.screen(session, pane).unwrap_or_default());
+    // Нечитаемый разговор значит, что продолжать нечего.
+    let mut conversation: Option<Conversation> = store
+        .conversation(session, pane)
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok());
 
     if let Some(channel) = &channel {
-        let _ = channel.send(InvokeResponseBody::Raw(screen.clone()));
+        let _ = channel.send(InvokeResponseBody::Raw(screen.bytes().to_vec()));
     }
 
     // Агент сообщил разговор, но записать его не успел, например в нём
@@ -354,7 +333,7 @@ fn start(
             {
                 let mut output = lock(&into);
 
-                output.push(bytes);
+                output.screen.push(bytes);
 
                 if let Some(channel) = &output.channel {
                     // Окно перезагружают: вывод до нового канала помнится
@@ -461,9 +440,11 @@ fn reported<R: Runtime>(app: &AppHandle<R>, report: Report) {
         watch.conversation = Some(report.conversation.clone());
     }
 
-    let _ = sessions(app).and_then(|store| {
-        store.save_conversation(&term.session, &report.pane, Some(&report.conversation))
-    });
+    let Ok(bytes) = serde_json::to_vec(&report.conversation) else {
+        return;
+    };
+    let _ = sessions(app)
+        .and_then(|store| store.save_conversation(&term.session, &report.pane, Some(&bytes)));
 }
 
 /// Сторож терминалов: узнаёт агентов и их работу, поднимает сессию,
@@ -485,8 +466,9 @@ fn watch<R: Runtime>(app: &AppHandle<R>) {
             news |= different;
 
             if started {
-                let _ = sessions(app)
-                    .and_then(|store| use_case::touch(&store, &term.session, None, durable::now()));
+                let _ = sessions(app).and_then(|store| {
+                    sapien_sessions::touch(&store, &term.session, None, durable::now())
+                });
             }
 
             if forgot {
@@ -569,14 +551,14 @@ pub fn agent_sessions(
     app: AppHandle,
     terminals: State<'_, Terminals>,
 ) -> Result<Vec<SessionInfo>, AppError> {
-    use_case::sessions(&sessions(&app)?, |id| terminals.agents(id))
+    sapien_sessions::sessions(&sessions(&app)?, |id| terminals.agents(id))
 }
 
 #[tauri::command]
 pub fn agent_session_new(app: AppHandle, project: String) -> Result<SessionInfo, AppError> {
-    use_case::new_session(
+    sapien_sessions::new_session(
         &sessions(&app)?,
-        &*app.state::<ProjectsFile>(),
+        &folders(&app),
         &project,
         durable::fresh_id(),
         durable::now(),
@@ -589,7 +571,7 @@ pub fn agent_session_delete(
     terminals: State<'_, Terminals>,
     id: String,
 ) -> Result<(), AppError> {
-    use_case::delete_session(
+    sapien_sessions::delete_session(
         &sessions(&app)?,
         |id| terminals.answering(id),
         |id| terminals.stop(id),
@@ -600,7 +582,7 @@ pub fn agent_session_delete(
 /// Человек назвал сессию `id` сам, пустое имя отдаёт её агенту.
 #[tauri::command]
 pub fn agent_session_rename(app: AppHandle, id: String, title: String) -> Result<(), AppError> {
-    use_case::rename_session(&sessions(&app)?, &id, &title)?;
+    sapien_sessions::rename_session(&sessions(&app)?, &id, &title)?;
     changed(&app);
     Ok(())
 }
@@ -611,7 +593,7 @@ pub fn agent_session_rename(app: AppHandle, id: String, title: String) -> Result
 pub fn forget_project<R: Runtime>(app: &AppHandle<R>, project: &str) -> Result<(), AppError> {
     let terminals = app.state::<Terminals>();
 
-    use_case::forget_project(
+    sapien_sessions::forget_project(
         &sessions(app)?,
         |id| terminals.answering(id),
         |id| terminals.stop(id),
@@ -652,7 +634,7 @@ pub async fn terminal_open(
         let mut output = lock(&term.output);
 
         // Первым сообщением, как и у новой оболочки, идёт уже написанное.
-        let _ = on_data.send(InvokeResponseBody::Raw(output.screen.clone()));
+        let _ = on_data.send(InvokeResponseBody::Raw(output.screen.bytes().to_vec()));
         output.channel = Some(on_data);
         output.closed = false;
     }

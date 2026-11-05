@@ -3,7 +3,7 @@
 //! в настройках приложения. Свои настройки агента человек не теряет: хук
 //! дописывается рядом с остальными, а снимается только свой.
 
-use super::super::domain::{Integration, IntegrationState};
+use super::domain::{Integration, IntegrationState};
 use sapien_kernel::{AppError, durable};
 use serde_json::{Value, json};
 use std::ffi::OsString;

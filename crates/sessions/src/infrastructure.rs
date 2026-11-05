@@ -1,5 +1,5 @@
-use crate::modules::agent::domain::{Conversation, Session, SessionInfo};
-use crate::modules::agent::ports::Sessions;
+use super::domain::{Session, SessionInfo};
+use super::ports::{PaneFiles, Sessions};
 use sapien_kernel::{AppError, durable};
 use serde_json::Value;
 use std::fs;
@@ -46,13 +46,23 @@ impl SessionsDir {
         Some(self.screens(session)?.join(pane))
     }
 
-    /// Вывод терминала панели `pane` сессии `session`, каким он был, когда
-    /// терминал кончился.
-    pub fn screen(&self, session: &str, pane: &str) -> Option<Vec<u8>> {
+    /// Разговор агента панели лежит рядом с её экраном, `<панель>.agent`,
+    /// и удаляется вместе с сессией.
+    fn conversation_file(&self, session: &str, pane: &str) -> Option<PathBuf> {
+        if !plain(pane) {
+            return None;
+        }
+
+        Some(self.screens(session)?.join(format!("{pane}.agent")))
+    }
+}
+
+impl PaneFiles for SessionsDir {
+    fn screen(&self, session: &str, pane: &str) -> Option<Vec<u8>> {
         fs::read(self.screen_file(session, pane)?).ok()
     }
 
-    pub fn save_screen(&self, session: &str, pane: &str, bytes: &[u8]) -> Result<(), AppError> {
+    fn save_screen(&self, session: &str, pane: &str, bytes: &[u8]) -> Result<(), AppError> {
         let unwritable = |_| AppError::unavailable("session_unwritable");
         let (Some(dir), Some(file)) = (self.screens(session), self.screen_file(session, pane))
         else {
@@ -68,30 +78,15 @@ impl SessionsDir {
         durable::write(&file, bytes).map_err(unwritable)
     }
 
-    /// Разговор агента панели лежит рядом с её экраном, `<панель>.agent`,
-    /// и удаляется вместе с сессией.
-    fn conversation_file(&self, session: &str, pane: &str) -> Option<PathBuf> {
-        if !plain(pane) {
-            return None;
-        }
-
-        Some(self.screens(session)?.join(format!("{pane}.agent")))
+    fn conversation(&self, session: &str, pane: &str) -> Option<Vec<u8>> {
+        fs::read(self.conversation_file(session, pane)?).ok()
     }
 
-    /// Разговор, который панель продолжит, когда её оболочка начнётся
-    /// заново. Нечитаемый файл значит, что продолжать нечего.
-    pub fn conversation(&self, session: &str, pane: &str) -> Option<Conversation> {
-        let text = fs::read(self.conversation_file(session, pane)?).ok()?;
-
-        serde_json::from_slice(&text).ok()
-    }
-
-    /// `None`: агент из панели ушёл, и продолжать нечего.
-    pub fn save_conversation(
+    fn save_conversation(
         &self,
         session: &str,
         pane: &str,
-        conversation: Option<&Conversation>,
+        bytes: Option<&[u8]>,
     ) -> Result<(), AppError> {
         let unwritable = |_| AppError::unavailable("session_unwritable");
         let (Some(dir), Some(file)) =
@@ -100,21 +95,19 @@ impl SessionsDir {
             return Err(AppError::invalid("session_invalid"));
         };
 
-        let Some(conversation) = conversation else {
+        let Some(bytes) = bytes else {
             return match fs::remove_file(&file) {
                 Err(error) if error.kind() != ErrorKind::NotFound => Err(unwritable(error)),
                 _ => Ok(()),
             };
         };
-        let bytes =
-            serde_json::to_vec(conversation).map_err(|_| AppError::invalid("session_invalid"))?;
 
         if dir.is_file() {
             fs::remove_file(&dir).map_err(unwritable)?;
         }
 
         fs::create_dir_all(dir).map_err(unwritable)?;
-        durable::write(&file, &bytes).map_err(unwritable)
+        durable::write(&file, bytes).map_err(unwritable)
     }
 }
 
@@ -184,8 +177,8 @@ impl Sessions for SessionsDir {
     }
 }
 
-/// Шаг переноса данных из формата 1 в 2 (`data_format.rs`): историю чата
-/// sapien больше не держит, разговор хранит Claude Code. Файл сессии
+/// Шаг переноса данных из формата 1 в 2 (`data_format.rs` приложения):
+/// историю чата sapien больше не держит, разговор хранит Claude Code. Файл сессии
 /// с историей `chat` целиком уходит в `sessions/archive`, а на его месте
 /// остаётся сессия с id разговора Claude Code в `claude`. Файл без `chat`
 /// уже перенесён или сессия не говорила, он остаётся как есть: оборванный
@@ -298,26 +291,23 @@ mod tests {
         assert_eq!(again.list().unwrap().len(), 2);
 
         // Разговор агента панели тоже, пока из агента не вышли.
-        let conversation = Conversation {
-            agent: "claude".into(),
-            id: "4f1c".into(),
-            cwd: None,
-            transcript: Some("/t/4f1c.jsonl".into()),
-        };
+        let conversation = br#"{"agent":"claude","id":"4f1c","transcript":"/t/4f1c.jsonl"}"#;
 
         again
-            .save_conversation("a1", "f00d", Some(&conversation))
+            .save_conversation("a1", "f00d", Some(conversation))
             .unwrap();
         assert_eq!(
-            SessionsDir::new(data.path()).conversation("a1", "f00d"),
-            Some(conversation.clone())
+            SessionsDir::new(data.path())
+                .conversation("a1", "f00d")
+                .as_deref(),
+            Some(&conversation[..])
         );
         assert_eq!(again.conversation("a1", "a1"), None);
         again.save_conversation("a1", "f00d", None).unwrap();
         again.save_conversation("a1", "f00d", None).unwrap();
         assert_eq!(again.conversation("a1", "f00d"), None);
         again
-            .save_conversation("a1", "f00d", Some(&conversation))
+            .save_conversation("a1", "f00d", Some(conversation))
             .unwrap();
 
         again.delete("a1").unwrap();

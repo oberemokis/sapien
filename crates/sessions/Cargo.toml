@@ -1,0 +1,18 @@
+# Сессии: запись сессии, имя от человека и от агента, порядок в списке
+# и файлы панелей (экран и разговор) байтами. Что лежит в файлах панели,
+# знают terminal и agents. Без Tauri: хранилище собирает приложение.
+[package]
+name = "sapien-sessions"
+edition.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+sapien-kernel.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
