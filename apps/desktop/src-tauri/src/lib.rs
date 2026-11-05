@@ -3,19 +3,19 @@ mod data_format;
 mod language;
 mod links;
 mod menu;
-mod modules;
 mod unlock;
 mod updates;
+mod workspace;
 
-use modules::agent;
 use sapien_forge::{AccountsFile, Http, Secrets};
 use sapien_projects::ProjectsFile;
 use tauri::{Manager, RunEvent};
+use workspace::Workspace;
 
 /// `sapien hook <агент>`: хук агента в панели сообщает приложению её
 /// разговор и сразу выходит, окна не открывает.
 pub fn hook() {
-    agent::hook(&std::env::args().nth(2).unwrap_or_default());
+    commands::agents::hook(&std::env::args().nth(2).unwrap_or_default());
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -46,7 +46,6 @@ pub fn run() {
         .manage(language::AppLanguage::default())
         .manage(Secrets::default())
         .manage(Http::default())
-        .manage(agent::Terminals::default())
         .setup(|app| {
             // До окна: никто не должен прочитать файлы приложения
             // в прежнем формате. Отказ не держит запуск, шаг повторится
@@ -56,12 +55,12 @@ pub fn run() {
             if let Err(error) = data_format::migrate(&data_dir) {
                 log::error!("перенос данных приложения не закончен: {error}");
             }
-            // Хранилища доменов собираются один раз, команды берут их
-            // из State. Раньше терминалов: подъём панели спрашивает папку
-            // проекта.
+            // Хранилища доменов и рабочее место собираются один раз,
+            // команды берут их из State. До окна: оно сразу поднимает
+            // панели открытых вкладок.
             app.manage(ProjectsFile::new(&data_dir));
             app.manage(AccountsFile::new(&data_dir));
-            agent::start_terminals(app.handle());
+            app.manage(workspace::start(app.handle(), &data_dir));
             links::main_window(app)?;
             Ok(())
         })
@@ -75,19 +74,19 @@ pub fn run() {
             commands::projects::projects_list,
             commands::projects::projects_add,
             commands::projects::projects_remove,
-            agent::transport::agent_sessions,
-            agent::transport::agent_session_new,
-            agent::transport::agent_session_delete,
-            agent::transport::agent_session_rename,
-            agent::transport::agent_claude_status,
-            agent::transport::agent_integrations,
-            agent::transport::agent_integration_install,
-            agent::transport::agent_integration_remove,
-            agent::transport::terminal_open,
-            agent::transport::terminal_start,
-            agent::transport::terminal_write,
-            agent::transport::terminal_resize,
-            agent::transport::terminal_close,
+            commands::sessions::agent_sessions,
+            commands::sessions::agent_session_new,
+            commands::sessions::agent_session_delete,
+            commands::sessions::agent_session_rename,
+            commands::agents::agent_claude_status,
+            commands::agents::agent_integrations,
+            commands::agents::agent_integration_install,
+            commands::agents::agent_integration_remove,
+            commands::terminal::terminal_open,
+            commands::terminal::terminal_start,
+            commands::terminal::terminal_write,
+            commands::terminal::terminal_resize,
+            commands::terminal::terminal_close,
             commands::forge::forge_status,
             commands::forge::forge_connect,
             commands::forge::forge_disconnect,
@@ -96,8 +95,8 @@ pub fn run() {
         .expect("error while running tauri application")
         .run(|app, event| {
             // Терминалы без приложения никто не увидит.
-            if let RunEvent::Exit = event {
-                agent::stop_terminals(app);
+            if let (RunEvent::Exit, Some(workspace)) = (event, app.try_state::<Workspace>()) {
+                workspace.stop();
             }
         });
 }

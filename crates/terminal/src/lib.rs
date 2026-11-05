@@ -3,6 +3,7 @@
 
 mod pty;
 mod screen;
+mod supervisor;
 
-pub use pty::{Command, Pty, command_line, shell_environment, user_shell};
-pub use screen::Screen;
+pub use pty::{command_line, shell_environment, user_shell};
+pub use supervisor::{Launch, OutputSink, Pane, PaneObserver, Supervisor, Term};

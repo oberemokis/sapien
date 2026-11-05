@@ -24,7 +24,7 @@ sapien-forge.workspace = true
 sapien-kernel.workspace = true
 sapien-projects.workspace = true
 sapien-sessions.workspace = true
-sapien-terminal.workspace = true
+sapien-workspace.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tauri = { version = "2", features = [] }

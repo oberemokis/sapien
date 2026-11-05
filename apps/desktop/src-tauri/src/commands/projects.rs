@@ -1,4 +1,4 @@
-use crate::modules::agent;
+use crate::workspace::Workspace;
 use sapien_kernel::{AppError, durable};
 use sapien_projects::{Project, ProjectsFile};
 use tauri::{AppHandle, State};
@@ -38,10 +38,10 @@ pub async fn projects_add(
 /// сам проект. Папка на диске остаётся как есть.
 #[tauri::command]
 pub fn projects_remove(
-    app: AppHandle,
+    workspace: State<'_, Workspace>,
     shelf: State<'_, ProjectsFile>,
     id: String,
 ) -> Result<(), AppError> {
-    agent::transport::forget_project(&app, &id)?;
+    workspace.forget_project(&id)?;
     sapien_projects::remove(&*shelf, &id)
 }

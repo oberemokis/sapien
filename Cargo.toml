@@ -17,6 +17,7 @@ sapien-kernel = { path = "crates/kernel" }
 sapien-projects = { path = "crates/projects" }
 sapien-sessions = { path = "crates/sessions" }
 sapien-terminal = { path = "crates/terminal" }
+sapien-workspace = { path = "crates/workspace" }
 libc = "0.2.191"
 log = "0.4.34"
 serde = { version = "1", features = ["derive"] }
