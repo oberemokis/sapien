@@ -3492,6 +3492,7 @@ dependencies = [
  "portable-pty",
  "reqwest",
  "robius-authentication",
+ "sapien-kernel",
  "serde",
  "serde_json",
  "tauri",
@@ -3503,6 +3504,14 @@ dependencies = [
  "tempfile",
  "tokio",
  "url",
+]
+
+[[package]]
+name = "sapien-kernel"
+version = "0.0.0"
+dependencies = [
+ "serde",
+ "tempfile",
 ]
 
 [[package]]

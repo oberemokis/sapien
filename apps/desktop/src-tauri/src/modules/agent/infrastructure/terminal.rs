@@ -1,5 +1,5 @@
-use crate::error::AppError;
 use portable_pty::{CommandBuilder, MasterPty, PtySize, native_pty_system};
+use sapien_kernel::AppError;
 use std::ffi::OsString;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};

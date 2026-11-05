@@ -1,6 +1,6 @@
 use super::domain::{PaneAgent, Session, SessionInfo, session_name};
 use super::ports::{Projects, Sessions};
-use crate::error::AppError;
+use sapien_kernel::AppError;
 use std::cmp::Reverse;
 use std::path::PathBuf;
 

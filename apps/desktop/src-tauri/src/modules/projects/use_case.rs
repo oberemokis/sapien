@@ -1,6 +1,6 @@
 use super::domain::Project;
 use super::ports::Shelf;
-use crate::error::AppError;
+use sapien_kernel::AppError;
 use std::path::PathBuf;
 
 pub fn list(shelf: &impl Shelf) -> Result<Vec<Project>, AppError> {

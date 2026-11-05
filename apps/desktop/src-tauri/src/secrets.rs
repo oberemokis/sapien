@@ -3,7 +3,7 @@
 //! в файлах. Окну ни одна команда секрет не отдаёт: запрос с секретом
 //! делает Rust и сам его подставляет.
 
-use crate::error::AppError;
+use sapien_kernel::AppError;
 use std::collections::HashMap;
 use std::sync::Mutex;
 

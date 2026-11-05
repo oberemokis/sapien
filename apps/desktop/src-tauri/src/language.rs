@@ -1,7 +1,7 @@
 //! Язык меню macOS и системного окна разблокировки. Выбор хранит окно,
 //! Rust получает его при запуске окна и при каждой смене.
 
-use crate::error::AppError;
+use sapien_kernel::AppError;
 use std::sync::Mutex;
 use tauri::{AppHandle, Manager, Runtime};
 

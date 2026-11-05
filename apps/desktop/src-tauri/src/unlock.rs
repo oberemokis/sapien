@@ -2,11 +2,11 @@
 //! датчика нет. Саму блокировку держит окно, Rust только
 //! спрашивает систему, тот ли человек вернулся.
 
-use crate::error::AppError;
 use crate::language::{self, Language};
 use robius_authentication::{
     AndroidText, BiometricStrength, Context, Error, PolicyBuilder, Text, WindowsText,
 };
+use sapien_kernel::AppError;
 use std::sync::Mutex;
 use tauri::AppHandle;
 use tokio::sync::oneshot;

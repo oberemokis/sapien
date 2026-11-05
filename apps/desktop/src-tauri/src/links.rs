@@ -2,7 +2,7 @@
 //! чужая страница в нём получила бы доступ к командам Rust, поэтому чужой
 //! адрес уходит в браузер системы, а окно остаётся на месте.
 
-use crate::error::AppError;
+use sapien_kernel::AppError;
 use tauri::webview::{NewWindowResponse, WebviewWindowBuilder};
 use tauri::{App, AppHandle, Runtime, Url};
 use tauri_plugin_opener::OpenerExt;

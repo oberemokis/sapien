@@ -3,7 +3,7 @@
 //! (`plugins.updater` в tauri.conf.json) с версией внутри подписи. Окно
 //! плагин напрямую не зовёт: у него нет прав плагина, только эти команды.
 
-use crate::error::AppError;
+use sapien_kernel::AppError;
 use serde::Serialize;
 use std::sync::{Mutex, PoisonError};
 use tauri::ipc::Channel;

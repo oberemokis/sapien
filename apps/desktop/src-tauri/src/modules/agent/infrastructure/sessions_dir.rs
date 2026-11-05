@@ -1,7 +1,6 @@
-use crate::durable;
-use crate::error::AppError;
 use crate::modules::agent::domain::{Conversation, Session, SessionInfo};
 use crate::modules::agent::ports::Sessions;
+use sapien_kernel::{AppError, durable};
 use serde_json::Value;
 use std::fs;
 use std::io::{self, ErrorKind};

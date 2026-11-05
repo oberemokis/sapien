@@ -1,7 +1,5 @@
 mod data_format;
-mod durable;
 mod egress;
-mod error;
 mod language;
 mod links;
 mod menu;

@@ -1,9 +1,8 @@
 use super::domain::Project;
 use super::infrastructure::ProjectsFile;
 use super::use_case;
-use crate::durable;
-use crate::error::AppError;
 use crate::modules::agent;
+use sapien_kernel::{AppError, durable};
 use std::path::PathBuf;
 use tauri::{AppHandle, Manager, Runtime};
 use tauri_plugin_dialog::DialogExt;
