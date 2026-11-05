@@ -1,6 +1,6 @@
 import { useCanGoBack, useRouter } from "@tanstack/react-router";
 import { useCallback, useEffect } from "react";
-import { hasModKey } from "@/core/ui/keys";
+import { hasModKey } from "@sapien/ui";
 import { useSettingsMenu } from "../interactions/menu";
 
 // Из самих настроек не делает ничего: второй вход в истории увёл бы «Назад»

@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Button } from "@/core/ui/button";
-import { FIELD, SettingsGroup, SettingsRow, SettingsSection } from "@/core/ui/settings";
+import { Button, FIELD, SettingsGroup, SettingsRow, SettingsSection } from "@sapien/ui";
 import { useForgeConnect, useForgeDisconnect, useForgeStatus } from "../interactions/forge";
 import { FORGE_NAMES, forgeProblemOf, type Forge, type ForgeProblem, type ForgeStatus } from "../model/forge";
 
