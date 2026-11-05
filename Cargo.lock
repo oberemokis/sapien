@@ -3486,13 +3486,14 @@ dependencies = [
 name = "sapien"
 version = "0.0.0"
 dependencies = [
- "libc",
  "log",
- "portable-pty",
  "robius-authentication",
+ "sapien-agents",
  "sapien-forge",
  "sapien-kernel",
  "sapien-projects",
+ "sapien-sessions",
+ "sapien-terminal",
  "serde",
  "serde_json",
  "tauri",
@@ -3501,6 +3502,18 @@ dependencies = [
  "tauri-plugin-log",
  "tauri-plugin-opener",
  "tauri-plugin-updater",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
+name = "sapien-agents"
+version = "0.0.0"
+dependencies = [
+ "libc",
+ "sapien-kernel",
+ "serde",
+ "serde_json",
  "tempfile",
  "tokio",
 ]
@@ -3535,6 +3548,26 @@ dependencies = [
  "sapien-kernel",
  "serde",
  "serde_json",
+ "tempfile",
+]
+
+[[package]]
+name = "sapien-sessions"
+version = "0.0.0"
+dependencies = [
+ "sapien-kernel",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
+name = "sapien-terminal"
+version = "0.0.0"
+dependencies = [
+ "libc",
+ "portable-pty",
+ "sapien-kernel",
  "tempfile",
 ]
 

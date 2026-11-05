@@ -2,7 +2,6 @@
 //! Хранилище заметок сюда не входит: его формат это markdown Obsidian.
 //! Как шаги проходятся, решает `sapien_kernel::migrate`.
 
-use crate::modules::agent;
 use sapien_kernel::migrate::{Step, migrate_by};
 use std::io;
 use std::path::Path;
@@ -12,7 +11,7 @@ use std::path::Path;
 const STEPS: &[Step] = &[
     // 1 → 2: история чата sapien уходит в архив, сессия помнит только
     // разговор Claude Code.
-    agent::without_chat,
+    sapien_sessions::without_chat,
 ];
 
 pub fn migrate(dir: &Path) -> io::Result<()> {

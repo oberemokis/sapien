@@ -1,18 +1,9 @@
-//! Агент: Claude Code, Codex и другие агенты, которых человек запускает
-//! в терминале сессии. Сессия sapien это вкладка с оболочкой в папке
-//! проекта, а какой агент в ней работает и работает ли, sapien узнаёт
-//! по процессу на переднем плане и по его выводу.
-
-mod domain;
-mod infrastructure;
-mod ports;
-mod use_case;
+//! Агент в терминале сессии: связка крейтов `sapien-sessions`,
+//! `sapien-terminal` и `sapien-agents` с Tauri. Терминалы панелей и их
+//! сторож живут здесь, пока их не забрал фасад рабочего места.
 
 // Команды открыты модулем целиком: generate_handler! ищет рядом с каждой
 // командой скрытые функции, которые переэкспорт через `pub use` не уносит.
 pub mod transport;
 
-pub use infrastructure::sessions_dir::without_chat;
-// Папку проекта агенту даёт приложение: проекты об агенте не знают.
-pub use ports::Projects;
 pub use transport::{Terminals, hook, start_terminals, stop_terminals};

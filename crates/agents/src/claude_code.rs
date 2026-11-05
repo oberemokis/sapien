@@ -1,4 +1,4 @@
-use crate::modules::agent::domain::{ClaudeState, ClaudeStatus};
+use super::domain::{ClaudeState, ClaudeStatus};
 use sapien_kernel::AppError;
 use serde_json::Value;
 use std::ffi::OsString;
@@ -151,12 +151,21 @@ mod tests {
     use std::fs;
     use std::os::unix::fs::PermissionsExt;
     use std::sync::Mutex;
-    use tauri::async_runtime::block_on;
     use tempfile::TempDir;
 
     /// Запуск по одному: свежий скрипт, открытый на запись в момент чужого
     /// fork, не запускается («Text file busy»).
     static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
+
+    /// Проверка ждёт процесс и свой срок: однопоточному исполнителю tokio
+    /// нужны ввод-вывод и часы, приложение для теста не нужно.
+    fn block_on<F: Future>(future: F) -> F::Output {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(future)
+    }
 
     /// Поддельный `claude` на месте родного установщика: пишет рядом с собой,
     /// с чем его позвали, и отвечает по сценарию `script`. Рядом папка
