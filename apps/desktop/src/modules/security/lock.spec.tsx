@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
+import { fakeRust } from "@sapien/ipc/fake";
+import { clearMocks } from "@tauri-apps/api/mocks";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useEffect, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -10,24 +11,14 @@ type Answer = "verified" | "unlock_canceled" | "unlock_failed" | "unlock_unavail
 
 // Rust: ответ системы на проверку. Ответы идут по очереди, последний
 // повторяется.
-function fakeRust(answers: Answer[]) {
-  const rust = { checks: 0 };
+function unlockAnswers(answers: Answer[]) {
+  const rust = fakeRust();
 
-  mockIPC((command) => {
-    switch (command) {
-      case "app_unlock": {
-        const answer = answers[Math.min(rust.checks, answers.length - 1)];
+  answers.forEach((answer, index) => {
+    if (answer !== "verified") {
+      const kind = answer === "unlock_unavailable" ? "unavailable" : "invalid";
 
-        rust.checks += 1;
-
-        if (answer !== "verified") {
-          throw { kind: answer === "unlock_unavailable" ? "unavailable" : "invalid", code: answer };
-        }
-
-        return null;
-      }
-      default:
-        throw new Error(`нет команды ${command}`);
+      rust.refuse("appUnlock", { kind, code: answer }, index === answers.length - 1 ? Infinity : 1);
     }
   });
 
@@ -89,7 +80,7 @@ afterEach(() => {
 
 describe("блокировка окна", () => {
   it("по умолчанию выключена: окно не закрывается и после часа без движения", async () => {
-    fakeRust(["verified"]);
+    unlockAnswers(["verified"]);
 
     launch();
     await screen.findByText("Блокировать окно");
@@ -100,13 +91,13 @@ describe("блокировка окна", () => {
   });
 
   it("включается только после проверки системы и переживает перезапуск", async () => {
-    const rust = fakeRust(["unlock_canceled", "verified"]);
+    const rust = unlockAnswers(["unlock_canceled", "verified"]);
 
     launch();
     const toggle = await screen.findByRole("switch", { name: "Блокировать окно" });
 
     fireEvent.click(toggle);
-    await waitFor(() => expect(rust.checks).toBe(1));
+    await waitFor(() => expect(rust.calls.appUnlock.length).toBe(1));
     expect(toggle).toHaveProperty("checked", false);
     expect(screen.getByText(/открывается по Touch ID или паролю Mac/)).toBeTruthy();
 
@@ -116,7 +107,7 @@ describe("блокировка окна", () => {
   });
 
   it("проверка не прошла или системе нечем спросить: блокировка не включается, и видно почему", async () => {
-    fakeRust(["unlock_failed", "unlock_unavailable"]);
+    unlockAnswers(["unlock_failed", "unlock_unavailable"]);
 
     launch();
     const toggle = await screen.findByRole("switch", { name: "Блокировать окно" });
@@ -131,7 +122,7 @@ describe("блокировка окна", () => {
   });
 
   it("закрывается после бездействия, а движение мыши откладывает", async () => {
-    fakeRust(["verified"]);
+    unlockAnswers(["verified"]);
     storeLock(false, 5);
     launch();
     fireEvent.click(await screen.findByRole("switch", { name: "Блокировать окно" }));
@@ -147,7 +138,7 @@ describe("блокировка окна", () => {
   });
 
   it("таймеры свёрнутого окна стояли: первый щелчок после перерыва закрывает окно и до страницы не доходит", async () => {
-    fakeRust(["verified"]);
+    unlockAnswers(["verified"]);
     launch();
     fireEvent.click(await screen.findByRole("switch", { name: "Блокировать окно" }));
     await waitFor(() => expect(screen.getByRole("switch", { name: "Блокировать окно" })).toHaveProperty("checked", true));
@@ -164,7 +155,7 @@ describe("блокировка окна", () => {
   });
 
   it("включённая закрывает окно с запуска, под заглушкой всё работает", async () => {
-    fakeRust(["verified"]);
+    unlockAnswers(["verified"]);
     storeLock(true);
 
     launch();
@@ -177,7 +168,7 @@ describe("блокировка окна", () => {
   });
 
   it("сочетания клавиш не доходят до страницы, пока окно закрыто", () => {
-    fakeRust(["verified"]);
+    unlockAnswers(["verified"]);
     storeLock(true);
     const shortcut = vi.fn();
     window.addEventListener("keydown", shortcut);
@@ -192,7 +183,7 @@ describe("блокировка окна", () => {
   });
 
   it("отмена и неудача оставляют окно закрытым, удача открывает", async () => {
-    const rust = fakeRust(["unlock_canceled", "unlock_failed", "verified"]);
+    const rust = unlockAnswers(["unlock_canceled", "unlock_failed", "verified"]);
     storeLock(true);
 
     launch();
@@ -202,7 +193,7 @@ describe("блокировка окна", () => {
     fireEvent.click(unlock);
     // Отмена страницу не меняет, а waitFor перепроверяет по setInterval,
     // который здесь подменён. vi.waitFor ходит на настоящих таймерах.
-    await vi.waitFor(() => expect(rust.checks).toBe(1));
+    await vi.waitFor(() => expect(rust.calls.appUnlock.length).toBe(1));
     expect(within(dialog).queryByRole("alert")).toBeNull();
 
     fireEvent.click(unlock);
@@ -214,7 +205,7 @@ describe("блокировка окна", () => {
   });
 
   it("системе стало нечем спросить: окно открывается, а не остаётся закрытым насовсем", async () => {
-    fakeRust(["unlock_unavailable"]);
+    unlockAnswers(["unlock_unavailable"]);
     storeLock(true);
 
     launch();

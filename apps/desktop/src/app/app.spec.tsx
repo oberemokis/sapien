@@ -1,7 +1,8 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider, createMemoryHistory, createRouter } from "@tanstack/react-router";
-import { emit } from "@tauri-apps/api/event";
-import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
+import { events } from "@sapien/ipc";
+import { fakeRust } from "@sapien/ipc/fake";
+import { clearMocks } from "@tauri-apps/api/mocks";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { restoreTheme, useThemeSync } from "@/modules/appearance";
@@ -44,7 +45,7 @@ function isLight() {
 describe("настройки", () => {
   beforeEach(() => {
     // Проектов и сессий нет: эти тесты не про них.
-    mockIPC(() => [], { shouldMockEvents: true });
+    fakeRust();
     localStorage.clear();
     relaunch("/").unmount();
   });
@@ -74,7 +75,7 @@ describe("настройки", () => {
     await screen.findByRole("button", { name: /^Поиск/ });
     expect(screen.queryByRole("button", { name: "Настройки" })).toBeNull();
 
-    await act(() => emit("menu-settings"));
+    await act(() => events.menuSettings.emit());
 
     expect(await screen.findByRole("heading", { name: "Внешний вид" })).toBeDefined();
   });

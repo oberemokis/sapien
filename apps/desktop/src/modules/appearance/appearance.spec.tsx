@@ -1,4 +1,5 @@
-import { clearMocks, mockIPC, mockWindows } from "@tauri-apps/api/mocks";
+import { fakeRust } from "@sapien/ipc/fake";
+import { clearMocks, mockWindows } from "@tauri-apps/api/mocks";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { changeLanguage } from "i18next";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -102,19 +103,18 @@ describe("тема", () => {
 
 // Окно Tauri: масштаб webview уходит командой, она и есть граница.
 function fakeWebview() {
-  const zooms: number[] = [];
-
   Object.assign(globalThis, { isTauri: true });
   mockWindows("main");
-  mockIPC((command, args) => {
-    if (command === "plugin:webview|set_webview_zoom") {
-      zooms.push((args as { value: number }).value);
-    }
 
-    return null;
-  });
+  const rust = fakeRust();
 
-  return zooms;
+  return {
+    get zooms() {
+      return rust.plugins
+        .filter(({ command }) => command === "plugin:webview|set_webview_zoom")
+        .map(({ args }) => (args as { value: number }).value);
+    },
+  };
 }
 
 function scale() {
@@ -132,29 +132,29 @@ describe("масштаб", () => {
   });
 
   it("без сохранённого выбора интерфейс в натуральную величину, 100%", async () => {
-    const zooms = fakeWebview();
+    const webview = fakeWebview();
 
     restoreUiScale();
     render(<AppearanceSettings />);
 
     expect(scale().value).toBe("100");
-    await vi.waitFor(() => expect(zooms).toEqual([1]));
+    await vi.waitFor(() => expect(webview.zooms).toEqual([1]));
   });
 
   it("выбор сразу меняет масштаб окна и переживает перезапуск", async () => {
-    const zooms = fakeWebview();
+    const webview = fakeWebview();
 
     restoreUiScale();
     const view = render(<AppearanceSettings />);
     fireEvent.change(scale(), { target: { value: "110" } });
 
-    await vi.waitFor(() => expect(zooms.at(-1)).toBe(1.1));
+    await vi.waitFor(() => expect(webview.zooms.at(-1)).toBe(1.1));
     view.unmount();
 
     restoreUiScale();
     render(<AppearanceSettings />);
     expect(scale().value).toBe("110");
-    await vi.waitFor(() => expect(zooms.at(-1)).toBe(1.1));
+    await vi.waitFor(() => expect(webview.zooms.at(-1)).toBe(1.1));
   });
 
   it("битое сохранённое значение даёт 100%, а не падение", () => {
@@ -170,18 +170,9 @@ describe("масштаб", () => {
 
 // Меню macOS строит Rust: язык уходит ему командой.
 function fakeMenu() {
-  const languages: unknown[] = [];
-
   Object.assign(globalThis, { isTauri: true });
-  mockIPC((command, args) => {
-    if (command === "app_set_language") {
-      languages.push((args as { language: string }).language);
-    }
 
-    return null;
-  });
-
-  return languages;
+  return fakeRust();
 }
 
 describe("язык", () => {
@@ -195,8 +186,8 @@ describe("язык", () => {
     await changeLanguage("ru");
   });
 
-  it("без выбора окно и меню на английском", () => {
-    const languages = fakeMenu();
+  it("без выбора окно и меню на английском", async () => {
+    const rust = fakeMenu();
 
     restoreLanguage();
     render(<AppearanceSettings />);
@@ -204,18 +195,18 @@ describe("язык", () => {
     expect(screen.getByRole("heading", { name: "Appearance" })).toBeDefined();
     expect(screen.getByRole<HTMLSelectElement>("combobox", { name: "Language" }).value).toBe("en");
     expect(document.documentElement.lang).toBe("en");
-    expect(languages).toEqual(["en"]);
+    await vi.waitFor(() => expect(rust.calls.appSetLanguage).toEqual([["en"]]));
   });
 
   it("русский выбирается в настройках, сразу меняет окно и меню и переживает перезапуск", async () => {
-    const languages = fakeMenu();
+    const rust = fakeMenu();
 
     restoreLanguage();
     render(<AppearanceSettings />);
     fireEvent.change(screen.getByRole("combobox", { name: "Language" }), { target: { value: "ru" } });
 
     expect(await screen.findByRole("heading", { name: "Внешний вид" })).toBeDefined();
-    expect(languages).toEqual(["en", "ru"]);
+    await vi.waitFor(() => expect(rust.calls.appSetLanguage).toEqual([["en"], ["ru"]]));
 
     await act(() => changeLanguage("en"));
     restoreLanguage();
