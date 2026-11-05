@@ -89,6 +89,9 @@ importers:
       '@fontsource/ibm-plex-mono':
         specifier: ^5.3.0
         version: 5.3.0
+      '@sapien/agents':
+        specifier: workspace:*
+        version: link:../../packages/agents
       '@sapien/appearance':
         specifier: workspace:*
         version: link:../../packages/appearance
@@ -107,6 +110,9 @@ importers:
       '@sapien/layout':
         specifier: workspace:*
         version: link:../../packages/layout
+      '@sapien/projects':
+        specifier: workspace:*
+        version: link:../../packages/projects
       '@sapien/security':
         specifier: workspace:*
         version: link:../../packages/security
@@ -189,6 +195,61 @@ importers:
       vite:
         specifier: ^8.3.5
         version: 8.3.5(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.12(@types/node@22.20.5)(happy-dom@20.14.6)(vite@8.3.5(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15))
+
+  packages/agents:
+    dependencies:
+      '@sapien/i18n':
+        specifier: workspace:*
+        version: link:../i18n
+      '@sapien/ipc':
+        specifier: workspace:*
+        version: link:../ipc
+      '@sapien/ui':
+        specifier: workspace:*
+        version: link:../ui
+      '@tanstack/react-query':
+        specifier: 'catalog:'
+        version: 5.105.0(@types/react@19.3.0)(react@19.3.0)
+      react:
+        specifier: 'catalog:'
+        version: 19.3.0
+      react-i18next:
+        specifier: 'catalog:'
+        version: 17.1.9(i18next@26.5.11(typescript@6.0.3))(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(typescript@6.0.3)
+    devDependencies:
+      '@sapien/testing':
+        specifier: workspace:*
+        version: link:../testing
+      '@tauri-apps/api':
+        specifier: 'catalog:'
+        version: 2.12.4
+      '@testing-library/dom':
+        specifier: 'catalog:'
+        version: 10.4.2
+      '@testing-library/react':
+        specifier: 'catalog:'
+        version: 16.3.3(@testing-library/dom@10.4.2)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@types/react':
+        specifier: 'catalog:'
+        version: 19.3.0
+      '@types/react-dom':
+        specifier: 'catalog:'
+        version: 19.3.0(@types/react@19.3.0)
+      happy-dom:
+        specifier: 'catalog:'
+        version: 20.14.6
+      i18next:
+        specifier: 'catalog:'
+        version: 26.5.11(typescript@6.0.3)
+      react-dom:
+        specifier: 'catalog:'
+        version: 19.3.0(react@19.3.0)
+      typescript:
+        specifier: 'catalog:'
+        version: 6.0.3
       vitest:
         specifier: 'catalog:'
         version: 4.1.12(@types/node@22.20.5)(happy-dom@20.14.6)(vite@8.3.5(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15))
@@ -386,6 +447,61 @@ importers:
       '@sapien/testing':
         specifier: workspace:*
         version: link:../testing
+      '@testing-library/dom':
+        specifier: 'catalog:'
+        version: 10.4.2
+      '@testing-library/react':
+        specifier: 'catalog:'
+        version: 16.3.3(@testing-library/dom@10.4.2)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@types/react':
+        specifier: 'catalog:'
+        version: 19.3.0
+      '@types/react-dom':
+        specifier: 'catalog:'
+        version: 19.3.0(@types/react@19.3.0)
+      happy-dom:
+        specifier: 'catalog:'
+        version: 20.14.6
+      i18next:
+        specifier: 'catalog:'
+        version: 26.5.11(typescript@6.0.3)
+      react-dom:
+        specifier: 'catalog:'
+        version: 19.3.0(react@19.3.0)
+      typescript:
+        specifier: 'catalog:'
+        version: 6.0.3
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.12(@types/node@22.20.5)(happy-dom@20.14.6)(vite@8.3.5(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15))
+
+  packages/projects:
+    dependencies:
+      '@sapien/i18n':
+        specifier: workspace:*
+        version: link:../i18n
+      '@sapien/ipc':
+        specifier: workspace:*
+        version: link:../ipc
+      '@sapien/ui':
+        specifier: workspace:*
+        version: link:../ui
+      '@tanstack/react-query':
+        specifier: 'catalog:'
+        version: 5.105.0(@types/react@19.3.0)(react@19.3.0)
+      react:
+        specifier: 'catalog:'
+        version: 19.3.0
+      react-i18next:
+        specifier: 'catalog:'
+        version: 17.1.9(i18next@26.5.11(typescript@6.0.3))(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(typescript@6.0.3)
+    devDependencies:
+      '@sapien/testing':
+        specifier: workspace:*
+        version: link:../testing
+      '@tauri-apps/api':
+        specifier: 'catalog:'
+        version: 2.12.4
       '@testing-library/dom':
         specifier: 'catalog:'
         version: 10.4.2

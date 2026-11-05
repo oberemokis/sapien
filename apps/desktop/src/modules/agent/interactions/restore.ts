@@ -3,7 +3,8 @@ import { useEffect, useState } from "react";
 import { commands, type Project, type SessionInfo } from "@sapien/ipc";
 import { tabsStore } from "../store/sessions.store";
 import { sessionPanes } from "./panes";
-import { useProjects, useSessions } from "./sessions";
+import { useProjects } from "@sapien/projects";
+import { useSessions } from "./sessions";
 
 // Дольше окно запуска не ждёт: оболочка, которая так и не ответила,
 // покажет плашку в своей панели.

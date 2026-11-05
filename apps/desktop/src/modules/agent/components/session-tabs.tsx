@@ -1,6 +1,7 @@
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { useState, type MouseEvent } from "react";
 import { useTranslation } from "react-i18next";
+import { useProjects } from "@sapien/projects";
 import { ContextMenu, Icon, IconButton, type MenuItem, useReorder } from "@sapien/ui";
 import {
   closeSession,
@@ -8,7 +9,6 @@ import {
   openSession,
   pinSession,
   useNewSession,
-  useProjects,
   useRenameSession,
   useSessions,
   useTabs,

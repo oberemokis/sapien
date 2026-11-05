@@ -47,12 +47,12 @@ terminal и agents друг о друге не знают: сторож аген
 Между пакетами:
 
 ```
-apps/desktop (app, pages) ──► sessions ──► projects, terminal
-                              agents, forge, security, updates, appearance, layout
+apps/desktop (app, pages) ──► sessions ──► projects, terminal, agents
+                              forge, security, updates, appearance, layout
 каждый домен ──► ipc, ui, i18n, device
 ```
 
-Домены одного уровня друг о друге не знают, исключений два: sessions → projects (строка сессии показывает проект) и sessions → terminal (вкладка сессии ставит панели). Обратного пути нет.
+Домены одного уровня друг о друге не знают, исключений три: sessions → projects (сессии живут под своим проектом), sessions → terminal (вкладка сессии ставит панели) и sessions → agents (ветка сессии называет работающих агентов). Обратного пути нет. Где проекту нужен отклик сессий, он берёт его аргументом: `ProjectsHeader` получает `onAdded`, и окно начинает в новом проекте сессию, `RemoveProject` получает `onRemoved`, и окно перечитывает сессии. `ProjectList` рисует под каждым проектом то, что ему дали в `children`.
 
 ## Слои внутри домена
 
@@ -166,6 +166,11 @@ sapien/
 │                                   простоя, раздел «Безопасность»
 ├── packages/updates/               @sapien/updates: проверка по расписанию
 │                                   и карточка новой версии
+├── packages/projects/              @sapien/projects: список проектов, шапка
+│                                   с пропавшей папкой, добавление через
+│                                   диалог и удаление с вопросом
+├── packages/agents/                @sapien/agents: раздел «Агент», Claude
+│                                   Code, интеграции, имена агентов
 ├── packages/forge/                 @sapien/forge: раздел «Интеграции»,
 │                                   подключение GitHub и GitLab
 ├── packages/i18n/                  @sapien/i18n: запуск i18next, Resources,

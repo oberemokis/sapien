@@ -3,7 +3,7 @@ import { fakeRust } from "@sapien/ipc/fake";
 import { clearMocks } from "@tauri-apps/api/mocks";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { AgentSettings } from "@/modules/agent";
+import { AgentSettings } from "./index";
 import type { ClaudeStatus } from "@sapien/ipc";
 
 const READY: ClaudeStatus = { state: "ready", version: "2.1.316" };

@@ -7,7 +7,8 @@ import { useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyboard
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { hasModKey, Icon } from "@sapien/ui";
-import { closeSearch, openSearch, openSession, useProjects, useSearchOpen, useSessions } from "../interactions/sessions";
+import { useProjects } from "@sapien/projects";
+import { closeSearch, openSearch, openSession, useSearchOpen, useSessions } from "../interactions/sessions";
 import { searchSessions, type FoundSession } from "../model/sessions";
 
 // ⌘K открывает поиск, где бы ни стоял фокус. Код клавиши, а не символ:
