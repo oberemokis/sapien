@@ -3,7 +3,9 @@ use super::watcher::{Hub, Watcher, lock};
 use sapien_agents::{Conversation, PaneWatch, Report, hooks};
 use sapien_kernel::{AppError, durable};
 use sapien_sessions::{PaneAgent, PaneFiles, Projects, SessionInfo, Sessions};
-use sapien_terminal::{Launch, OutputSink, Supervisor, shell_environment, user_shell};
+use sapien_terminal::{
+    Launch, OutputSink, Supervisor, TerminalCode, shell_environment, user_shell,
+};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -176,7 +178,7 @@ where
         let running = self
             .terminals
             .get(pane)
-            .ok_or(AppError::not_found("terminal_missing"))?;
+            .ok_or(AppError::not_found(TerminalCode::Missing))?;
 
         lock(&running.observer.watch).input(data, Instant::now());
         running.term.write(data.as_bytes())
@@ -321,6 +323,7 @@ where
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
+    use sapien_sessions::SessionsCode;
     use sapien_sessions::SessionsDir;
     use tempfile::TempDir;
 
@@ -404,7 +407,7 @@ mod tests {
     fn сессию_и_проект_с_работающим_агентом_не_удалить() {
         let (data, workspace) = workspace();
         let id = workspace.new_session("p1").unwrap().id;
-        let busy = Err(AppError::conflict("agent_busy"));
+        let busy = Err(AppError::conflict(SessionsCode::AgentBusy));
 
         workspace.start(&id, "a").unwrap();
         workspace.start(&id, "b").unwrap();
@@ -486,7 +489,7 @@ mod tests {
         assert!(String::from_utf8_lossy(&files.screen(&id, "a").unwrap()).contains("ran cd '/tmp"));
         assert_eq!(
             workspace.write("a", "ls\r"),
-            Err(AppError::not_found("terminal_missing"))
+            Err(AppError::not_found(TerminalCode::Missing))
         );
     }
 
@@ -498,7 +501,7 @@ mod tests {
         workspace.hub.sessions.delete(&id).unwrap();
         assert_eq!(
             workspace.start(&id, "a"),
-            Err(AppError::not_found("session_missing"))
+            Err(AppError::not_found(SessionsCode::Missing))
         );
         assert!(workspace.terminals.panes().is_empty());
     }

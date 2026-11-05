@@ -10,7 +10,7 @@ mod ports;
 mod secrets;
 mod use_case;
 
-pub use domain::{Forge, ForgeStatus, ForgeStatuses};
+pub use domain::{Forge, ForgeCode, ForgeStatus, ForgeStatuses};
 pub use infrastructure::{AccountsFile, Http};
 pub use secrets::Secrets;
 pub use use_case::{connect, disconnect, status};

@@ -11,6 +11,18 @@ use std::sync::Mutex;
 use tauri::AppHandle;
 use tokio::sync::oneshot;
 
+sapien_kernel::error_codes! {
+    /// Отказы разблокировки окна.
+    pub enum UnlockCode {
+        /// Человек закрыл системное окно проверки.
+        Canceled = "unlock_canceled",
+        /// Проверка не пройдена.
+        Failed = "unlock_failed",
+        /// Системе нечем спросить: у учётной записи нет пароля.
+        Unavailable = "unlock_unavailable",
+    }
+}
+
 #[derive(Debug, PartialEq)]
 enum Outcome {
     Verified,
@@ -85,9 +97,9 @@ pub async fn app_unlock(app: AppHandle) -> Result<(), AppError> {
 
     match outcome(result) {
         Outcome::Verified => Ok(()),
-        Outcome::Canceled => Err(AppError::invalid("unlock_canceled")),
-        Outcome::Failed => Err(AppError::invalid("unlock_failed")),
-        Outcome::Unavailable => Err(AppError::unavailable("unlock_unavailable")),
+        Outcome::Canceled => Err(AppError::invalid(UnlockCode::Canceled)),
+        Outcome::Failed => Err(AppError::invalid(UnlockCode::Failed)),
+        Outcome::Unavailable => Err(AppError::unavailable(UnlockCode::Unavailable)),
     }
 }
 

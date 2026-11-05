@@ -3,6 +3,7 @@
 //! в файлах. Окну ни одна команда секрет не отдаёт: запрос с секретом
 //! делает Rust и сам его подставляет.
 
+use crate::domain::ForgeCode;
 use sapien_kernel::AppError;
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -127,14 +128,14 @@ impl Secrets {
         let value = value.trim();
 
         if value.is_empty() {
-            return Err(AppError::invalid("secret_empty"));
+            return Err(AppError::invalid(ForgeCode::SecretEmpty));
         }
 
         let kept = self.keychain.write(name.key(), value).is_ok();
         let mut memory = self
             .memory
             .lock()
-            .map_err(|_| AppError::unavailable("secret_unsaved"))?;
+            .map_err(|_| AppError::unavailable(ForgeCode::SecretUnsaved))?;
 
         if kept {
             memory.remove(name.key());
@@ -153,7 +154,7 @@ impl Secrets {
 
         self.keychain
             .erase(name.key())
-            .map_err(|Unavailable| AppError::unavailable("secret_unerased"))
+            .map_err(|Unavailable| AppError::unavailable(ForgeCode::SecretUnerased))
     }
 }
 
@@ -222,7 +223,7 @@ mod tests {
 
         assert_eq!(
             secrets.set(SecretName::GithubToken, "  \n"),
-            Err(AppError::invalid("secret_empty"))
+            Err(AppError::invalid(ForgeCode::SecretEmpty))
         );
 
         secrets

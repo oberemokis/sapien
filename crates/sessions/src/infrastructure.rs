@@ -1,4 +1,4 @@
-use super::domain::{Session, SessionInfo};
+use super::domain::{Session, SessionInfo, SessionsCode};
 use super::ports::{PaneFiles, Sessions};
 use sapien_kernel::{AppError, durable};
 use serde_json::Value;
@@ -63,10 +63,10 @@ impl PaneFiles for SessionsDir {
     }
 
     fn save_screen(&self, session: &str, pane: &str, bytes: &[u8]) -> Result<(), AppError> {
-        let unwritable = |_| AppError::unavailable("session_unwritable");
+        let unwritable = |_| AppError::unavailable(SessionsCode::Unwritable);
         let (Some(dir), Some(file)) = (self.screens(session), self.screen_file(session, pane))
         else {
-            return Err(AppError::invalid("session_invalid"));
+            return Err(AppError::invalid(SessionsCode::Invalid));
         };
 
         // Экран из версии без панелей лежит файлом на месте папки.
@@ -88,11 +88,11 @@ impl PaneFiles for SessionsDir {
         pane: &str,
         bytes: Option<&[u8]>,
     ) -> Result<(), AppError> {
-        let unwritable = |_| AppError::unavailable("session_unwritable");
+        let unwritable = |_| AppError::unavailable(SessionsCode::Unwritable);
         let (Some(dir), Some(file)) =
             (self.screens(session), self.conversation_file(session, pane))
         else {
-            return Err(AppError::invalid("session_invalid"));
+            return Err(AppError::invalid(SessionsCode::Invalid));
         };
 
         let Some(bytes) = bytes else {
@@ -118,7 +118,7 @@ impl Sessions for SessionsDir {
         let items = match fs::read_dir(&self.dir) {
             Ok(items) => items,
             Err(error) if error.kind() == ErrorKind::NotFound => return Ok(vec![]),
-            Err(_) => return Err(AppError::unavailable("session_unreadable")),
+            Err(_) => return Err(AppError::unavailable(SessionsCode::Unreadable)),
         };
 
         Ok(items
@@ -135,25 +135,25 @@ impl Sessions for SessionsDir {
     }
 
     fn load(&self, id: &str) -> Result<Session, AppError> {
-        let missing = AppError::not_found("session_missing");
+        let missing = AppError::not_found(SessionsCode::Missing);
         let bytes = match fs::read(self.file(id).ok_or(missing)?) {
             Ok(bytes) => bytes,
             Err(error) if error.kind() == ErrorKind::NotFound => {
-                return Err(AppError::not_found("session_missing"));
+                return Err(AppError::not_found(SessionsCode::Missing));
             }
-            Err(_) => return Err(AppError::unavailable("session_unreadable")),
+            Err(_) => return Err(AppError::unavailable(SessionsCode::Unreadable)),
         };
 
-        serde_json::from_slice(&bytes).map_err(|_| AppError::unavailable("session_unreadable"))
+        serde_json::from_slice(&bytes).map_err(|_| AppError::unavailable(SessionsCode::Unreadable))
     }
 
     fn save(&self, session: &Session) -> Result<(), AppError> {
-        let unwritable = |_| AppError::unavailable("session_unwritable");
+        let unwritable = |_| AppError::unavailable(SessionsCode::Unwritable);
         let file = self
             .file(&session.id)
-            .ok_or(AppError::invalid("session_invalid"))?;
-        let saved =
-            serde_json::to_vec(session).map_err(|_| AppError::unavailable("session_unwritable"))?;
+            .ok_or(AppError::invalid(SessionsCode::Invalid))?;
+        let saved = serde_json::to_vec(session)
+            .map_err(|_| AppError::unavailable(SessionsCode::Unwritable))?;
 
         fs::create_dir_all(&self.dir).map_err(unwritable)?;
         durable::write(&file, &saved).map_err(unwritable)
@@ -166,7 +166,7 @@ impl Sessions for SessionsDir {
         };
         let gone = |removed: io::Result<()>| match removed {
             Err(error) if error.kind() != ErrorKind::NotFound => {
-                Err(AppError::unavailable("session_unwritable"))
+                Err(AppError::unavailable(SessionsCode::Unwritable))
             }
             _ => Ok(()),
         };
@@ -348,7 +348,7 @@ mod tests {
 
         assert_eq!(
             store.save(&session("../x", "p1")),
-            Err(AppError::invalid("session_invalid"))
+            Err(AppError::invalid(SessionsCode::Invalid))
         );
         store.delete("../../секрет").unwrap();
         assert!(data.path().join("секрет.json").exists());
@@ -356,7 +356,7 @@ mod tests {
         // Панель с таким именем тоже не уводит экран из папки сессии.
         assert_eq!(
             store.save_screen("a1", "../../../секрет.json", b"x"),
-            Err(AppError::invalid("session_invalid"))
+            Err(AppError::invalid(SessionsCode::Invalid))
         );
         assert_eq!(store.screen("a1", "../../../секрет.json"), None);
         assert_eq!(

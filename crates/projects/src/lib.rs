@@ -7,7 +7,7 @@ mod infrastructure;
 mod ports;
 mod use_case;
 
-pub use domain::Project;
+pub use domain::{Project, ProjectsCode};
 pub use infrastructure::ProjectsFile;
 pub use ports::Shelf;
 pub use use_case::{add, folder, list, remove};

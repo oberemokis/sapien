@@ -1,22 +1,26 @@
-import type { Progress } from "@sapien/ipc";
+import type { Progress, UpdateCode } from "@sapien/ipc";
 
-const PROBLEMS = ["update_signature", "update_unreachable"] as const;
+// Подсказка на каждый код отказа обновления, как у forge: новый код Rust
+// не скомпилируется без решения окна.
+const PROBLEMS = {
+  update_signature: "update_signature",
+  update_unreachable: "update_unreachable",
+  update_missing: "update_failed",
+  update_failed: "update_failed",
+} as const satisfies Record<UpdateCode, string>;
 
-export type UpdateProblem = (typeof PROBLEMS)[number] | "update_failed";
+export type UpdateProblem = (typeof PROBLEMS)[UpdateCode];
 
-// Код из отказа команды, AppError из error.rs. Остальное, вроде отказа
-// диска при установке, окно показывает общей причиной.
+// Код из отказа команды. Остальное, вроде отказа диска при установке,
+// окно показывает общей причиной.
 export function updateProblemOf(error: unknown): UpdateProblem {
-  if (typeof error === "object" && error !== null && "code" in error) {
-    const { code } = error;
-    const known = PROBLEMS.find((problem) => problem === code);
+  let code: unknown = null;
 
-    if (known !== undefined) {
-      return known;
-    }
+  if (typeof error === "object" && error !== null && "code" in error) {
+    code = error.code;
   }
 
-  return "update_failed";
+  return Object.entries(PROBLEMS).find(([known]) => known === code)?.[1] ?? "update_failed";
 }
 
 // Сколько скачано, в процентах. Пока размер неизвестен, процентов нет.

@@ -11,6 +11,8 @@ workspace = true
 [dependencies]
 portable-pty = "0.9.0"
 sapien-kernel.workspace = true
+serde.workspace = true
+specta.workspace = true
 
 # Терминал останавливается: SIGHUP группе оболочки и группе на переднем
 # плане, чтобы вместе с оболочкой ушли и её команды.

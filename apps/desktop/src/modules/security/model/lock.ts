@@ -1,3 +1,5 @@
+import type { UnlockCode } from "@sapien/ipc";
+
 // Блокировка окна после бездействия. По умолчанию выключена: экран и так
 // закрывает система, а лишняя проверка при каждом возвращении мешала бы.
 export const LOCK_MINUTES = [1, 5, 15, 30, 60] as const;
@@ -32,9 +34,16 @@ export function idleFor(minutes: LockMinutes, lastActivity: number, now: number)
   return now - lastActivity >= minutes * 60_000;
 }
 
-// Отказ app_unlock из src-tauri/src/unlock.rs. unavailable значит, что
-// системе нечем спросить: у учётной записи нет пароля.
-export type UnlockFailure = "canceled" | "failed" | "unavailable";
+// Отказ app_unlock по коду, как у forge: новый код Rust не скомпилируется
+// без решения окна. unavailable значит, что системе нечем спросить:
+// у учётной записи нет пароля.
+const FAILURES = {
+  unlock_canceled: "canceled",
+  unlock_failed: "failed",
+  unlock_unavailable: "unavailable",
+} as const satisfies Record<UnlockCode, string>;
+
+export type UnlockFailure = (typeof FAILURES)[UnlockCode];
 
 export function unlockFailureOf(error: unknown): UnlockFailure {
   let code: unknown = null;
@@ -43,13 +52,5 @@ export function unlockFailureOf(error: unknown): UnlockFailure {
     code = error.code;
   }
 
-  if (code === "unlock_canceled") {
-    return "canceled";
-  }
-
-  if (code === "unlock_unavailable") {
-    return "unavailable";
-  }
-
-  return "failed";
+  return Object.entries(FAILURES).find(([known]) => known === code)?.[1] ?? "failed";
 }

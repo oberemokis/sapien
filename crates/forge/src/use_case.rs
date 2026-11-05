@@ -1,4 +1,4 @@
-use crate::domain::{Forge, ForgeStatus, ForgeStatuses, parse_host};
+use crate::domain::{Forge, ForgeCode, ForgeStatus, ForgeStatuses, parse_host};
 use crate::ports::{Accounts, Api};
 use crate::secrets::{SecretName, Secrets};
 use sapien_kernel::AppError;
@@ -38,7 +38,7 @@ pub async fn connect(
     let token = token.trim();
 
     if token.is_empty() {
-        return Err(AppError::invalid("forge_token_empty"));
+        return Err(AppError::invalid(ForgeCode::TokenEmpty));
     }
 
     let login = api.login(forge, &host, token).await?;
@@ -100,7 +100,7 @@ mod tests {
             self.asked.lock().unwrap().push((forge, host.to_owned()));
 
             if token != self.token {
-                return Err(AppError::invalid("forge_token_rejected"));
+                return Err(AppError::invalid(ForgeCode::TokenRejected));
             }
 
             Ok(match forge {

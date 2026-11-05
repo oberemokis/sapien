@@ -3,7 +3,7 @@
 //! в настройках приложения. Свои настройки агента человек не теряет: хук
 //! дописывается рядом с остальными, а снимается только свой.
 
-use super::domain::{Integration, IntegrationState};
+use super::domain::{AgentsCode, Integration, IntegrationState};
 use sapien_kernel::{AppError, durable};
 use serde_json::{Value, json};
 use std::ffi::OsString;
@@ -94,7 +94,7 @@ fn command(agent: &str) -> String {
 }
 
 fn unwritable<T>(_: T) -> AppError {
-    AppError::unavailable("integration_unwritable")
+    AppError::unavailable(AgentsCode::IntegrationUnwritable)
 }
 
 /// Интеграции агентов в папке `home`. `env`: переменные окружения, где
@@ -122,7 +122,7 @@ impl Integrations {
         TARGETS
             .iter()
             .find(|target| target.agent == agent)
-            .ok_or(AppError::invalid("integration_unknown"))
+            .ok_or(AppError::invalid(AgentsCode::IntegrationUnknown))
     }
 
     fn state(&self, target: &Target) -> IntegrationState {
@@ -163,7 +163,7 @@ impl Integrations {
         let dir = self.dir(target);
 
         if !dir.is_dir() {
-            return Err(AppError::not_found("integration_agent_missing"));
+            return Err(AppError::not_found(AgentsCode::IntegrationAgentMissing));
         }
 
         match target.kind {
@@ -217,7 +217,7 @@ fn read(file: &Path) -> Result<Value, AppError> {
     let text = match fs::read_to_string(file) {
         Ok(text) => text,
         Err(error) if error.kind() == ErrorKind::NotFound => return Ok(json!({})),
-        Err(_) => return Err(AppError::unavailable("integration_unreadable")),
+        Err(_) => return Err(AppError::unavailable(AgentsCode::IntegrationUnreadable)),
     };
 
     if text.trim().is_empty() {
@@ -227,7 +227,7 @@ fn read(file: &Path) -> Result<Value, AppError> {
     serde_json::from_str::<Value>(&text)
         .ok()
         .filter(Value::is_object)
-        .ok_or(AppError::invalid("integration_config_invalid"))
+        .ok_or(AppError::invalid(AgentsCode::IntegrationConfigInvalid))
 }
 
 /// Записи хуков события `event`, если они есть.
@@ -255,7 +255,7 @@ fn has_hook(config: &Value, event: &str, flat: bool, command: &str) -> bool {
 /// остаются как были. `hooks` или его событие не того вида значат, что
 /// настройки sapien не понимает: `integration_config_invalid`.
 fn with_hook(mut config: Value, event: &str, flat: bool, command: &str) -> Result<Value, AppError> {
-    let invalid = || AppError::invalid("integration_config_invalid");
+    let invalid = || AppError::invalid(AgentsCode::IntegrationConfigInvalid);
 
     if has_hook(&config, event, flat, command) {
         return Ok(config);
@@ -448,7 +448,7 @@ mod tests {
         assert_eq!(state(&integrations, "opencode"), IntegrationState::Missing);
         assert_eq!(
             integrations.install("opencode"),
-            Err(AppError::not_found("integration_agent_missing"))
+            Err(AppError::not_found(AgentsCode::IntegrationAgentMissing))
         );
         assert!(!home.path().join(".config/opencode").exists());
     }
@@ -463,14 +463,14 @@ mod tests {
 
         assert_eq!(
             integrations.install("codex"),
-            Err(AppError::invalid("integration_config_invalid"))
+            Err(AppError::invalid(AgentsCode::IntegrationConfigInvalid))
         );
         assert_eq!(fs::read_to_string(&settings).unwrap(), "{ сломано");
 
         fs::write(&settings, r#"{ "hooks": [] }"#).unwrap();
         assert_eq!(
             integrations.install("codex"),
-            Err(AppError::invalid("integration_config_invalid"))
+            Err(AppError::invalid(AgentsCode::IntegrationConfigInvalid))
         );
     }
 }

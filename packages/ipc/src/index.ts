@@ -9,19 +9,28 @@ export { commands, events } from "./bindings.gen.ts";
 // Канал, в который Rust шлёт поток: вывод терминала, ход загрузки.
 export { Channel } from "@tauri-apps/api/core";
 export type {
+  AgentsCode,
   AppError_Serialize as AppError,
   Available_Serialize as Available,
   ClaudeState,
   ClaudeStatus_Serialize as ClaudeStatus,
   ErrorKind,
   Forge,
+  ForgeCode,
   ForgeStatus,
   ForgeStatuses_Serialize as ForgeStatuses,
   Integration,
   IntegrationState,
+  LanguageCode,
+  LinkCode,
   PaneAgent,
   Progress_Deserialize as Progress,
   Project,
+  ProjectsCode,
   SessionInfo_Serialize as SessionInfo,
+  SessionsCode,
+  TerminalCode,
   TerminalExited,
+  UnlockCode,
+  UpdateCode,
 } from "./bindings.gen.ts";

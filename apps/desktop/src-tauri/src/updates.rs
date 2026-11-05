@@ -11,6 +11,20 @@ use tauri::ipc::Channel;
 use tauri::{AppHandle, State};
 use tauri_plugin_updater::{Error, Update, UpdaterExt};
 
+sapien_kernel::error_codes! {
+    /// Отказы обновления. Установленная версия при любом из них работает
+    /// дальше.
+    pub enum UpdateCode {
+        /// Ставить нечего: проверка не нашла новой версии.
+        Missing = "update_missing",
+        /// Подпись установщика не сошлась.
+        Signature = "update_signature",
+        /// GitHub не ответил.
+        Unreachable = "update_unreachable",
+        Failed = "update_failed",
+    }
+}
+
 /// Найденное обновление ждёт согласия здесь: ставится ровно то, что окно
 /// показало человеку.
 #[derive(Default)]
@@ -82,7 +96,7 @@ pub async fn app_update_install(
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
         .clone()
-        .ok_or(AppError::not_found("update_missing"))?;
+        .ok_or(AppError::not_found(UpdateCode::Missing))?;
     let mut received = 0;
 
     update
@@ -110,11 +124,11 @@ fn failed(error: Error) -> AppError {
         | Error::Base64(_)
         | Error::SignatureUtf8(_)
         | Error::SignedVersionMismatch { .. }
-        | Error::MissingSignedVersion => AppError::invalid("update_signature"),
+        | Error::MissingSignedVersion => AppError::invalid(UpdateCode::Signature),
         Error::Reqwest(_) | Error::Network(_) | Error::ReleaseNotFound => {
-            AppError::unavailable("update_unreachable")
+            AppError::unavailable(UpdateCode::Unreachable)
         }
-        _ => AppError::unavailable("update_failed"),
+        _ => AppError::unavailable(UpdateCode::Failed),
     }
 }
 

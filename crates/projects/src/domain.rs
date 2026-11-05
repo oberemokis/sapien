@@ -2,6 +2,16 @@ use serde::Serialize;
 use specta::Type;
 use std::path::Path;
 
+sapien_kernel::error_codes! {
+    /// Отказы списка проектов.
+    pub enum ProjectsCode {
+        Unreadable = "projects_unreadable",
+        Unwritable = "projects_unwritable",
+        /// Путь выбранной папки не в UTF-8.
+        PathInvalid = "project_path_invalid",
+    }
+}
+
 /// Проект: папка на диске, в которой работает агент. Имя это имя папки.
 /// `missing`: папки сейчас нет на диске, её убрали или переименовали.
 #[derive(Debug, Clone, PartialEq, Serialize, Type)]

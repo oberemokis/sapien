@@ -59,6 +59,17 @@ fn bindings() -> tauri_specta::Builder<tauri::Wry> {
             events::TerminalExited,
             events::MenuSettings,
         ])
+        // Коды отказов по доменам. В AppError код строкой, а с этими
+        // объединениями окно сверяет свои подсказки.
+        .typ::<sapien_agents::AgentsCode>()
+        .typ::<sapien_forge::ForgeCode>()
+        .typ::<sapien_projects::ProjectsCode>()
+        .typ::<sapien_sessions::SessionsCode>()
+        .typ::<sapien_workspace::TerminalCode>()
+        .typ::<language::LanguageCode>()
+        .typ::<links::LinkCode>()
+        .typ::<unlock::UnlockCode>()
+        .typ::<updates::UpdateCode>()
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

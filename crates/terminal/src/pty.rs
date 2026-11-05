@@ -1,3 +1,4 @@
+use crate::TerminalCode;
 use portable_pty::{CommandBuilder, MasterPty, PtySize, native_pty_system};
 use sapien_kernel::AppError;
 use std::ffi::OsString;
@@ -36,7 +37,7 @@ impl Pty {
         mut output: impl FnMut(&[u8]) + Send + 'static,
         exited: impl FnOnce() + Send + 'static,
     ) -> Result<Self, AppError> {
-        let failed = |_| AppError::unavailable("terminal_failed");
+        let failed = |_| AppError::unavailable(TerminalCode::Failed);
         let pair = native_pty_system()
             .openpty(PtySize {
                 rows: command.rows,
@@ -90,7 +91,7 @@ impl Pty {
         writer
             .write_all(bytes)
             .and_then(|()| writer.flush())
-            .map_err(|_| AppError::unavailable("terminal_failed"))
+            .map_err(|_| AppError::unavailable(TerminalCode::Failed))
     }
 
     /// Новый размер: процесс получает SIGWINCH и перерисовывается.

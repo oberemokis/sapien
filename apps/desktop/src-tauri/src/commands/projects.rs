@@ -31,7 +31,9 @@ pub async fn projects_add(
         .into_path()
         .ok()
         .and_then(|path| path.into_os_string().into_string().ok())
-        .ok_or(AppError::invalid("project_path_invalid"))?;
+        .ok_or(AppError::invalid(
+            sapien_projects::ProjectsCode::PathInvalid,
+        ))?;
 
     sapien_projects::add(&*shelf, path, durable::fresh_id()).map(Some)
 }

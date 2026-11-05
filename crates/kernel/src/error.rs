@@ -27,28 +27,69 @@ pub enum ErrorKind {
     Conflict,
 }
 
+/// Код отказа: вариант перечисления кодов домена, его объявляет
+/// `error_codes!`. В окно код уходит строкой, а перечисление попадает
+/// в `@sapien/ipc`, и окно сверяет с ним свои подсказки.
+pub trait ErrorCode: Copy {
+    fn as_str(self) -> &'static str;
+}
+
+/// Перечисление кодов отказа домена: вариант и строка, которую видит окно.
+/// Строка записана один раз, из неё же берёт имя тип для окна.
+///
+/// ```
+/// sapien_kernel::error_codes! {
+///     pub enum NotesCode {
+///         Missing = "note_missing",
+///     }
+/// }
+/// ```
+#[macro_export]
+macro_rules! error_codes {
+    (
+        $(#[$meta:meta])*
+        $vis:vis enum $name:ident {
+            $( $(#[$variant_meta:meta])* $variant:ident = $code:literal, )+
+        }
+    ) => {
+        $(#[$meta])*
+        #[derive(Clone, Copy, Debug, PartialEq, Eq, ::serde::Serialize, ::specta::Type)]
+        $vis enum $name {
+            $( $(#[$variant_meta])* #[serde(rename = $code)] $variant, )+
+        }
+
+        impl $crate::ErrorCode for $name {
+            fn as_str(self) -> &'static str {
+                match self {
+                    $( Self::$variant => $code, )+
+                }
+            }
+        }
+    };
+}
+
 impl AppError {
-    fn new(kind: ErrorKind, code: &'static str) -> Self {
+    fn new(kind: ErrorKind, code: impl ErrorCode) -> Self {
         Self {
             kind,
-            code,
+            code: code.as_str(),
             detail: None,
         }
     }
 
-    pub fn invalid(code: &'static str) -> Self {
+    pub fn invalid(code: impl ErrorCode) -> Self {
         Self::new(ErrorKind::Invalid, code)
     }
 
-    pub fn conflict(code: &'static str) -> Self {
+    pub fn conflict(code: impl ErrorCode) -> Self {
         Self::new(ErrorKind::Conflict, code)
     }
 
-    pub fn not_found(code: &'static str) -> Self {
+    pub fn not_found(code: impl ErrorCode) -> Self {
         Self::new(ErrorKind::NotFound, code)
     }
 
-    pub fn unavailable(code: &'static str) -> Self {
+    pub fn unavailable(code: impl ErrorCode) -> Self {
         Self::new(ErrorKind::Unavailable, code)
     }
 }

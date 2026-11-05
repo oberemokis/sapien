@@ -10,6 +10,8 @@ mod integrations;
 mod watch;
 
 pub use claude_code::ClaudeCode;
-pub use domain::{ClaudeState, ClaudeStatus, Conversation, Integration, IntegrationState, Report};
+pub use domain::{
+    AgentsCode, ClaudeState, ClaudeStatus, Conversation, Integration, IntegrationState, Report,
+};
 pub use integrations::Integrations;
 pub use watch::{Look, PaneWatch};

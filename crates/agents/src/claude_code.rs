@@ -1,5 +1,5 @@
-use super::domain::{ClaudeState, ClaudeStatus};
-use sapien_kernel::AppError;
+use super::domain::{AgentsCode, ClaudeState, ClaudeStatus};
+use sapien_kernel::{AppError, ErrorCode};
 use serde_json::Value;
 use std::ffi::OsString;
 use std::io::ErrorKind;
@@ -76,7 +76,7 @@ impl ClaudeCode {
     fn program(&self) -> Result<&Path, AppError> {
         self.program
             .as_deref()
-            .ok_or(AppError::not_found("claude_missing"))
+            .ok_or(AppError::not_found(AgentsCode::ClaudeMissing))
     }
 
     /// Окружение проверки только из разрешённого списка.
@@ -108,8 +108,8 @@ impl ClaudeCode {
             .kill_on_drop(true);
 
         command.spawn().map_err(|error| match error.kind() {
-            ErrorKind::NotFound => AppError::not_found("claude_missing"),
-            _ => AppError::unavailable("claude_failed"),
+            ErrorKind::NotFound => AppError::not_found(AgentsCode::ClaudeMissing),
+            _ => AppError::unavailable(AgentsCode::ClaudeFailed),
         })
     }
 
@@ -119,8 +119,8 @@ impl ClaudeCode {
 
         timeout(CHECK, child.wait_with_output())
             .await
-            .map_err(|_| AppError::unavailable("claude_failed"))?
-            .map_err(|_| AppError::unavailable("claude_failed"))
+            .map_err(|_| AppError::unavailable(AgentsCode::ClaudeFailed))?
+            .map_err(|_| AppError::unavailable(AgentsCode::ClaudeFailed))
     }
 
     pub async fn status(&self) -> ClaudeStatus {
@@ -128,7 +128,7 @@ impl ClaudeCode {
             Ok(output) if output.status.success() => {
                 String::from_utf8_lossy(&output.stdout).into_owned()
             }
-            Err(error) if error.code == "claude_missing" => {
+            Err(error) if error.code == AgentsCode::ClaudeMissing.as_str() => {
                 return ClaudeStatus::of_state(ClaudeState::Missing);
             }
             _ => return ClaudeStatus::of_state(ClaudeState::Outdated),

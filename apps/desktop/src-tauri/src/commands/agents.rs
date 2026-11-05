@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use tauri::{AppHandle, Manager, Runtime};
 
 fn unavailable<T>(_: T) -> AppError {
-    AppError::unavailable("data_dir_unavailable")
+    AppError::unavailable(sapien_agents::AgentsCode::DataDirUnavailable)
 }
 
 fn home<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, AppError> {

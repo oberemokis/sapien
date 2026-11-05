@@ -4,6 +4,29 @@ use serde_json::Value;
 use specta::Type;
 use url::Url;
 
+sapien_kernel::error_codes! {
+    /// Отказы подключения к GitHub и GitLab.
+    pub enum ForgeCode {
+        /// Токен пустой.
+        TokenEmpty = "forge_token_empty",
+        /// Сервер не принял токен: неверный, отозван или без нужных прав.
+        TokenRejected = "forge_token_rejected",
+        /// Сервер не ответил или ответил ошибкой.
+        Unreachable = "forge_unreachable",
+        /// Адрес не https.
+        HostInsecure = "forge_host_insecure",
+        /// По адресу нет API GitLab.
+        HostInvalid = "forge_host_invalid",
+        Unreadable = "forge_unreadable",
+        Unwritable = "forge_unwritable",
+        SecretEmpty = "secret_empty",
+        /// Хранилище паролей не сохранило токен.
+        SecretUnsaved = "secret_unsaved",
+        /// Хранилище паролей не стёрло токен.
+        SecretUnerased = "secret_unerased",
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub enum Forge {
@@ -65,10 +88,10 @@ pub fn parse_host(forge: Forge, input: Option<&str>) -> Result<String, AppError>
     } else {
         format!("https://{input}")
     };
-    let url = Url::parse(&full).map_err(|_| AppError::invalid("forge_host_invalid"))?;
+    let url = Url::parse(&full).map_err(|_| AppError::invalid(ForgeCode::HostInvalid))?;
 
     if url.scheme() != "https" {
-        return Err(AppError::invalid("forge_host_insecure"));
+        return Err(AppError::invalid(ForgeCode::HostInsecure));
     }
 
     let plain = url.query().is_none()
@@ -77,7 +100,7 @@ pub fn parse_host(forge: Forge, input: Option<&str>) -> Result<String, AppError>
         && url.password().is_none();
 
     if url.host_str().is_none() || !plain {
-        return Err(AppError::invalid("forge_host_invalid"));
+        return Err(AppError::invalid(ForgeCode::HostInvalid));
     }
 
     Ok(url.as_str()["https://".len()..]
@@ -105,9 +128,9 @@ pub fn user_url(forge: Forge, host: &str) -> (String, String) {
 pub fn login(forge: Forge, status: u16, body: &str) -> Result<String, AppError> {
     match status {
         200..=299 => {}
-        401 | 403 => return Err(AppError::invalid("forge_token_rejected")),
-        500.. => return Err(AppError::unavailable("forge_unreachable")),
-        _ => return Err(AppError::invalid("forge_host_invalid")),
+        401 | 403 => return Err(AppError::invalid(ForgeCode::TokenRejected)),
+        500.. => return Err(AppError::unavailable(ForgeCode::Unreachable)),
+        _ => return Err(AppError::invalid(ForgeCode::HostInvalid)),
     }
 
     let field = match forge {
@@ -119,7 +142,7 @@ pub fn login(forge: Forge, status: u16, body: &str) -> Result<String, AppError> 
         .ok()
         .and_then(|body| body[field].as_str().map(str::to_owned))
         .filter(|login| !login.is_empty())
-        .ok_or(AppError::invalid("forge_host_invalid"))
+        .ok_or(AppError::invalid(ForgeCode::HostInvalid))
 }
 
 #[cfg(test)]
