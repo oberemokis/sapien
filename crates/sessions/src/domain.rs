@@ -1,6 +1,23 @@
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
+sapien_kernel::error_codes! {
+    /// Отказы сессий.
+    pub enum SessionsCode {
+        Missing = "session_missing",
+        /// id сессии или панели не годится в имя файла.
+        Invalid = "session_invalid",
+        Unreadable = "session_unreadable",
+        Unwritable = "session_unwritable",
+        /// Имя от человека длиннее предела или с управляющим знаком.
+        TitleInvalid = "title_invalid",
+        /// Проекта сессии нет в списке или его папки нет на диске.
+        ProjectMissing = "project_missing",
+        /// В панелях сессии работает агент.
+        AgentBusy = "agent_busy",
+    }
+}
+
 /// Сессия sapien: терминал в папке проекта `project`, в котором человек
 /// запускает агентов. Заголовок пустой, пока его не дал агент или человек.
 /// Время в миллисекундах Unix.

@@ -2,6 +2,25 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use specta::Type;
 
+sapien_kernel::error_codes! {
+    /// Отказы агентов и их интеграций.
+    pub enum AgentsCode {
+        ClaudeMissing = "claude_missing",
+        /// Claude Code не ответил или ответил не так, как ждали.
+        ClaudeFailed = "claude_failed",
+        /// Нет папки данных приложения, в которой Claude Code проходит проверки.
+        DataDirUnavailable = "data_dir_unavailable",
+        /// Интеграции для такого агента нет.
+        IntegrationUnknown = "integration_unknown",
+        /// Агента нет на устройстве, нет и папки его настроек.
+        IntegrationAgentMissing = "integration_agent_missing",
+        /// Настройки агента не разобрать.
+        IntegrationConfigInvalid = "integration_config_invalid",
+        IntegrationUnreadable = "integration_unreadable",
+        IntegrationUnwritable = "integration_unwritable",
+    }
+}
+
 /// Claude Code на устройстве: через него агент расходует подписку Claude.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Type)]
 #[serde(rename_all = "snake_case")]

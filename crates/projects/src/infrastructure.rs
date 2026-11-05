@@ -1,4 +1,4 @@
-use crate::domain::Project;
+use crate::domain::{Project, ProjectsCode};
 use crate::ports::Shelf;
 use sapien_kernel::{AppError, durable};
 use serde::{Deserialize, Serialize};
@@ -29,14 +29,14 @@ struct Saved {
 
 impl Shelf for ProjectsFile {
     fn load(&self) -> Result<Vec<Project>, AppError> {
-        let unreadable = |_| AppError::unavailable("projects_unreadable");
+        let unreadable = |_| AppError::unavailable(ProjectsCode::Unreadable);
         let bytes = match fs::read(&self.file) {
             Ok(bytes) => bytes,
             Err(error) if error.kind() == ErrorKind::NotFound => return Ok(vec![]),
             Err(error) => return Err(unreadable(error)),
         };
         let saved: Vec<Saved> = serde_json::from_slice(&bytes)
-            .map_err(|_| AppError::unavailable("projects_unreadable"))?;
+            .map_err(|_| AppError::unavailable(ProjectsCode::Unreadable))?;
 
         Ok(saved
             .into_iter()
@@ -49,7 +49,7 @@ impl Shelf for ProjectsFile {
     }
 
     fn save(&self, projects: &[Project]) -> Result<(), AppError> {
-        let unwritable = |_| AppError::unavailable("projects_unwritable");
+        let unwritable = |_| AppError::unavailable(ProjectsCode::Unwritable);
         let saved: Vec<Saved> = projects
             .iter()
             .map(|project| Saved {
@@ -57,8 +57,8 @@ impl Shelf for ProjectsFile {
                 path: project.path.clone(),
             })
             .collect();
-        let bytes =
-            serde_json::to_vec(&saved).map_err(|_| AppError::unavailable("projects_unwritable"))?;
+        let bytes = serde_json::to_vec(&saved)
+            .map_err(|_| AppError::unavailable(ProjectsCode::Unwritable))?;
 
         if let Some(dir) = self.file.parent() {
             fs::create_dir_all(dir).map_err(unwritable)?;

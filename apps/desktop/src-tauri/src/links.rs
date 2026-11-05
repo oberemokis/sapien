@@ -7,6 +7,16 @@ use tauri::webview::{NewWindowResponse, WebviewWindowBuilder};
 use tauri::{App, AppHandle, Runtime, Url};
 use tauri_plugin_opener::OpenerExt;
 
+sapien_kernel::error_codes! {
+    /// Отказы внешней ссылки.
+    pub enum LinkCode {
+        /// Адрес не http, https или mailto.
+        Invalid = "link_invalid",
+        /// Система не открыла браузер.
+        Unopened = "link_unopened",
+    }
+}
+
 /// Адрес, который можно отдать браузеру системы: веб и почта. `javascript:`,
 /// `file:`, `data:` и схемы других приложений сюда не проходят.
 fn web_link(url: &Url) -> bool {
@@ -64,11 +74,11 @@ pub fn open_link(app: AppHandle, url: String) -> Result<(), AppError> {
     let url = Url::parse(&url)
         .ok()
         .filter(web_link)
-        .ok_or(AppError::invalid("link_invalid"))?;
+        .ok_or(AppError::invalid(LinkCode::Invalid))?;
 
     app.opener()
         .open_url(url.as_str(), None::<&str>)
-        .map_err(|_| AppError::unavailable("link_unopened"))
+        .map_err(|_| AppError::unavailable(LinkCode::Unopened))
 }
 
 #[cfg(test)]

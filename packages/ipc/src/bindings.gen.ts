@@ -76,6 +76,19 @@ export const events = {
 };
 
 /* Types */
+/**  Отказы агентов и их интеграций. */
+export type AgentsCode = "claude_missing" | 
+/**  Claude Code не ответил или ответил не так, как ждали. */
+"claude_failed" | 
+/**  Нет папки данных приложения, в которой Claude Code проходит проверки. */
+"data_dir_unavailable" | 
+/**  Интеграции для такого агента нет. */
+"integration_unknown" | 
+/**  Агента нет на устройстве, нет и папки его настроек. */
+"integration_agent_missing" | 
+/**  Настройки агента не разобрать. */
+"integration_config_invalid" | "integration_unreadable" | "integration_unwritable";
+
 /**
  *  Ошибка команды. Уходит в интерфейс видом и кодом, без текста: перевод
  *  делает интерфейс по коду (docs/architecture.md, «Ошибка это код»).
@@ -160,6 +173,23 @@ export type ErrorKind =
 
 export type Forge = "github" | "gitlab";
 
+/**  Отказы подключения к GitHub и GitLab. */
+export type ForgeCode = 
+/**  Токен пустой. */
+"forge_token_empty" | 
+/**  Сервер не принял токен: неверный, отозван или без нужных прав. */
+"forge_token_rejected" | 
+/**  Сервер не ответил или ответил ошибкой. */
+"forge_unreachable" | 
+/**  Адрес не https. */
+"forge_host_insecure" | 
+/**  По адресу нет API GitLab. */
+"forge_host_invalid" | "forge_unreadable" | "forge_unwritable" | "secret_empty" | 
+/**  Хранилище паролей не сохранило токен. */
+"secret_unsaved" | 
+/**  Хранилище паролей не стёрло токен. */
+"secret_unerased";
+
 /**  Подключение к одному серверу, как его видит окно. Токена здесь нет. */
 export type ForgeStatus = { kind: "none" } | { kind: "connected"; host: string; login: string };
 
@@ -188,6 +218,18 @@ export type Integration = {
  *  нет, нет и папки его настроек.
  */
 export type IntegrationState = "missing" | "off" | "on";
+
+/**  Отказы смены языка меню. */
+export type LanguageCode = 
+/**  Такого языка окна приложение не знает. */
+"language_unknown" | "menu_failed";
+
+/**  Отказы внешней ссылки. */
+export type LinkCode = 
+/**  Адрес не http, https или mailto. */
+"link_invalid" | 
+/**  Система не открыла браузер. */
+"link_unopened";
 
 /**  Пункт меню «Настройки…». */
 export type MenuSettings = null;
@@ -227,6 +269,11 @@ export type Project = {
 	path: string,
 	missing: boolean,
 };
+
+/**  Отказы списка проектов. */
+export type ProjectsCode = "projects_unreadable" | "projects_unwritable" | 
+/**  Путь выбранной папки не в UTF-8. */
+"project_path_invalid";
 
 /**
  *  Сессия в списке окна. Список читает её прямо из файла сессии.
@@ -269,11 +316,50 @@ export type SessionInfo_Serialize = {
  */
 export type SessionsChanged = null;
 
+/**  Отказы сессий. */
+export type SessionsCode = "session_missing" | 
+/**  id сессии или панели не годится в имя файла. */
+"session_invalid" | "session_unreadable" | "session_unwritable" | 
+/**  Имя от человека длиннее предела или с управляющим знаком. */
+"title_invalid" | 
+/**  Проекта сессии нет в списке или его папки нет на диске. */
+"project_missing" | 
+/**  В панелях сессии работает агент. */
+"agent_busy";
+
+/**  Отказы терминала. */
+export type TerminalCode = 
+/**  Псевдотерминал или оболочка не запустились. */
+"terminal_failed" | 
+/**  Терминала панели нет: он не открыт или уже закрыт. */
+"terminal_missing";
+
 /**  Оболочка панели `pane` сессии `session` кончилась. */
 export type TerminalExited = {
 	session: string,
 	pane: string,
 };
+
+/**  Отказы разблокировки окна. */
+export type UnlockCode = 
+/**  Человек закрыл системное окно проверки. */
+"unlock_canceled" | 
+/**  Проверка не пройдена. */
+"unlock_failed" | 
+/**  Системе нечем спросить: у учётной записи нет пароля. */
+"unlock_unavailable";
+
+/**
+ *  Отказы обновления. Установленная версия при любом из них работает
+ *  дальше.
+ */
+export type UpdateCode = 
+/**  Ставить нечего: проверка не нашла новой версии. */
+"update_missing" | 
+/**  Подпись установщика не сошлась. */
+"update_signature" | 
+/**  GitHub не ответил. */
+"update_unreachable" | "update_failed";
 
 /* Tauri Specta runtime */
 type EventEmit<T> = [T] extends [null] ? () => Promise<void> : (payload: T) => Promise<void>;

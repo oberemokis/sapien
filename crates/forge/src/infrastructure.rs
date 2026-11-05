@@ -1,4 +1,4 @@
-use crate::domain::{Forge, ForgeStatuses, login, user_url};
+use crate::domain::{Forge, ForgeCode, ForgeStatuses, login, user_url};
 use crate::egress;
 use crate::ports::{Accounts, Api};
 use reqwest::Client;
@@ -32,7 +32,7 @@ impl Default for Http {
 /// он не попадает. Знак, которого не бывает в заголовке, это не токен.
 fn secret(value: String) -> Result<HeaderValue, AppError> {
     let mut value =
-        HeaderValue::from_str(&value).map_err(|_| AppError::invalid("forge_token_rejected"))?;
+        HeaderValue::from_str(&value).map_err(|_| AppError::invalid(ForgeCode::TokenRejected))?;
 
     value.set_sensitive(true);
     Ok(value)
@@ -40,14 +40,14 @@ fn secret(value: String) -> Result<HeaderValue, AppError> {
 
 impl Api for Http {
     async fn login(&self, forge: Forge, host: &str, token: &str) -> Result<String, AppError> {
-        let invalid = |_| AppError::invalid("forge_host_invalid");
+        let invalid = |_| AppError::invalid(ForgeCode::HostInvalid);
         let (origin, user) = user_url(forge, host);
         let origin = Url::parse(&origin).map_err(invalid)?;
         let url = Url::parse(&user).map_err(invalid)?;
 
         // Путь с «//» или «@» увёл бы запрос с токеном на другой хост.
         if !egress::allowed(&url, &origin) {
-            return Err(AppError::invalid("forge_host_invalid"));
+            return Err(AppError::invalid(ForgeCode::HostInvalid));
         }
 
         let request = self.0.get(url).header(USER_AGENT, "sapien");
@@ -63,12 +63,12 @@ impl Api for Http {
         let response = request
             .send()
             .await
-            .map_err(|_| AppError::unavailable("forge_unreachable"))?;
+            .map_err(|_| AppError::unavailable(ForgeCode::Unreachable))?;
         let status = response.status().as_u16();
         let body = response
             .text()
             .await
-            .map_err(|_| AppError::unavailable("forge_unreachable"))?;
+            .map_err(|_| AppError::unavailable(ForgeCode::Unreachable))?;
 
         login(forge, status, &body)
     }
@@ -95,16 +95,16 @@ impl Accounts for AccountsFile {
             Err(error) if error.kind() == ErrorKind::NotFound => {
                 return Ok(ForgeStatuses::default());
             }
-            Err(_) => return Err(AppError::unavailable("forge_unreadable")),
+            Err(_) => return Err(AppError::unavailable(ForgeCode::Unreadable)),
         };
 
-        serde_json::from_slice(&bytes).map_err(|_| AppError::unavailable("forge_unreadable"))
+        serde_json::from_slice(&bytes).map_err(|_| AppError::unavailable(ForgeCode::Unreadable))
     }
 
     fn save(&self, statuses: &ForgeStatuses) -> Result<(), AppError> {
-        let unwritable = |_| AppError::unavailable("forge_unwritable");
-        let bytes =
-            serde_json::to_vec(statuses).map_err(|_| AppError::unavailable("forge_unwritable"))?;
+        let unwritable = |_| AppError::unavailable(ForgeCode::Unwritable);
+        let bytes = serde_json::to_vec(statuses)
+            .map_err(|_| AppError::unavailable(ForgeCode::Unwritable))?;
 
         if let Some(dir) = self.file.parent() {
             fs::create_dir_all(dir).map_err(unwritable)?;
@@ -145,7 +145,7 @@ mod tests {
     fn токен_с_переводом_строки_не_уходит() {
         assert_eq!(
             secret("ghp_1\nX-Other: 1".into()),
-            Err(AppError::invalid("forge_token_rejected"))
+            Err(AppError::invalid(ForgeCode::TokenRejected))
         );
         assert!(secret("glpat-1".into()).unwrap().is_sensitive());
     }

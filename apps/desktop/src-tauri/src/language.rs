@@ -5,6 +5,15 @@ use sapien_kernel::AppError;
 use std::sync::Mutex;
 use tauri::{AppHandle, Manager, Runtime};
 
+sapien_kernel::error_codes! {
+    /// Отказы смены языка меню.
+    pub enum LanguageCode {
+        /// Такого языка окна приложение не знает.
+        Unknown = "language_unknown",
+        MenuFailed = "menu_failed",
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub enum Language {
     #[default]
@@ -46,16 +55,16 @@ pub fn current<R: Runtime>(app: &AppHandle<R>) -> Language {
 #[tauri::command]
 #[specta::specta]
 pub fn app_set_language(app: AppHandle, language: String) -> Result<(), AppError> {
-    let language = Language::of(&language).ok_or(AppError::invalid("language_unknown"))?;
+    let language = Language::of(&language).ok_or(AppError::invalid(LanguageCode::Unknown))?;
 
     if let Ok(mut current) = app.state::<AppLanguage>().0.lock() {
         *current = language;
     }
 
-    let menu =
-        crate::menu::build(&app, language).map_err(|_| AppError::unavailable("menu_failed"))?;
+    let menu = crate::menu::build(&app, language)
+        .map_err(|_| AppError::unavailable(LanguageCode::MenuFailed))?;
     app.set_menu(menu)
-        .map_err(|_| AppError::unavailable("menu_failed"))?;
+        .map_err(|_| AppError::unavailable(LanguageCode::MenuFailed))?;
 
     Ok(())
 }

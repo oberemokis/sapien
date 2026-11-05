@@ -1,4 +1,4 @@
-use super::domain::{PaneAgent, Session, SessionInfo, session_name};
+use super::domain::{PaneAgent, Session, SessionInfo, SessionsCode, session_name};
 use super::ports::{Projects, Sessions};
 use sapien_kernel::AppError;
 use std::cmp::Reverse;
@@ -30,7 +30,7 @@ pub fn new_session(
     now: u64,
 ) -> Result<SessionInfo, AppError> {
     if projects.folder(project).is_none() {
-        return Err(AppError::not_found("project_missing"));
+        return Err(AppError::not_found(SessionsCode::ProjectMissing));
     }
 
     let session = Session::new(id, project, now);
@@ -49,7 +49,7 @@ pub fn delete_session(
     id: &str,
 ) -> Result<(), AppError> {
     if answering(id) {
-        return Err(AppError::conflict("agent_busy"));
+        return Err(AppError::conflict(SessionsCode::AgentBusy));
     }
 
     stop(id);
@@ -71,7 +71,7 @@ pub fn forget_project(
         .collect();
 
     if doomed.iter().any(|session| answering(&session.id)) {
-        return Err(AppError::conflict("agent_busy"));
+        return Err(AppError::conflict(SessionsCode::AgentBusy));
     }
 
     doomed.iter().try_for_each(|session| {
@@ -90,7 +90,7 @@ pub fn folder(
 
     projects
         .folder(&session.project)
-        .ok_or(AppError::not_found("project_missing"))
+        .ok_or(AppError::not_found(SessionsCode::ProjectMissing))
 }
 
 /// Агент взялся за работу в сессии `id` или назвал её заголовком `title`
@@ -119,7 +119,7 @@ pub fn touch(
 /// Человек назвал сессию `id` именем `title`. Место в списке не меняется.
 /// Пустое имя отдаёт сессию агенту: её снова назовёт заголовок терминала.
 pub fn rename_session(store: &impl Sessions, id: &str, title: &str) -> Result<(), AppError> {
-    let title = session_name(title).ok_or(AppError::invalid("title_invalid"))?;
+    let title = session_name(title).ok_or(AppError::invalid(SessionsCode::TitleInvalid))?;
     let mut session = store.load(id)?;
 
     session.named = !title.is_empty();
@@ -179,7 +179,7 @@ mod tests {
                 .unwrap()
                 .get(id)
                 .cloned()
-                .ok_or(AppError::not_found("session_missing"))
+                .ok_or(AppError::not_found(SessionsCode::Missing))
         }
 
         fn save(&self, session: &Session) -> Result<(), AppError> {
@@ -200,7 +200,7 @@ mod tests {
 
         assert_eq!(
             new_session(&store, &projects, "p9", "s2".into(), 1),
-            Err(AppError::not_found("project_missing"))
+            Err(AppError::not_found(SessionsCode::ProjectMissing))
         );
         assert_eq!(
             new_session(&store, &projects, "p1", "s1".into(), 1),
@@ -214,7 +214,7 @@ mod tests {
         );
         assert_eq!(
             folder(&store, &projects, "s9"),
-            Err(AppError::not_found("session_missing"))
+            Err(AppError::not_found(SessionsCode::Missing))
         );
     }
 
@@ -265,7 +265,7 @@ mod tests {
             new_session(&store, &projects, project, id.into(), 1).unwrap();
         }
 
-        let busy = Err(AppError::conflict("agent_busy"));
+        let busy = Err(AppError::conflict(SessionsCode::AgentBusy));
         // Агент работает в двух сессиях сразу.
         let answering = |id: &str| ["b", "c"].contains(&id);
 
@@ -310,7 +310,7 @@ mod tests {
 
         assert_eq!(
             touch(&store, "s9", None, 9),
-            Err(AppError::not_found("session_missing"))
+            Err(AppError::not_found(SessionsCode::Missing))
         );
     }
 
@@ -338,11 +338,11 @@ mod tests {
 
         assert_eq!(
             rename_session(&store, "s1", "две\nстроки"),
-            Err(AppError::invalid("title_invalid"))
+            Err(AppError::invalid(SessionsCode::TitleInvalid))
         );
         assert_eq!(
             rename_session(&store, "s9", "Имя"),
-            Err(AppError::not_found("session_missing"))
+            Err(AppError::not_found(SessionsCode::Missing))
         );
     }
 }

@@ -9,5 +9,5 @@ mod watcher;
 mod workspace;
 
 pub use ports::Events;
-pub use sapien_terminal::OutputSink;
+pub use sapien_terminal::{OutputSink, TerminalCode};
 pub use workspace::Workspace;

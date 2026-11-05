@@ -8,7 +8,7 @@ mod infrastructure;
 mod ports;
 mod use_case;
 
-pub use domain::{PaneAgent, Session, SessionInfo};
+pub use domain::{PaneAgent, Session, SessionInfo, SessionsCode};
 pub use infrastructure::{SessionsDir, without_chat};
 pub use ports::{PaneFiles, Projects, Sessions};
 pub use use_case::{
