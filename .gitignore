@@ -11,6 +11,9 @@ dist-ssr
 # turborepo
 .turbo
 
+# сборка Rust: один target/ на весь Cargo workspace
+/target/
+
 # test artifacts
 coverage
 test-results

@@ -1,0 +1,40 @@
+# Workspace крейтов: домены в crates/, приложение в apps/desktop/src-tauri.
+# Один Cargo.lock и один target/ на всех: зависимость компилируется один раз,
+# а версия у всех крейтов одна.
+[workspace]
+resolver = "3"
+# crates/* встанет сюда с первым крейтом: шаблон без совпадений Cargo
+# считает путём и падает.
+members = ["apps/desktop/src-tauri"]
+
+[workspace.package]
+edition = "2024"
+
+# Версии, общие для крейтов. Крейт берёт их строкой `x.workspace = true`
+# и при нужде добавляет свои features.
+[workspace.dependencies]
+libc = "0.2.191"
+log = "0.4.34"
+serde = { version = "1", features = ["derive"] }
+# preserve_order: интеграция агента дописывает хук в его настройки
+# и оставляет ключи человека в его порядке.
+serde_json = { version = "1.0.154", features = ["preserve_order"] }
+tempfile = "3.27.0"
+tokio = { version = "1.54.1", features = ["process", "sync", "time"] }
+url = "2"
+
+# Clippy гоняется с -D warnings в pnpm lint, поэтому отключённое здесь
+# записывается с причиной. Крейт подключает таблицу строкой
+# `[lints] workspace = true`.
+[workspace.lints.clippy]
+dbg_macro = "deny"
+todo = "deny"
+
+# Профиль читается только из корня workspace: в члене Cargo его игнорирует.
+# https://tauri.app/concept/size/#cargo-configuration
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+panic = "abort"
+strip = true

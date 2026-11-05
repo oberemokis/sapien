@@ -28,11 +28,10 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt
+          components: rustfmt, clippy
 
+      # Cargo workspace в корне: кеш по Cargo.lock и target/ оттуда же.
       - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: apps/desktop/src-tauri
 
       - uses: pnpm/action-setup@v6
 
