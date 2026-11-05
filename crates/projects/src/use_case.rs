@@ -1,5 +1,5 @@
-use super::domain::Project;
-use super::ports::Shelf;
+use crate::domain::Project;
+use crate::ports::Shelf;
 use sapien_kernel::AppError;
 use std::path::PathBuf;
 

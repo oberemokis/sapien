@@ -1,0 +1,17 @@
+# Проекты: папки на диске, в которых работает агент. Без Tauri: список
+# собирает корень композиции приложения, команды живут там же.
+[package]
+name = "sapien-projects"
+edition.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+sapien-kernel.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

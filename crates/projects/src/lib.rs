@@ -7,6 +7,7 @@ mod infrastructure;
 mod ports;
 mod use_case;
 
-// Команды открыты модулем целиком: generate_handler! ищет рядом с каждой
-// командой скрытые функции, которые переэкспорт через `pub use` не уносит.
-pub mod transport;
+pub use domain::Project;
+pub use infrastructure::ProjectsFile;
+pub use ports::Shelf;
+pub use use_case::{add, folder, list, remove};

@@ -13,4 +13,6 @@ mod use_case;
 pub mod transport;
 
 pub use infrastructure::sessions_dir::without_chat;
+// Папку проекта агенту даёт приложение: проекты об агенте не знают.
+pub use ports::Projects;
 pub use transport::{Terminals, hook, start_terminals, stop_terminals};

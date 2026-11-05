@@ -1,3 +1,4 @@
+mod commands;
 mod data_format;
 mod egress;
 mod language;
@@ -8,7 +9,8 @@ mod secrets;
 mod unlock;
 mod updates;
 
-use modules::{agent, forge, projects};
+use modules::{agent, forge};
+use sapien_projects::ProjectsFile;
 use tauri::{Manager, RunEvent};
 
 /// `sapien hook <агент>`: хук агента в панели сообщает приложению её
@@ -49,9 +51,15 @@ pub fn run() {
             // До окна: никто не должен прочитать файлы приложения
             // в прежнем формате. Отказ не держит запуск, шаг повторится
             // при следующем.
-            if let Err(error) = data_format::migrate(&app.path().app_data_dir()?) {
+            let data_dir = app.path().app_data_dir()?;
+
+            if let Err(error) = data_format::migrate(&data_dir) {
                 log::error!("перенос данных приложения не закончен: {error}");
             }
+            // Хранилища доменов собираются один раз, команды берут их
+            // из State. Раньше терминалов: подъём панели спрашивает папку
+            // проекта.
+            app.manage(ProjectsFile::new(&data_dir));
             agent::start_terminals(app.handle());
             links::main_window(app)?;
             Ok(())
@@ -63,9 +71,9 @@ pub fn run() {
             updates::app_update_install,
             unlock::app_unlock,
             language::app_set_language,
-            projects::transport::projects_list,
-            projects::transport::projects_add,
-            projects::transport::projects_remove,
+            commands::projects::projects_list,
+            commands::projects::projects_add,
+            commands::projects::projects_remove,
             agent::transport::agent_sessions,
             agent::transport::agent_session_new,
             agent::transport::agent_session_delete,

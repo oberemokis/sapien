@@ -12,6 +12,7 @@ edition = "2024"
 # и при нужде добавляет свои features.
 [workspace.dependencies]
 sapien-kernel = { path = "crates/kernel" }
+sapien-projects = { path = "crates/projects" }
 libc = "0.2.191"
 log = "0.4.34"
 serde = { version = "1", features = ["derive"] }
