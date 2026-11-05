@@ -1,32 +1,24 @@
 # sapien
 
-Монорепа на pnpm и turbo: сервер на Hono и приложение для macOS на Tauri v2 и React для работы с агентом Claude Code в папках проектов. Приложение ходит в сервер через клиент Hono RPC. Устройство слоёв, дерево каталогов и правила: [docs/architecture.md](./docs/architecture.md).
+Монорепа на pnpm и turbo: приложение для macOS на Tauri v2 и React для работы с агентами вроде Claude Code в терминалах проектов. Устройство слоёв, дерево каталогов и правила: [docs/architecture.md](./docs/architecture.md).
 
 ## Стек
 
 | Слой | Инструмент |
 | --- | --- |
-| Сервер | Hono 4 на `@hono/node-server`, zod 4 |
-| Транспорт | Hono RPC: клиент `hc` выводит типы из маршрутов сервера |
 | Оболочка | Tauri 2, Rust 2024 edition |
 | Интерфейс | React 19, TanStack Router с файловыми маршрутами, Tailwind 4 |
-| Состояние | TanStack Query для данных сервера, TanStack Store для остального |
+| Состояние | TanStack Query для данных из Rust, TanStack Store для остального |
 | Локализация | i18next и react-i18next |
-| Сборка | Vite 8, tsup, tsx, turbo, pnpm 11 |
+| Сборка | Vite 8, turbo, pnpm 11 |
 | Проверки | tsc, oxlint, `scripts/check-boundaries.mjs`, cargo check и rustfmt, secretlint, pnpm audit и cargo audit |
-| Тесты | vitest, `hono/testing`, Testing Library, happy-dom |
+| Тесты | vitest, Testing Library, happy-dom, cargo test |
 
 ## Раскладка
 
 ```
-apps/api              @sapien/api, порт 3400
-  src/core/           окружение
-  src/app/            цепочка маршрутов, CORS, тип AppType
-  src/modules/<модуль>/{domain,use-case,infrastructure,transport}
-
 apps/desktop          @sapien/desktop
   src/                интерфейс: app/, core/, modules/<модуль>/, pages/
-  src/core/api/       клиент hc<AppType>
   src-tauri/          Rust: точка входа, команды, права окна, иконки
 
 packages/             пусто, пакет появляется при втором потребителе
@@ -39,15 +31,12 @@ scripts/              проверка направления зависимос
 
 ```bash
 pnpm install
-pnpm dev              # api на 3400 и окно приложения (Vite на 1420 и Rust)
-pnpm dev:web          # api и интерфейс в браузере, команды Rust там недоступны
-pnpm dev:api          # только api
+pnpm dev              # окно приложения (Vite на 1420 и Rust)
+pnpm dev:web          # интерфейс в браузере, команды Rust там недоступны
 pnpm bundle           # бандл под текущую систему в src-tauri/target/release/bundle
 ```
 
 Порт Vite закреплён на 1420: его ждёт `devUrl` в `src-tauri/tauri.conf.json`, и занятый порт роняет запуск, а не уводит Vite на соседний.
-
-Api слушает 3400, а не 3000: на трёх тысячах сидит почти каждый локальный сервер. Порт задаёт `PORT`, адрес api для окна задаёт `VITE_API_URL`. Окно грузится со своего origin, поэтому ходит в api напрямую, без прокси, а api пускает его через CORS. Сменили адрес, поменяйте его и в `connect-src` в `tauri.conf.json`: иначе бандл заблокирует запросы.
 
 Первый `pnpm dev` и первый `pnpm typecheck` компилируют зависимости Rust, это около минуты. Дальше сборка инкрементальная.
 

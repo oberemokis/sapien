@@ -25,7 +25,7 @@ function isSpec(file) {
   return /\.spec\.tsx?$/.test(file);
 }
 
-// Пакет и любой его подпуть: «hono» закрывает и «hono/client».
+// Пакет и любой его подпуть: «react» закрывает и «react/jsx-runtime».
 function isPackage(spec, names) {
   return names.some((name) => spec === name || spec.startsWith(`${name}/`));
 }
@@ -56,32 +56,11 @@ function clientTargetOf(spec, file) {
     .join("/");
 }
 
-// Домену открыты zod и соседние файлы его же domain. Сосед считается по месту
-// файла, а не по виду пути: «../domain/x» из domain/sub остаётся внутри,
-// «../ports» уже нет.
-function isDomainImport(spec, file) {
-  if (isPackage(spec, ["zod"])) {
-    return true;
-  }
-
-  if (!spec.startsWith(".")) {
-    return false;
-  }
-
-  const marker = `${sep}domain${sep}`;
-  const domain = resolve(file.slice(0, file.indexOf(marker) + marker.length));
-  const target = resolve(dirname(file), spec);
-
-  return target === domain || target.startsWith(`${domain}${sep}`);
-}
-
-// Куда ведёт импорт: «@/modules/social/ports» и «../../social/ports» означают
+// Куда ведёт импорт: «@/modules/social/model» и «../../social/model» означают
 // одно и то же, поэтому псевдоним и относительный путь сводятся к одной паре
-// «модуль плюс остаток». Псевдонимов два: desktop резолвит через tsconfig и
-// пишет «@/modules», api через imports пакета и пишет «#modules»,
-// потому что Node запрещает внутренние подпути вида «#/».
+// «модуль плюс остаток».
 function targetOf(spec, file) {
-  const alias = /^(?:@\/|#)modules\/(.+)$/.exec(spec);
+  const alias = /^@\/modules\/(.+)$/.exec(spec);
 
   if (alias !== null) {
     const [targetModule, ...rest] = alias[1].split("/");
@@ -125,10 +104,10 @@ function reachesIntoNeighbour(spec, file) {
 }
 
 // Свой же модуль по псевдониму адресовать можно, но слой это не отменяет:
-// сценарию адаптеры закрыты, как бы он их ни назвал.
+// interactions экран закрыт, как бы они его ни назвали.
 function reachesIntoLayer(spec, layers) {
   const inside = new RegExp(`(^|/)(${layers})(/|$)`);
-  const own = new RegExp(`^(?:@/|#)modules/[^/]+/(${layers})(/|$)`);
+  const own = new RegExp(`^@/modules/[^/]+/(${layers})(/|$)`);
 
   if (own.test(spec)) {
     return true;
@@ -147,70 +126,16 @@ const UI = "apps/desktop";
 
 const rules = [
   {
-    name: "интерфейс видит api только по типу",
-    files: `${UI}/src/**/*.{ts,tsx}`,
-    forbidden: (spec, isType) => spec === "@sapien/api" && !isType,
-    hint: "значимый импорт тащит сервер в бандл приложения",
-  },
-  {
-    // Псевдонимов у api два вида: «#modules/x» и «#app/x», у интерфейса
-    // «@/modules/x» и «@/app/x». Решётка ловится наравне с косой чертой.
     name: "core не знает модулей и сборки приложения",
-    files: "apps/*/src/core/**/*.{ts,tsx}",
-    forbidden: (spec) => /(^|\/|#)(modules|app)\//.test(spec),
+    files: `${UI}/src/core/**/*.{ts,tsx}`,
+    forbidden: (spec) => /(^|\/)(modules|app)\//.test(spec),
     hint: "инфраструктура не должна знать домен",
   },
   {
     name: "сосед берётся через index модуля",
-    files: "apps/*/src/**/*.{ts,tsx}",
+    files: `${UI}/src/**/*.{ts,tsx}`,
     forbidden: (spec, _isType, file) => reachesIntoNeighbour(spec, file),
     hint: "внутренности чужого модуля закрыты, наружу смотрит только index.ts",
-  },
-  {
-    // Тест домена исключён: ему нужен vitest.
-    name: "домен знает только zod и свой domain",
-    files: "apps/api/src/modules/*/domain/**/*.ts",
-    forbidden: (spec, _isType, file) =>
-      !isSpec(file) && !isDomainImport(spec, file),
-    hint: "домен лежит на дне модуля и проверяется без сети и ядра",
-  },
-  {
-    name: "сценарий не знает адаптеров и транспорта",
-    files: "apps/api/src/modules/*/use-case/**/*.ts",
-    forbidden: (spec) => reachesIntoLayer(spec, "infrastructure|transport"),
-    hint: "сценарий работает с портом, а не с реализацией",
-  },
-  {
-    name: "сценарий не знает протокола",
-    files: "apps/api/src/modules/*/use-case/**/*.ts",
-    forbidden: (spec) => isPackage(spec, ["hono", "@hono"]),
-    hint: "запрос и ответ остаются в транспорте, сценарию приходит вход",
-  },
-  {
-    // Список сценариев собирает service.ts: транспорт, позвавший сценарий
-    // напрямую, получает его без портов, которые service уже связал.
-    name: "транспорт зовёт сценарии через service",
-    files: "apps/api/src/modules/*/transport/**/*.ts",
-    forbidden: (spec) => reachesIntoLayer(spec, "use-case"),
-    hint: "транспорт берёт готовый сервис, а не отдельный сценарий",
-  },
-  {
-    name: "адаптер не знает сценариев и транспорта",
-    files: "apps/api/src/modules/*/infrastructure/**/*.ts",
-    forbidden: (spec) => reachesIntoLayer(spec, "use-case|transport"),
-    hint: "адаптер выполняет порт, а кто его зовёт, он знать не должен",
-  },
-  {
-    // Сборка модуля живёт в index.ts, и только ему позволено видеть адаптеры:
-    // порты и список сценариев обязаны обходиться портами, иначе подменить
-    // границу в тесте нечем.
-    name: "порты и сервис не знают адаптеров",
-    files: "apps/api/src/modules/*/*.ts",
-    forbidden: (spec, _isType, file) =>
-      !file.endsWith("/index.ts") &&
-      (/\.\/(infrastructure|transport)(\/|$)/.test(spec) ||
-        reachesIntoLayer(spec, "infrastructure|transport")),
-    hint: "адаптеры собирает index.ts, он и есть дверь модуля",
   },
   {
     // Словари и расчёты не должны знать ни про сеть, ни про Rust, ни про
@@ -220,11 +145,9 @@ const rules = [
     name: "модель не знает ни запросов, ни разметки",
     files: `${UI}/src/modules/*/model/**/*.ts`,
     forbidden: (spec, isType) =>
-      spec.startsWith("@/core/api/") ||
       /\.\.\/(interactions|infrastructure|flows|components|ui)(\/|$)/.test(spec) ||
       (!isType &&
-        (isTauri(spec) ||
-          isPackage(spec, ["react", "react-dom", "@tanstack", "hono"]))),
+        (isTauri(spec) || isPackage(spec, ["react", "react-dom", "@tanstack"]))),
     hint: "модель это правила показа, данные ей приносят",
   },
   {
@@ -246,7 +169,7 @@ const rules = [
   {
     // Тест исключён: он подменяет Rust через mockIPC и шлёт его события,
     // то есть сам стоит на границе процесса.
-    name: "api и Tauri живут в infrastructure",
+    name: "Tauri живёт в infrastructure",
     files: `${UI}/src/**/*.{ts,tsx}`,
     forbidden: (spec, isType, file) =>
       !isType &&
@@ -254,10 +177,8 @@ const rules = [
       !/^apps\/[^/]+\/src\/(core|modules\/[^/]+\/infrastructure)\//.test(
         file,
       ) &&
-      (isTauri(spec) ||
-        isPackage(spec, ["hono"]) ||
-        clientTargetOf(spec, file) === "core/api/client"),
-    hint: "выше infrastructure ходят за данными модуля, а не за маршрутом или командой",
+      isTauri(spec),
+    hint: "выше infrastructure ходят за данными модуля, а не за командой",
   },
   {
     // Тест исключён по той же причине, что и у соседей: он подменяет границу
