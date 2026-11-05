@@ -1,0 +1,17 @@
+{
+  "name": "@sapien/ipc",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "catalog:"
+  },
+  "devDependencies": {
+    "typescript": "catalog:"
+  }
+}

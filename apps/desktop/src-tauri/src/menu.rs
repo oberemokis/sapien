@@ -1,6 +1,8 @@
+use crate::events::MenuSettings;
 use crate::language::Language;
 use tauri::menu::{AboutMetadata, Menu, MenuBuilder, MenuEvent, MenuItemBuilder, SubmenuBuilder};
-use tauri::{AppHandle, Emitter, Runtime};
+use tauri::{AppHandle, Runtime};
+use tauri_specta::Event;
 
 const SETTINGS: &str = "settings";
 
@@ -61,6 +63,6 @@ pub fn build<R: Runtime>(app: &AppHandle<R>, language: Language) -> tauri::Resul
 /// Настройки открывает окно: Rust только передаёт ему выбор пункта.
 pub fn handle<R: Runtime>(app: &AppHandle<R>, event: MenuEvent) {
     if event.id().as_ref() == SETTINGS {
-        let _ = app.emit("menu-settings", ());
+        let _ = MenuSettings.emit(app);
     }
 }

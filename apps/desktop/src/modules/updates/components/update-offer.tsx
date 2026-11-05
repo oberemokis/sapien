@@ -1,10 +1,11 @@
 import { useTranslation } from "react-i18next";
 import { openLink } from "@/core/links/open-link";
+import type { Progress } from "@sapien/ipc";
 import { Button } from "@sapien/ui";
 import { useAppVersion, useUpdateInstall, useUpdateOffer } from "../interactions/update";
-import { percentOf, releaseItems, releaseUrl, type UpdateProgress } from "../model/update";
+import { percentOf, releaseItems, releaseUrl } from "../model/update";
 
-function ProgressLine({ progress }: { progress: UpdateProgress | null }) {
+function ProgressLine({ progress }: { progress: Progress | null }) {
   const { t } = useTranslation();
   const percent = percentOf(progress);
   let label: string = t("updates.offer.downloading");

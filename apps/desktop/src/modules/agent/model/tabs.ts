@@ -1,4 +1,5 @@
-import { isIds, type SessionInfo } from "./sessions";
+import type { SessionInfo } from "@sapien/ipc";
+import { isIds } from "./sessions";
 
 // Вкладки одного проекта: открытые сессии по порядку и активная среди них.
 // pinned: закреплённые, они всегда стоят левее остальных.

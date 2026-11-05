@@ -1,20 +1,16 @@
 //! Рабочее место в приложении: `sapien_workspace::Workspace` над файлами
 //! в папке данных, с событиями и каналом вывода Tauri.
 
+use crate::events::{SessionsChanged, TerminalExited};
 use sapien_projects::ProjectsFile;
 use sapien_sessions::{Projects, SessionsDir};
 use sapien_workspace::{Events, OutputSink};
-use serde_json::json;
+use specta::datatype::DataType;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tauri::ipc::{Channel, InvokeResponseBody};
-use tauri::{AppHandle, Emitter};
-
-/// Окну перечитать сессии: что-то в них поменялось без его команды.
-const SESSIONS_CHANGED: &str = "agent-sessions";
-
-/// Оболочка терминала кончилась.
-const TERMINAL_EXITED: &str = "terminal-exited";
+use tauri::AppHandle;
+use tauri::ipc::{Channel, InvokeResponseBody, IpcResponse};
+use tauri_specta::Event;
 
 pub type Workspace = Arc<sapien_workspace::Workspace<SessionsDir, ProjectFolders, TauriEvents>>;
 
@@ -45,21 +41,39 @@ pub struct TauriEvents(AppHandle);
 
 impl Events for TauriEvents {
     fn sessions_changed(&self) {
-        let _ = self.0.emit(SESSIONS_CHANGED, ());
+        let _ = SessionsChanged.emit(&self.0);
     }
 
     fn terminal_exited(&self, session: &str, pane: &str) {
-        let _ = self
-            .0
-            .emit(TERMINAL_EXITED, json!({ "session": session, "pane": pane }));
+        let _ = TerminalExited {
+            session: session.to_owned(),
+            pane: pane.to_owned(),
+        }
+        .emit(&self.0);
     }
 }
 
-/// Вывод терминала в окно байтами через канал вкладки.
-pub struct ChannelSink(pub Channel);
+/// Вывод терминала: идёт в канал байтами, без JSON, и приходит в окно
+/// `ArrayBuffer`.
+pub struct Bytes(Vec<u8>);
+
+impl IpcResponse for Bytes {
+    fn body(self) -> tauri::Result<InvokeResponseBody> {
+        Ok(InvokeResponseBody::Raw(self.0))
+    }
+}
+
+impl specta::Type for Bytes {
+    fn definition(_: &mut specta::Types) -> DataType {
+        specta_typescript::define("ArrayBuffer").into()
+    }
+}
+
+/// Вывод терминала в окно через канал вкладки.
+pub struct ChannelSink(pub Channel<Bytes>);
 
 impl OutputSink for ChannelSink {
     fn send(&self, bytes: &[u8]) {
-        let _ = self.0.send(InvokeResponseBody::Raw(bytes.to_vec()));
+        let _ = self.0.send(Bytes(bytes.to_vec()));
     }
 }

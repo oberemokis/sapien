@@ -76,6 +76,7 @@ fn ask(language: Language) -> Result<oneshot::Receiver<Result<(), Error>>, Error
 /// Окно ждёт ответа человека в системном окне проверки, поэтому команда
 /// асинхронная и главный поток не держит.
 #[tauri::command]
+#[specta::specta]
 pub async fn app_unlock(app: AppHandle) -> Result<(), AppError> {
     let result = match ask(language::current(&app)) {
         Ok(receiver) => receiver.await.unwrap_or(Err(Error::Unknown)),

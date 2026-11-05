@@ -27,7 +27,10 @@ sapien-sessions.workspace = true
 sapien-workspace.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-tauri = { version = "2", features = [] }
+specta.workspace = true
+specta-typescript = "=0.0.13"
+tauri = { version = "2", features = ["specta"] }
+tauri-specta = { version = "=2.0.0-rc.26", features = ["derive", "typescript"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-log = "2.9.2"
 tauri-plugin-opener = "2.5.5"

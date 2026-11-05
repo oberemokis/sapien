@@ -33,6 +33,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # cargo audit идёт через cargo из rust-toolchain.toml.
+      - run: rustup toolchain install
+
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-audit

@@ -1,12 +1,4 @@
-// Новая версия из последнего релиза GitHub. notes это описание релиза
-// в markdown: что изменилось с прошлой версии.
-export type Update = {
-  version: string;
-  notes: string | null;
-};
-
-// Ход загрузки из канала Rust. total нет, когда сервер не назвал размер.
-export type UpdateProgress = { kind: "chunk"; received: number; total: number | null } | { kind: "downloaded" };
+import type { Progress } from "@sapien/ipc";
 
 const PROBLEMS = ["update_signature", "update_unreachable"] as const;
 
@@ -28,8 +20,8 @@ export function updateProblemOf(error: unknown): UpdateProblem {
 }
 
 // Сколько скачано, в процентах. Пока размер неизвестен, процентов нет.
-export function percentOf(progress: UpdateProgress | null): number | null {
-  if (progress?.kind !== "chunk" || progress.total === null || progress.total === 0) {
+export function percentOf(progress: Progress | null): number | null {
+  if (progress?.kind !== "chunk" || !progress.total) {
     return null;
   }
 

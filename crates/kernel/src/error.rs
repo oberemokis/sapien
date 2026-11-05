@@ -1,8 +1,9 @@
 use serde::Serialize;
+use specta::Type;
 
 /// Ошибка команды. Уходит в интерфейс видом и кодом, без текста: перевод
 /// делает интерфейс по коду (docs/architecture.md, «Ошибка это код»).
-#[derive(Debug, PartialEq, Serialize)]
+#[derive(Debug, PartialEq, Serialize, Type)]
 pub struct AppError {
     pub kind: ErrorKind,
     pub code: &'static str,
@@ -13,7 +14,7 @@ pub struct AppError {
     pub detail: Option<String>,
 }
 
-#[derive(Debug, PartialEq, Serialize)]
+#[derive(Debug, PartialEq, Serialize, Type)]
 #[serde(rename_all = "snake_case")]
 pub enum ErrorKind {
     /// Того, о чём просят, нет: папку не выбрали или её убрали.

@@ -1,19 +1,19 @@
+import { commands } from "@sapien/ipc";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { agentIntegrationInstall, agentIntegrationRemove, agentIntegrations } from "../infrastructure/agent.api";
-import type { Agent } from "../model/sessions";
 
 const INTEGRATIONS_KEY = ["agent", "integrations"] as const;
 
 export function useIntegrations() {
-  return useQuery({ queryKey: INTEGRATIONS_KEY, queryFn: agentIntegrations });
+  return useQuery({ queryKey: INTEGRATIONS_KEY, queryFn: commands.agentIntegrations });
 }
 
-function toggle({ agent, on }: { agent: Agent; on: boolean }) {
+// Rust дописывает хук в настройки агента или кладёт его расширение.
+function toggle({ agent, on }: { agent: string; on: boolean }) {
   if (on) {
-    return agentIntegrationInstall(agent);
+    return commands.agentIntegrationInstall(agent);
   }
 
-  return agentIntegrationRemove(agent);
+  return commands.agentIntegrationRemove(agent);
 }
 
 // Ставит или снимает интеграцию агента. После ответа список перечитывается:

@@ -1,8 +1,9 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use specta::Type;
 
 /// Claude Code на устройстве: через него агент расходует подписку Claude.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Type)]
 #[serde(rename_all = "snake_case")]
 pub enum ClaudeState {
     Missing,
@@ -14,7 +15,7 @@ pub enum ClaudeState {
     Ready,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Type)]
 pub struct ClaudeStatus {
     pub state: ClaudeState,
     pub version: Option<String>,
@@ -93,7 +94,7 @@ pub fn agent_of(command: &str) -> Option<&'static str> {
 
 /// Интеграция агента в его настройках. `Missing`: агента на устройстве
 /// нет, нет и папки его настроек.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Type)]
 #[serde(rename_all = "snake_case")]
 pub enum IntegrationState {
     Missing,
@@ -101,7 +102,7 @@ pub enum IntegrationState {
     On,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Type)]
 pub struct Integration {
     pub agent: &'static str,
     pub state: IntegrationState,

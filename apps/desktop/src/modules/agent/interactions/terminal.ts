@@ -1,8 +1,8 @@
+import { Channel, commands } from "@sapien/ipc";
 import { useSelector } from "@tanstack/react-store";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal, type ITheme } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
-import { terminalClose, terminalOpen, terminalResize, terminalWrite } from "../infrastructure/agent.api";
 import { terminalsStore, type TerminalNotice, type TerminalState } from "../store/sessions.store";
 
 // Терминал панели в окне. Живёт дольше вкладки на экране: при переходе
@@ -98,17 +98,21 @@ function start(view: View) {
 
   view.term.onData((data) => {
     if (!muted) {
-      send(view, (pane) => terminalWrite(pane, data));
+      send(view, (pane) => commands.terminalWrite(pane, data));
     }
   });
-  view.term.onResize(({ cols, rows }) => send(view, (pane) => terminalResize(pane, cols, rows)));
+  view.term.onResize(({ cols, rows }) => send(view, (pane) => commands.terminalResize(pane, cols, rows)));
   // Закрытый терминал вывода и плашек не получает.
   const shown = () => views.get(view.pane) === view;
 
-  view.queue = terminalOpen(view.session, view.pane, view.term.cols, view.term.rows, (bytes) => {
+  // Первое сообщение всегда прежний экран панели, пусть и пустой, дальше
+  // идёт живой вывод.
+  const output = new Channel<ArrayBuffer>((data) => {
     if (!shown()) {
       return;
     }
+
+    const bytes = new Uint8Array(data);
 
     if (replay) {
       replay = false;
@@ -120,7 +124,9 @@ function start(view: View) {
     }
 
     view.term.write(bytes);
-  }).then(
+  });
+
+  view.queue = commands.terminalOpen(view.session, view.pane, view.term.cols, view.term.rows, output).then(
     () => {
       if (shown()) {
         setNotice(view.pane, null);
@@ -173,7 +179,7 @@ function dispose(pane: string) {
 export function closeTerminal(pane: string) {
   dispose(pane);
   terminalsStore.setState((states) => Object.fromEntries(Object.entries(states).filter(([id]) => id !== pane)));
-  void terminalClose(pane).catch(() => undefined);
+  void commands.terminalClose(pane).catch(() => undefined);
 }
 
 // Оболочка кончилась или не запустилась: терминал начинается заново,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { SessionInfo } from "./sessions";
+import type { SessionInfo } from "@sapien/ipc";
 import { closeTab, moveTab, NO_TABS, openTab, parseTabs, pinTab, visibleTabs, type Tabs } from "./tabs";
 
 const session = (id: string, project: string): SessionInfo => ({

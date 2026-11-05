@@ -1,11 +1,11 @@
 import { queryOptions, useQuery } from "@tanstack/react-query";
-import { agentClaudeStatus } from "../infrastructure/agent.api";
+import { commands } from "@sapien/ipc";
 
 // Проверка запускает Claude Code на устройстве, поэтому повторяется
 // только по кнопке в настройках.
 const claudeStatusQuery = queryOptions({
   queryKey: ["agent", "claude"],
-  queryFn: agentClaudeStatus,
+  queryFn: commands.agentClaudeStatus,
   retry: false,
   staleTime: Infinity,
 });

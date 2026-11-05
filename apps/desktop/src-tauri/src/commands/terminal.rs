@@ -1,7 +1,7 @@
 // Команды терминала асинхронные: синхронная команда идёт в главном потоке,
 // а через него же канал отдаёт вывод окну.
 
-use crate::workspace::{ChannelSink, Workspace};
+use crate::workspace::{Bytes, ChannelSink, Workspace};
 use sapien_kernel::AppError;
 use tauri::State;
 use tauri::ipc::Channel;
@@ -9,13 +9,14 @@ use tauri::ipc::Channel;
 /// Терминал панели `pane` сессии `session` размером `cols` на `rows`.
 /// Вывод идёт в `on_data`, первым сообщением уже написанное.
 #[tauri::command]
+#[specta::specta]
 pub async fn terminal_open(
     workspace: State<'_, Workspace>,
     session: String,
     pane: String,
     cols: u16,
     rows: u16,
-    on_data: Channel,
+    on_data: Channel<Bytes>,
 ) -> Result<(), AppError> {
     workspace.open(
         &session,
@@ -27,6 +28,7 @@ pub async fn terminal_open(
 
 /// Оболочка панели запускается без вкладки, идущую не трогает.
 #[tauri::command]
+#[specta::specta]
 pub async fn terminal_start(
     workspace: State<'_, Workspace>,
     session: String,
@@ -36,6 +38,7 @@ pub async fn terminal_start(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn terminal_write(
     workspace: State<'_, Workspace>,
     pane: String,
@@ -45,6 +48,7 @@ pub async fn terminal_write(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn terminal_resize(
     workspace: State<'_, Workspace>,
     pane: String,
@@ -56,6 +60,7 @@ pub async fn terminal_resize(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn terminal_close(workspace: State<'_, Workspace>, pane: String) -> Result<(), AppError> {
     workspace.close(&pane);
     Ok(())

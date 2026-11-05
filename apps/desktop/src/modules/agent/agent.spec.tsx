@@ -3,8 +3,7 @@ import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { AgentSettings } from "@/modules/agent";
-import type { ClaudeStatus } from "./model/claude";
-import type { Integration } from "./model/sessions";
+import type { ClaudeStatus, Integration } from "@sapien/ipc";
 
 const READY: ClaudeStatus = { state: "ready", version: "2.1.316" };
 

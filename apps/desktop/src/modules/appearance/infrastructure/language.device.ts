@@ -1,5 +1,6 @@
 import { defineSetting } from "@sapien/device";
-import { invoke, isTauri } from "@tauri-apps/api/core";
+import { commands } from "@sapien/ipc";
+import { isTauri } from "@tauri-apps/api/core";
 import { parseLanguage, type Language } from "../model/language";
 
 export const languageSetting = defineSetting<Language>({
@@ -15,7 +16,7 @@ export function paintLanguage(language: Language) {
   document.documentElement.lang = language;
 
   if (isTauri()) {
-    invoke("app_set_language", { language }).catch(() => {
+    commands.appSetLanguage(language).catch(() => {
       // Меню останется на прежнем языке, окно это не задевает.
     });
   }

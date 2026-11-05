@@ -1,19 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSelector } from "@tanstack/react-store";
 import { useEffect } from "react";
-import {
-  agentSessionDelete,
-  agentSessionNew,
-  agentSessionRename,
-  agentSessions,
-  onSessionsChanged,
-  onTerminalExited,
-  projectsAdd,
-  projectsList,
-  projectsRemove,
-} from "../infrastructure/agent.api";
+import { commands, events, type SessionInfo } from "@sapien/ipc";
 import { collapsedSetting, sessionOrderSetting, tabsSetting } from "../infrastructure/agent.device";
-import { moveSession, sessionsOf, type SessionInfo } from "../model/sessions";
+import { moveSession, sessionsOf } from "../model/sessions";
 import { closeTab, moveTab, openTab, pinTab, visibleTabs, type Tabs } from "../model/tabs";
 import { collapsedStore, searchStore, sessionOrderStore, tabsStore } from "../store/sessions.store";
 import { forgetPanes, sessionPanes } from "./panes";
@@ -44,11 +34,11 @@ export function toggleAgents(session: string) {
 }
 
 export function useProjects() {
-  return useQuery({ queryKey: PROJECTS_KEY, queryFn: projectsList });
+  return useQuery({ queryKey: PROJECTS_KEY, queryFn: commands.projectsList });
 }
 
 export function useSessions() {
-  return useQuery({ queryKey: SESSIONS_KEY, queryFn: agentSessions });
+  return useQuery({ queryKey: SESSIONS_KEY, queryFn: commands.agentSessions });
 }
 
 // Сессии проекта в левой панели, в порядке, который задал человек.
@@ -119,7 +109,10 @@ export function useAgentEvents() {
 
   useEffect(() => {
     const refresh = () => queryClient.invalidateQueries({ queryKey: SESSIONS_KEY });
-    const listeners = [onSessionsChanged(() => void refresh()), onTerminalExited(terminalExited)];
+    const listeners = [
+      events.agentSessions.listen(() => void refresh()),
+      events.terminalExited.listen(({ payload }) => terminalExited(payload.pane)),
+    ];
 
     return () => {
       for (const listener of listeners) {
@@ -146,7 +139,7 @@ export function useNewSession() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: agentSessionNew,
+    mutationFn: commands.agentSessionNew,
     onSuccess: async (session) => {
       await queryClient.invalidateQueries({ queryKey: SESSIONS_KEY });
       openSession(session);
@@ -160,7 +153,7 @@ export function useAddProject() {
   const newSession = useNewSession();
 
   return useMutation({
-    mutationFn: projectsAdd,
+    mutationFn: commands.projectsAdd,
     onSuccess: async (project) => {
       await queryClient.invalidateQueries({ queryKey: PROJECTS_KEY });
 
@@ -175,7 +168,7 @@ export function useRemoveProject() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: projectsRemove,
+    mutationFn: commands.projectsRemove,
     onSettled: () =>
       Promise.all([
         queryClient.invalidateQueries({ queryKey: PROJECTS_KEY }),
@@ -189,7 +182,7 @@ export function useRenameSession() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ id, title }: { id: string; title: string }) => agentSessionRename(id, title),
+    mutationFn: ({ id, title }: { id: string; title: string }) => commands.agentSessionRename(id, title),
     onSettled: () => queryClient.invalidateQueries({ queryKey: SESSIONS_KEY }),
   });
 }
@@ -199,7 +192,7 @@ export function useDeleteSession() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (session: SessionInfo) => agentSessionDelete(session.id),
+    mutationFn: (session: SessionInfo) => commands.agentSessionDelete(session.id),
     onSuccess: (_, session) => {
       closeSession(session);
       forgetPanes(session.id);

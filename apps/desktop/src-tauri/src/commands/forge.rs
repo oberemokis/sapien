@@ -4,6 +4,7 @@ use tauri::State;
 
 /// Подключения, как их сохранили, без сети.
 #[tauri::command]
+#[specta::specta]
 pub fn forge_status(
     accounts: State<'_, AccountsFile>,
     secrets: State<'_, Secrets>,
@@ -13,6 +14,7 @@ pub fn forge_status(
 
 /// Токен приходит из окна один раз и обратно не возвращается.
 #[tauri::command]
+#[specta::specta]
 pub async fn forge_connect(
     http: State<'_, Http>,
     accounts: State<'_, AccountsFile>,
@@ -25,6 +27,7 @@ pub async fn forge_connect(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub fn forge_disconnect(
     accounts: State<'_, AccountsFile>,
     secrets: State<'_, Secrets>,

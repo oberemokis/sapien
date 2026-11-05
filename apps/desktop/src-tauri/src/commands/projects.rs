@@ -5,12 +5,14 @@ use tauri::{AppHandle, State};
 use tauri_plugin_dialog::DialogExt;
 
 #[tauri::command]
+#[specta::specta]
 pub fn projects_list(shelf: State<'_, ProjectsFile>) -> Result<Vec<Project>, AppError> {
     sapien_projects::list(&*shelf)
 }
 
 /// Системный выбор папки. Окно закрыли без выбора: `None`.
 #[tauri::command]
+#[specta::specta]
 pub async fn projects_add(
     app: AppHandle,
     shelf: State<'_, ProjectsFile>,
@@ -37,6 +39,7 @@ pub async fn projects_add(
 /// Убирает проект из списка вместе с его сессиями: сначала сессии, потом
 /// сам проект. Папка на диске остаётся как есть.
 #[tauri::command]
+#[specta::specta]
 pub fn projects_remove(
     workspace: State<'_, Workspace>,
     shelf: State<'_, ProjectsFile>,

@@ -24,6 +24,10 @@ serde = { version = "1", features = ["derive"] }
 # preserve_order: интеграция агента дописывает хук в его настройки
 # и оставляет ключи человека в его порядке.
 serde_json = { version = "1.0.154", features = ["preserve_order"] }
+# Типы границы с окном: из них tauri-specta пишет bindings.gen.ts.
+# Вторая версия пока RC, поэтому версия закреплена через =, как просит
+# tauri-specta: следующий RC может сломать сборку.
+specta = { version = "=2.0.0-rc.26", features = ["derive"] }
 tempfile = "3.27.0"
 tokio = { version = "1.54.1", features = ["process", "sync", "time"] }
 url = "2"

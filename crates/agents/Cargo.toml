@@ -13,6 +13,7 @@ workspace = true
 sapien-kernel.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+specta.workspace = true
 tokio.workspace = true
 
 # Сокет хуков стирает сокеты прошлых запусков, чьих процессов уже нет.

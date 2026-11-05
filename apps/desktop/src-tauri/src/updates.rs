@@ -5,6 +5,7 @@
 
 use sapien_kernel::AppError;
 use serde::Serialize;
+use specta::Type;
 use std::sync::{Mutex, PoisonError};
 use tauri::ipc::Channel;
 use tauri::{AppHandle, State};
@@ -16,28 +17,36 @@ use tauri_plugin_updater::{Error, Update, UpdaterExt};
 pub struct Pending(Mutex<Option<Update>>);
 
 /// Что окно показывает о новой версии.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Type)]
 pub struct Available {
     pub version: String,
     /// Описание релиза, markdown.
     pub notes: Option<String>,
 }
 
-/// Ход загрузки. `total` нет, когда сервер не назвал размер.
-#[derive(Clone, Serialize)]
+/// Ход загрузки. `total` нет, когда сервер не назвал размер. Байты
+/// установщика укладываются в number окна без потерь.
+#[derive(Clone, Serialize, Type)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Progress {
-    Chunk { received: u64, total: Option<u64> },
+    Chunk {
+        #[specta(type = u32)]
+        received: u64,
+        #[specta(type = Option<u32>)]
+        total: Option<u64>,
+    },
     Downloaded,
 }
 
 #[tauri::command]
+#[specta::specta]
 pub fn app_version(app: AppHandle) -> String {
     app.package_info().version.to_string()
 }
 
 /// Новой версии нет: `None`.
 #[tauri::command]
+#[specta::specta]
 pub async fn app_update_check(
     app: AppHandle,
     pending: State<'_, Pending>,
@@ -62,6 +71,7 @@ pub async fn app_update_check(
 /// Оборванная загрузка или чужая подпись ничего не меняют на диске:
 /// установленная версия работает дальше.
 #[tauri::command]
+#[specta::specta]
 pub async fn app_update_install(
     app: AppHandle,
     pending: State<'_, Pending>,

@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import type { Forge, ForgeStatus } from "@sapien/ipc";
 import { Button, FIELD, SettingsGroup, SettingsRow, SettingsSection } from "@sapien/ui";
 import { useForgeConnect, useForgeDisconnect, useForgeStatus } from "../interactions/forge";
-import { FORGE_NAMES, forgeProblemOf, type Forge, type ForgeProblem, type ForgeStatus } from "../model/forge";
+import { FORGE_NAMES, forgeProblemOf, type ForgeProblem } from "../model/forge";
 
 // Подключение одного сервиса: токен, у GitLab ещё адрес. Поле токена
 // пустеет сразу после отправки: токен ушёл в Rust, окну он больше не нужен.

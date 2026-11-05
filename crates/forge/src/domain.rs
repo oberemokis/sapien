@@ -1,9 +1,10 @@
 use sapien_kernel::AppError;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use specta::Type;
 use url::Url;
 
-#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub enum Forge {
     Github,
@@ -11,7 +12,7 @@ pub enum Forge {
 }
 
 /// Подключение к одному серверу, как его видит окно. Токена здесь нет.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Type)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum ForgeStatus {
     #[default]
@@ -23,7 +24,7 @@ pub enum ForgeStatus {
 }
 
 /// Подключения ко всем серверам. Так же они лежат и на диске.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ForgeStatuses {
     #[serde(default)]

@@ -77,10 +77,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # Одна сборка на Apple Silicon и Intel.
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      # Версия и цели Apple Silicon и Intel из rust-toolchain.toml.
+      - run: rustup toolchain install
 
       - uses: pnpm/action-setup@v6
 
