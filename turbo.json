@@ -1,7 +1,7 @@
 {
   "$schema": "https://turbo.build/schema.json",
   "globalDependencies": ["tsconfig.base.json"],
-  "globalPassThroughEnv": ["NODE_ENV", "PORT", "VITE_*"],
+  "globalPassThroughEnv": ["NODE_ENV", "VITE_*"],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
@@ -21,8 +21,7 @@
     },
     "dev:web": {
       "cache": false,
-      "persistent": true,
-      "with": ["@sapien/api#dev"]
+      "persistent": true
     },
     "preview": {
       "dependsOn": ["build"],

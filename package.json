@@ -4,7 +4,6 @@
   "packageManager": "pnpm@11.24.0",
   "scripts": {
     "dev": "turbo run dev",
-    "dev:api": "turbo run dev --filter @sapien/api",
     "dev:web": "turbo run dev:web",
     "build": "turbo run build",
     "bundle": "pnpm --filter @sapien/desktop tauri build",

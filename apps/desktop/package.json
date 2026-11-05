@@ -21,14 +21,12 @@
     "@tauri-apps/api": "^2.12.4",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
-    "hono": "catalog:",
     "i18next": "^26.5.11",
     "react": "catalog:",
     "react-dom": "catalog:",
     "react-i18next": "^17.1.9"
   },
   "devDependencies": {
-    "@sapien/api": "workspace:*",
     "@tailwindcss/vite": "^4.3.3",
     "@tanstack/router-plugin": "^1.168.48",
     "@tauri-apps/cli": "^2.12.4",
