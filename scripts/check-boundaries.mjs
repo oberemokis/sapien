@@ -195,6 +195,17 @@ const rules = [
     hint: "экран и модель получают данные из interactions",
   },
   {
+    // Подделку Rust ставят тесты и dev:web. Импорт в остальном коде унёс бы
+    // её в сборку приложения.
+    name: "подделка Rust только в тестах и dev:web",
+    files: `${UI}/src/**/*.{ts,tsx}`,
+    forbidden: (spec, _isType, file) =>
+      !isSpec(file) &&
+      !/\/src\/core\/rust\//.test(file) &&
+      isPackage(spec, ["@sapien/ipc/fake"]),
+    hint: "подделку ставит core/rust/browser.ts, остальному коду она не нужна",
+  },
+  {
     // Тест исключён по той же причине, что и у соседей: он подменяет границу
     // процесса и знает, какой файл её держит.
     name: "экран не ходит в infrastructure",

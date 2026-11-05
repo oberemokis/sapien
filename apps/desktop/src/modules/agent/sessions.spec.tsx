@@ -7,7 +7,8 @@ import {
   createRoute,
   createRouter,
 } from "@tanstack/react-router";
-import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
+import { fakeRust, type FakeRust } from "@sapien/ipc/fake";
+import { clearMocks } from "@tauri-apps/api/mocks";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SessionList, SessionSearch, SessionTabs, SessionView } from "@/modules/agent";
@@ -29,97 +30,27 @@ const SESSIONS: SessionInfo[] = [
 
 const MOD = { metaKey: true };
 
-// Rust за командами агента: проекты и их сессии. answering: сессии,
-// в первой панели которых работает Claude Code.
-function fakeRust({ projects = [SAPIEN, SITE], answering = [] }: { projects?: Project[]; answering?: string[] } = {}) {
-  const rust = {
-    projects: [...projects],
-    sessions: SESSIONS.filter((session) => projects.some((project) => project.id === session.project)).map(
-      (session) => ({
-        ...session,
-        answering: answering.includes(session.id),
-        agents: answering.includes(session.id) ? [{ pane: session.id, agent: "claude", answering: true }] : [],
-      }),
-    ),
-    // Сессии, которые Rust начал по просьбе окна.
-    created: [] as SessionInfo[],
-    removed: [] as string[],
-    deleted: [] as string[],
-    // Сессии, в которых Rust считает агента отвечающим, хотя окно этого не видит.
-    busy: [] as string[],
-    renamed: [] as { id: string; title: string }[],
-  };
-
-  mockIPC((command, args) => {
-    switch (command) {
-      case "projects_list":
-        return rust.projects;
-      case "projects_add":
-        rust.projects = [...rust.projects, DOCS];
-        return DOCS;
-      case "projects_remove": {
-        const { id } = args as { id: string };
-
-        rust.removed.push(id);
-        rust.projects = rust.projects.filter((project) => project.id !== id);
-        rust.sessions = rust.sessions.filter((session) => session.project !== id);
-        return null;
-      }
-      case "agent_sessions":
-        return rust.sessions;
-      case "agent_session_delete": {
-        const { id } = args as { id: string };
-
-        // Как delete_session в use_case.rs: агент отвечает, отказ.
-        if (rust.busy.includes(id) || rust.sessions.some((session) => session.id === id && session.answering)) {
-          throw { kind: "conflict", code: "agent_busy" };
-        }
-
-        rust.deleted.push(id);
-        rust.sessions = rust.sessions.filter((session) => session.id !== id);
-        return null;
-      }
-      case "agent_session_new": {
-        const { project } = args as { project: string };
-
-        if (rust.projects.find((candidate) => candidate.id === project)?.missing !== false) {
-          throw { kind: "not_found", code: "project_missing" };
-        }
-
-        const session: SessionInfo = {
-          id: `new${rust.created.length + 1}`,
-          project,
-          title: "",
-          updated: 10_000,
-          answering: false,
-          agents: [],
-        };
-
-        rust.created.push(session);
-        rust.sessions = [...rust.sessions, session];
-        return session;
-      }
-      // Как rename_session в use_case.rs: пробелы по краям не остаются.
-      case "agent_session_rename": {
-        const { id, title } = args as { id: string; title: string };
-
-        rust.renamed.push({ id, title });
-        rust.sessions = rust.sessions.map((session) => (session.id === id ? { ...session, title: title.trim() } : session));
-        return null;
-      }
-      // Терминал открытой вкладки: его проверяет terminal.spec.tsx.
-      case "terminal_open":
-        return null;
-      case "terminal_write":
-      case "terminal_resize":
-      case "terminal_close":
-        return null;
-      default:
-        throw new Error(`нет команды ${command}`);
-    }
+// Rust с проектами и их сессиями. answering: сессии, в первой панели
+// которых работает Claude Code. В системном диалоге человек выберет DOCS.
+function agentRust({ projects = [SAPIEN, SITE], answering = [] }: { projects?: Project[]; answering?: string[] } = {}) {
+  return fakeRust({
+    state: {
+      projects,
+      picked: DOCS,
+      sessions: SESSIONS.filter((session) => projects.some((project) => project.id === session.project)).map(
+        (session) => ({
+          ...session,
+          answering: answering.includes(session.id),
+          agents: answering.includes(session.id) ? [{ pane: session.id, agent: "claude", answering: true }] : [],
+        }),
+      ),
+    },
   });
+}
 
-  return rust;
+// Сессии, которые Rust начал по просьбе окна.
+function created(rust: FakeRust) {
+  return rust.state.sessions.filter((session) => session.id.startsWith("new"));
 }
 
 // Оболочка окна, как pages/_shell.tsx: слева панель сессий, сверху вкладки,
@@ -237,7 +168,7 @@ afterEach(() => {
 
 describe("левая панель", () => {
   it("проекты показывают свои сессии свежими сверху, работающий агент отмечен у своей сессии", async () => {
-    fakeRust({ answering: ["s1"] });
+    agentRust({ answering: ["s1"] });
     open();
     await waitFor(() => expect(sessionTitles("sapien")).toEqual(["Тесты окна", "Рефакторинг парсера"]));
     expect(sessionTitles("сайт")).toEqual(["Лендинг"]);
@@ -250,7 +181,7 @@ describe("левая панель", () => {
   });
 
   it("ветку агентов сворачивают и раскрывают, свёрнутая сессия сама отмечает работу агента", async () => {
-    fakeRust({ answering: ["s1"] });
+    agentRust({ answering: ["s1"] });
     open();
     await waitFor(() => expect(isAnswering("Рефакторинг парсера")).toBe(true));
     // У сессии без агентов сворачивать нечего.
@@ -269,7 +200,7 @@ describe("левая панель", () => {
   });
 
   it("«+» во вкладках начинает сессию в открытом проекте новой вкладкой", async () => {
-    const rust = fakeRust();
+    const rust = agentRust();
     open();
     await openSession("Лендинг");
     expect(panel().queryByRole("button", { name: /^Новая сессия в/ })).toBeNull();
@@ -277,25 +208,25 @@ describe("левая панель", () => {
     fireEvent.click(screen.getByRole("button", { name: "Новая сессия в «сайт»" }));
 
     await waitFor(() => expect(opened()).toBe("Новая сессия"));
-    expect(rust.created.map((session) => session.project)).toEqual(["p2"]);
+    expect(created(rust).map((session) => session.project)).toEqual(["p2"]);
     expect(sessionTitles("сайт")).toEqual(["Новая сессия", "Лендинг"]);
     expect(tabs()).toEqual(["Лендинг", "Новая сессия*"]);
   });
 
   it("«Добавить проект» заводит проект и сразу открывает сессию в нём", async () => {
-    const rust = fakeRust();
+    const rust = agentRust();
     open();
 
     fireEvent.click(await screen.findByRole("button", { name: "Добавить проект" }));
 
     await waitFor(() => expect(opened()).toBe("Новая сессия"));
-    expect(rust.created.map((session) => session.project)).toEqual(["p3"]);
+    expect(created(rust).map((session) => session.project)).toEqual(["p3"]);
     expect(sessionTitles("документы")).toEqual(["Новая сессия"]);
     expect(tabs()).toEqual(["Новая сессия*"]);
   });
 
   it("«Убрать проект» сначала спрашивает, потом убирает проект с его сессиями", async () => {
-    const rust = fakeRust();
+    const rust = agentRust();
     open();
     await waitFor(() => expect(sessionTitles("сайт")).toEqual(["Лендинг"]));
 
@@ -306,7 +237,7 @@ describe("левая панель", () => {
     fireEvent.click(within(question).getByRole("button", { name: "Отмена" }));
 
     expect(screen.queryByRole("alert")).toBeNull();
-    expect(rust.removed).toEqual([]);
+    expect(rust.calls.projectsRemove).toEqual([]);
 
     fireEvent.contextMenu(panel().getByText("сайт"));
     fireEvent.click(screen.getByRole("menuitem", { name: "Убрать проект" }));
@@ -314,11 +245,11 @@ describe("левая панель", () => {
 
     await waitFor(() => expect(panel().queryByText("сайт")).toBeNull());
     expect(panel().queryByText("Лендинг")).toBeNull();
-    expect(rust.removed).toEqual(["p2"]);
+    expect(rust.calls.projectsRemove).toEqual([["p2"]]);
   });
 
   it("сессию, где работает агент, удалить нельзя, отказ Rust виден, остальные удаляются", async () => {
-    const rust = fakeRust({ answering: ["s1"] });
+    const rust = agentRust({ answering: ["s1"] });
     open();
     await waitFor(() => expect(isAnswering("Рефакторинг парсера")).toBe(true));
 
@@ -327,7 +258,7 @@ describe("левая панель", () => {
     expect(item.disabled).toBe(true);
     expect(item.textContent).toContain("агент работает");
 
-    rust.busy.push("s2");
+    rust.refuse("agentSessionDelete", { kind: "conflict", code: "agent_busy" }, 1);
     fireEvent.contextMenu(panel().getByText("Тесты окна"));
     fireEvent.click(screen.getByRole("menuitem", { name: "Удалить сессию" }));
     expect(await screen.findByText("Сессия не удалилась.")).toBeDefined();
@@ -336,11 +267,11 @@ describe("левая панель", () => {
     fireEvent.contextMenu(panel().getByText("Лендинг"));
     fireEvent.click(screen.getByRole("menuitem", { name: "Удалить сессию" }));
     await waitFor(() => expect(sessionTitles("сайт")).toEqual([]));
-    expect(rust.deleted).toEqual(["s3"]);
+    expect(rust.state.sessions.map((session) => session.id)).toEqual(["s1", "s2"]);
   });
 
   it("сессию переименовывают двойным нажатием или из меню, новое имя видно и во вкладке", async () => {
-    const rust = fakeRust();
+    const rust = agentRust();
     open();
     await openSession("Тесты окна");
 
@@ -358,7 +289,7 @@ describe("левая панель", () => {
     fireEvent.blur(again);
 
     await waitFor(() => expect(sessionTitles("sapien")).toEqual(["Тесты окна", "Парсер"]));
-    expect(rust.renamed).toEqual([{ id: "s1", title: "Парсер" }]);
+    expect(rust.calls.agentSessionRename).toEqual([["s1", "Парсер"]]);
 
     fireEvent.doubleClick(panel().getByRole("button", { name: "Тесты окна" }));
     const tabbed = panel().getByRole("textbox", { name: "Имя сессии" });
@@ -368,7 +299,7 @@ describe("левая панель", () => {
   });
 
   it("сессию перетаскивают на новое место, порядок держится, а новая сессия встаёт наверх", async () => {
-    fakeRust();
+    agentRust();
     open();
     await waitFor(() => expect(sessionTitles("sapien")).toEqual(["Тесты окна", "Рефакторинг парсера"]));
 
@@ -396,11 +327,11 @@ describe("левая панель", () => {
   });
 
   it("новая сессия, которую Rust не завёл, говорит об этом во вкладках и в меню проекта", async () => {
-    const rust = fakeRust();
+    const rust = agentRust();
     open();
     await openSession("Лендинг");
     // Папку проекта убрали с диска, а окно об этом ещё не знает.
-    rust.projects = rust.projects.map((project) => (project.id === "p2" ? { ...project, missing: true } : project));
+    rust.state.projects = rust.state.projects.map((project) => (project.id === "p2" ? { ...project, missing: true } : project));
 
     fireEvent.click(screen.getByRole("button", { name: "Новая сессия в «сайт»" }));
     expect(await within(screen.getByRole("navigation", TAB_STRIP)).findByText("Сессия не создалась.")).toBeDefined();
@@ -408,14 +339,14 @@ describe("левая панель", () => {
     fireEvent.contextMenu(panel().getByText("сайт"));
     fireEvent.click(screen.getByRole("menuitem", { name: "Новая сессия" }));
     expect(await panel().findByText("Сессия не создалась.")).toBeDefined();
-    expect(rust.created).toEqual([]);
+    expect(created(rust)).toEqual([]);
     expect(tabs()).toEqual(["Лендинг*"]);
   });
 });
 
 describe("вкладки", () => {
   it("сессия из левой панели открывается вкладкой, у каждого проекта свой набор", async () => {
-    fakeRust();
+    agentRust();
     open();
 
     await openSession("Рефакторинг парсера");
@@ -435,7 +366,7 @@ describe("вкладки", () => {
   });
 
   it("крестик закрывает вкладку, активной становится соседняя, сессия остаётся слева", async () => {
-    fakeRust();
+    agentRust();
     open();
     await openSession("Рефакторинг парсера");
     await openSession("Тесты окна");
@@ -453,7 +384,7 @@ describe("вкладки", () => {
   });
 
   it("двойное нажатие переименовывает сессию: новое имя и во вкладке, и слева, Escape отменяет", async () => {
-    const rust = fakeRust();
+    const rust = agentRust();
     open();
     await openSession("Тесты окна");
 
@@ -471,11 +402,11 @@ describe("вкладки", () => {
 
     await waitFor(() => expect(tabs()).toEqual(["Релиз 0.3*"]));
     expect(sessionTitles("sapien")).toEqual(["Релиз 0.3", "Рефакторинг парсера"]);
-    expect(rust.renamed).toEqual([{ id: "s2", title: "  Релиз 0.3 " }]);
+    expect(rust.calls.agentSessionRename).toEqual([["s2", "  Релиз 0.3 "]]);
   });
 
   it("закреплённая вкладка встаёт левее остальных, без крестика, и закрыть её из меню нельзя", async () => {
-    fakeRust();
+    agentRust();
     open();
     await openSession("Рефакторинг парсера");
     await openSession("Тесты окна");
@@ -493,7 +424,7 @@ describe("вкладки", () => {
   });
 
   it("вкладку перетаскивают на новое место, а отпущенная она не открывается", async () => {
-    fakeRust();
+    agentRust();
     open();
     await openSession("Рефакторинг парсера");
     await openSession("Тесты окна");
@@ -527,7 +458,7 @@ function found() {
 
 describe("поиск сессии", () => {
   it("⌘K находит сессию по названию и проекту, Enter её открывает", async () => {
-    fakeRust();
+    agentRust();
     open();
     await waitFor(() => expect(sessionTitles("sapien")).toHaveLength(2));
 
@@ -552,7 +483,7 @@ describe("поиск сессии", () => {
 
 describe("сессия", () => {
   it("папки проекта больше нет: сессия говорит об этом, новую сессию не начать", async () => {
-    fakeRust({ projects: [{ ...SAPIEN, missing: true }, SITE] });
+    agentRust({ projects: [{ ...SAPIEN, missing: true }, SITE] });
     open();
     await openSession("Рефакторинг парсера");
 
@@ -565,7 +496,7 @@ describe("сессия", () => {
   });
 
   it("с папкой на месте плашек нет", async () => {
-    fakeRust();
+    agentRust();
     open();
     await openSession("Рефакторинг парсера");
     await new Promise((resolve) => setTimeout(resolve, 20));

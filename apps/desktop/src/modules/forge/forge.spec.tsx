@@ -1,59 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
+import { fakeRust } from "@sapien/ipc/fake";
+import { clearMocks } from "@tauri-apps/api/mocks";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { ForgeSettings } from "@/modules/forge";
-import type { Forge, ForgeStatus, ForgeStatuses } from "@sapien/ipc";
-
-type Connect = { forge: Forge; host: string | null; token: string };
 
 const GITHUB_TOKEN = "ghp_очень-секретный-токен";
-
-// Rust за командами forge: токен уходит в системное хранилище паролей,
-// окну возвращается логин. refuse это код отказа forge_connect.
-function fakeRust({ connected = {}, refuse }: { connected?: Partial<ForgeStatuses>; refuse?: string } = {}) {
-  const rust = {
-    status: { github: { kind: "none" }, gitlab: { kind: "none" }, ...connected } as ForgeStatuses,
-    connects: [] as Connect[],
-    disconnects: [] as Forge[],
-  };
-
-  mockIPC((command, args) => {
-    switch (command) {
-      case "forge_status":
-        return rust.status;
-      case "forge_connect": {
-        const connect = args as Connect;
-
-        rust.connects.push(connect);
-
-        if (refuse !== undefined) {
-          throw { kind: "invalid", code: refuse };
-        }
-
-        const status: ForgeStatus = {
-          kind: "connected",
-          host: connect.host ?? `${connect.forge}.com`,
-          login: "octocat",
-        };
-
-        rust.status = { ...rust.status, [connect.forge]: status };
-        return status;
-      }
-      case "forge_disconnect": {
-        const { forge } = args as { forge: Forge };
-
-        rust.disconnects.push(forge);
-        rust.status = { ...rust.status, [forge]: { kind: "none" } };
-        return null;
-      }
-      default:
-        throw new Error(`нет команды ${command}`);
-    }
-  });
-
-  return rust;
-}
 
 function open() {
   render(
@@ -92,7 +44,7 @@ describe("интеграции", () => {
 
     expect(token.value).toBe("");
     expect(await github.findByText("Подключено как octocat на github.com.")).toBeDefined();
-    expect(rust.connects).toEqual([{ forge: "github", host: null, token: GITHUB_TOKEN }]);
+    expect(rust.calls.forgeConnect).toEqual([["github", null, GITHUB_TOKEN]]);
     expect(github.getByRole("button", { name: "Отключить" })).toBeDefined();
     expect(document.body.innerHTML).not.toContain("секретный");
   });
@@ -107,7 +59,7 @@ describe("интеграции", () => {
     fireEvent.click(gitlab.getByRole("button", { name: "Подключить" }));
 
     expect(await gitlab.findByText("Подключено как octocat на https://git.example.com.")).toBeDefined();
-    expect(rust.connects).toEqual([{ forge: "gitlab", host: "https://git.example.com", token: "glpat-123" }]);
+    expect(rust.calls.forgeConnect).toEqual([["gitlab", "https://git.example.com", "glpat-123"]]);
     // GitHub остался неподключённым.
     expect((await group("GitHub")).getByRole("button", { name: "Подключить" })).toBeDefined();
   });
@@ -121,7 +73,7 @@ describe("интеграции", () => {
     fireEvent.keyDown(github.getByLabelText("Токен GitHub"), { key: "Enter" });
 
     expect(github.getByRole<HTMLButtonElement>("button", { name: "Подключить" }).disabled).toBe(true);
-    expect(rust.connects).toEqual([]);
+    expect(rust.calls.forgeConnect).toEqual([]);
   });
 
   it.each([
@@ -130,7 +82,7 @@ describe("интеграции", () => {
     ["forge_host_invalid", "По этому адресу не нашлось API GitLab: проверьте адрес сервера."],
     ["что-то новое", "Не получилось, попробуйте ещё раз."],
   ])("отказ %s виден причиной, токен можно ввести снова", async (code, reason) => {
-    fakeRust({ refuse: code });
+    fakeRust().refuse("forgeConnect", { kind: "invalid", code });
     open();
     const gitlab = await group("GitLab");
     const token = gitlab.getByLabelText<HTMLInputElement>("Токен GitLab");
@@ -144,7 +96,9 @@ describe("интеграции", () => {
   });
 
   it("«Отключить» снимает подключение и снова просит токен", async () => {
-    const rust = fakeRust({ connected: { github: { kind: "connected", host: "github.com", login: "octocat" } } });
+    const rust = fakeRust({
+      state: { forge: { github: { kind: "connected", host: "github.com", login: "octocat" }, gitlab: { kind: "none" } } },
+    });
     open();
     const github = await group("GitHub");
 
@@ -152,6 +106,6 @@ describe("интеграции", () => {
 
     expect(await github.findByLabelText("Токен GitHub")).toBeDefined();
     expect(github.getByText(/Не подключено/)).toBeDefined();
-    expect(rust.disconnects).toEqual(["github"]);
+    expect(rust.calls.forgeDisconnect).toEqual([["github"]]);
   });
 });
