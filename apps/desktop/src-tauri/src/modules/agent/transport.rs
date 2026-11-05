@@ -5,11 +5,11 @@ use super::domain::{
 use super::infrastructure::claude_code::ClaudeCode;
 use super::infrastructure::hooks;
 use super::infrastructure::integrations::Integrations;
-use super::infrastructure::neighbours::ProjectFolders;
 use super::infrastructure::sessions_dir::SessionsDir;
 use super::infrastructure::terminal::{Command, Pty, command_line, shell_environment, user_shell};
 use super::use_case;
 use sapien_kernel::{AppError, durable};
+use sapien_projects::ProjectsFile;
 use serde_json::json;
 use std::collections::HashMap;
 use std::ffi::OsString;
@@ -269,7 +269,7 @@ fn start(
     (cols, rows): (u16, u16),
 ) -> Result<(), AppError> {
     let store = sessions(app)?;
-    let dir = use_case::folder(&store, &ProjectFolders(app.clone()), session)?;
+    let dir = use_case::folder(&store, &*app.state::<ProjectsFile>(), session)?;
     let mut screen = store.screen(session, pane).unwrap_or_default();
     let mut conversation = store.conversation(session, pane);
 
@@ -576,7 +576,7 @@ pub fn agent_sessions(
 pub fn agent_session_new(app: AppHandle, project: String) -> Result<SessionInfo, AppError> {
     use_case::new_session(
         &sessions(&app)?,
-        &ProjectFolders(app.clone()),
+        &*app.state::<ProjectsFile>(),
         &project,
         durable::fresh_id(),
         durable::now(),

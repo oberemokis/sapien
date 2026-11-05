@@ -1,4 +1,4 @@
-use super::domain::Project;
+use crate::domain::Project;
 use sapien_kernel::AppError;
 
 /// Где лежит список проектов, по порядку добавления.
