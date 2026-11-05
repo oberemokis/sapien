@@ -5,8 +5,8 @@ import { fakeRust } from "@sapien/ipc/fake";
 import { clearMocks } from "@tauri-apps/api/mocks";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { restoreTheme, useThemeSync } from "@/modules/appearance";
-import { restoreLayout } from "@/modules/layout";
+import { restoreTheme, useThemeSync } from "@sapien/appearance";
+import { restoreLayout } from "@sapien/layout";
 import { routeTree } from "@/route-tree.gen";
 
 const mod = { metaKey: true };

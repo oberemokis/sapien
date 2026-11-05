@@ -2,7 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { Icon } from "@sapien/ui";
 import { useCloseSettings } from "./navigation";
-import { SETTINGS_GROUPS } from "./sections";
+import { SECTION_NAMESPACES, SETTINGS_GROUPS } from "./sections";
 
 // Строка раздела как строка дерева: 28 px, бледная, выбранная на заливке.
 const ROW =
@@ -11,7 +11,7 @@ const ROW =
 // Список разделов слева, внизу «Назад». Раздел сменяет предыдущий в истории,
 // а не встаёт поверх: тогда «Назад» уводит с настроек за один шаг.
 export function SettingsNav() {
-  const { t } = useTranslation();
+  const { t } = useTranslation(SECTION_NAMESPACES);
   const close = useCloseSettings();
 
   return (

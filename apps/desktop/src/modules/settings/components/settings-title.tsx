@@ -1,6 +1,6 @@
 import { useMatchRoute } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
-import { SETTINGS_GROUPS } from "./sections";
+import { SECTION_NAMESPACES, SETTINGS_GROUPS } from "./sections";
 
 // Группы разной длины, и без явного типа flatMap не сводит их разделы
 // в один список.
@@ -8,7 +8,7 @@ type Section = (typeof SETTINGS_GROUPS)[number]["sections"][number];
 
 // Путь «Настройки / Раздел» в верхней полосе окна.
 export function SettingsTitle() {
-  const { t } = useTranslation();
+  const { t } = useTranslation(SECTION_NAMESPACES);
   const matchRoute = useMatchRoute();
   const current = SETTINGS_GROUPS.flatMap<Section>((group) => group.sections).find(
     (section) => matchRoute({ to: section.to }) !== false,

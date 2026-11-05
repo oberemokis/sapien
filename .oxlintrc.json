@@ -48,6 +48,114 @@
       "rules": {
         "import/no-default-export": "off"
       }
+    },
+    {
+      "files": ["packages/*/src/{components,flows}/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              { "name": "@sapien/ipc", "allowTypeImports": true, "message": "команды Rust зовут interactions, экран берёт данные у них" }
+            ],
+            "patterns": [
+              { "regex": "^@tauri-apps/", "allowTypeImports": true, "message": "Tauri живёт в infrastructure" },
+              { "regex": "^@sapien/ipc/fake$", "message": "подделка Rust только в тестах и dev:web" },
+              { "regex": "^\\.\\./infrastructure(/|$)", "message": "экран берёт данные из interactions, DOM и хранилище лежат под ними" }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["packages/*/src/store/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              { "name": "@sapien/ipc", "allowTypeImports": true, "message": "store держит состояние без Rust" }
+            ],
+            "patterns": [
+              { "regex": "^@tauri-apps/", "allowTypeImports": true, "message": "Tauri живёт в infrastructure" },
+              { "regex": "^@sapien/ipc/fake$", "message": "подделка Rust только в тестах и dev:web" }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["packages/*/src/ui/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              { "name": "@sapien/ipc", "allowTypeImports": true, "message": "ui это вид без домена" }
+            ],
+            "patterns": [
+              { "regex": "^@tauri-apps/", "allowTypeImports": true, "message": "Tauri живёт в infrastructure" },
+              { "regex": "^@sapien/ipc/fake$", "message": "подделка Rust только в тестах и dev:web" },
+              { "regex": "^\\.\\./(model|interactions|flows|components|infrastructure|store)(/|$)", "message": "ui это вид без домена: данные и подписи ему приносят пропсами" }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["packages/*/src/model/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              { "name": "@sapien/ipc", "allowTypeImports": true, "message": "модель это правила показа, данные ей приносят" },
+              { "name": "react", "allowTypeImports": true, "message": "модель проверяют без окна: хуки и разметка живут выше" },
+              { "name": "react-dom", "allowTypeImports": true, "message": "модель проверяют без окна: хуки и разметка живут выше" }
+            ],
+            "patterns": [
+              { "regex": "^@tauri-apps/", "allowTypeImports": true, "message": "модель не знает Rust" },
+              { "regex": "^@tanstack/", "allowTypeImports": true, "message": "модель не знает ни кеша, ни роутера" },
+              { "regex": "^@sapien/ipc/fake$", "message": "подделка Rust только в тестах и dev:web" },
+              { "regex": "^\\.\\./(interactions|infrastructure|flows|components|ui)(/|$)", "message": "модель это правила показа, данные ей приносят" }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["packages/*/src/interactions/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              { "regex": "^@tauri-apps/", "allowTypeImports": true, "message": "Tauri живёт в infrastructure, Channel даёт @sapien/ipc" },
+              { "regex": "^@sapien/ipc/fake$", "message": "подделка Rust только в тестах и dev:web" },
+              { "regex": "^\\.\\./(components|ui|flows)(/|$)", "message": "кеш и запросы лежат под экраном, а не над ним" }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["packages/*/src/infrastructure/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              { "regex": "^@sapien/ipc/fake$", "message": "подделка Rust только в тестах и dev:web" }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["**/*.spec.ts", "**/*.spec.tsx"],
+      "rules": {
+        "no-restricted-imports": "off"
+      }
     }
   ]
 }

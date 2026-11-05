@@ -1,9 +1,9 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider, createRouter } from "@tanstack/react-router";
-import "@/core/i18n/i18n";
-import { restoreLanguage, restoreTheme, restoreUiScale, useThemeSync } from "@/modules/appearance";
-import { restoreLayout } from "@/modules/layout";
-import { restoreLock } from "@/modules/security";
+import "@/app/i18n/i18n";
+import { restoreLanguage, restoreTheme, restoreUiScale, useThemeSync } from "@sapien/appearance";
+import { restoreLayout } from "@sapien/layout";
+import { restoreLock } from "@sapien/security";
 import { routeTree } from "@/route-tree.gen";
 
 const queryClient = new QueryClient();
