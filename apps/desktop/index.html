@@ -1,15 +1,15 @@
 <!doctype html>
-<html lang="en">
+<!-- До стилей приложения окно цвета боковой панели (bg-deep), а не белое.
+     Атрибутом, а не тегом style: такому тегу Tauri ставит nonce, с nonce
+     в style-src браузер не смотрит на 'unsafe-inline', и xterm теряет стили,
+     которые вставляет сам (шрифт, клетки, курсор). Цвет через токен темы:
+     атрибут сильнее стилей приложения, и после их загрузки фон должен
+     быть тем же, что у body. -->
+<html lang="en" style="background: var(--background-bg-base, #080808)">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>sapien</title>
-    <!-- До стилей приложения окно цвета боковой панели (bg-deep), а не белое. -->
-    <style>
-      html {
-        background: #080808;
-      }
-    </style>
   </head>
   <body>
     <div id="app"></div>
