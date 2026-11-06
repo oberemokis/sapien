@@ -5,3 +5,4 @@ export { SessionTabs } from "./components/session-tabs";
 export { SessionView } from "./components/session-view";
 export { useRestoredTabs } from "./interactions/restore";
 export { useAgentEvents } from "./interactions/sessions";
+export { dictionary } from "./dictionary";

@@ -11,7 +11,7 @@
 | Состояние | TanStack Query для данных из Rust, TanStack Store для остального |
 | Локализация | i18next и react-i18next |
 | Сборка | Vite 8, turbo, pnpm 11 |
-| Проверки | tsc, oxlint, `scripts/check-boundaries.mjs`, cargo check, clippy и rustfmt, secretlint, pnpm audit и cargo audit |
+| Проверки | tsc, oxlint с границами слоёв, cargo check, clippy и rustfmt, secretlint, pnpm audit и cargo audit |
 | Тесты | vitest, Testing Library, happy-dom, cargo test |
 
 ## Раскладка

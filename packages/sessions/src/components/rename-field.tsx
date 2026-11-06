@@ -13,7 +13,7 @@ type Props = {
 // Поле имени сессии на месте вкладки или строки левой панели. Enter и уход
 // фокуса сохраняют, Escape отменяет. null: имя не меняли.
 export function RenameField({ title, label, className, onDone }: Props) {
-  const { t } = useTranslation();
+  const { t } = useTranslation("sessions");
   const input = useRef<HTMLInputElement>(null);
   const done = useRef(false);
 
@@ -34,7 +34,7 @@ export function RenameField({ title, label, className, onDone }: Props) {
       ref={input}
       aria-label={label}
       defaultValue={title}
-      placeholder={t("agent.sessions.untitled")}
+      placeholder={t("sessions.untitled")}
       maxLength={100}
       className={`h-7 rounded-md bg-overlay-pressed text-[13px] text-text-base outline-2 -outline-offset-2 outline-border-focus placeholder:text-text-faint ${className}`}
       onKeyDown={(event) => {

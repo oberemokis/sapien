@@ -1,6 +1,6 @@
 import { Outlet, createFileRoute } from "@tanstack/react-router";
 import { Workspace } from "@sapien/layout";
-import { SettingsNav, SettingsTitle, useCloseOnEscape } from "@/modules/settings";
+import { SettingsNav, SettingsTitle, useCloseOnEscape } from "@/settings";
 
 export const Route = createFileRoute("/settings")({ component: Settings });
 

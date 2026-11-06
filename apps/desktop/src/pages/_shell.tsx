@@ -1,5 +1,5 @@
 import { Outlet, createFileRoute } from "@tanstack/react-router";
-import { Restoring, SessionList, SessionSearch, SessionTabs, useAgentEvents, useRestoredTabs } from "@/modules/agent";
+import { Restoring, SessionList, SessionSearch, SessionTabs, useAgentEvents, useRestoredTabs } from "@sapien/sessions";
 import { Workspace } from "@sapien/layout";
 
 export const Route = createFileRoute("/_shell")({ component: Shell });

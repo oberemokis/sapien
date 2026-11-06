@@ -13,7 +13,7 @@ import { clearMocks } from "@tauri-apps/api/mocks";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { restorePanes, type Panes } from "@sapien/terminal";
-import { Restoring, SessionList, SessionTabs, SessionView, useAgentEvents, useRestoredTabs } from "@/modules/agent";
+import { Restoring, SessionList, SessionTabs, SessionView, useAgentEvents, useRestoredTabs } from "./index";
 import type { ClaudeStatus, Project, SessionInfo } from "@sapien/ipc";
 import { NO_TABS } from "./model/tabs";
 import { tabsStore } from "./store/sessions.store";
