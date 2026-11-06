@@ -1,7 +1,5 @@
 # sapien
 
-Приложение для macOS на Tauri 2 и React для работы с агентами вроде Claude Code в терминалах проектов. Монорепа на pnpm и turbo, устройство и правила описаны в [docs/architecture.md](./docs/architecture.md).
-
 ## Запуск
 
 Нужны macOS, Node 24, pnpm 11 и Rust stable.
