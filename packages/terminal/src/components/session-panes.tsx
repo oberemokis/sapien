@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type MouseEvent } from "react";
 import { useTranslation } from "react-i18next";
-import { ContextMenu, hasModKey, type MenuItem } from "@sapien/ui";
+import { ContextMenu, hasModKey, LINK, Notice, type MenuItem } from "@sapien/ui";
 import {
   activatePane,
   closePane,
@@ -12,7 +12,6 @@ import {
 } from "../interactions/panes";
 import { attachTerminal, focusTerminal, restartTerminal, useTerminalState } from "../interactions/terminal";
 import { panesIn, type Layout, type Side, type SplitPath } from "../model/panes";
-import { LINK, Notice } from "./notice";
 import { PaneDivider } from "./pane-divider";
 
 // ⌘D делит активную панель вправо, ⇧⌘D вниз, как в iTerm.
@@ -47,7 +46,7 @@ type PaneProps = {
 // получает новое место на странице. Среди нескольких панелей фоновые
 // бледнее активной.
 function PaneTerminal({ session, pane, index, active, onMenu }: PaneProps) {
-  const { t } = useTranslation();
+  const { t } = useTranslation("terminal");
   const { notice, generation } = useTerminalState(pane);
   const attach = useCallback((host: HTMLDivElement) => attachTerminal(session, pane, host), [session, pane]);
 
@@ -71,16 +70,16 @@ function PaneTerminal({ session, pane, index, active, onMenu }: PaneProps) {
 
   return (
     <section
-      aria-label={t("agent.panes.label", { index })}
+      aria-label={t("panes.label", { index })}
       data-active={active || undefined}
       className="flex min-h-0 min-w-0 flex-1 flex-col px-4 transition-opacity duration-120 not-data-active:opacity-60"
     >
       {notice === "exited" && (
-        <Notice tone="warning" action={restart(t("agent.terminal.restart"))}>
-          {t("agent.terminal.exited")}
+        <Notice tone="warning" action={restart(t("restart"))}>
+          {t("exited")}
         </Notice>
       )}
-      {notice === "failed" && <Notice action={restart(t("agent.terminal.retry"))}>{t("agent.terminal.failed")}</Notice>}
+      {notice === "failed" && <Notice action={restart(t("retry"))}>{t("failed")}</Notice>}
       <div
         key={generation}
         ref={attach}
@@ -105,7 +104,7 @@ type NodeProps = {
 // Панель или деление надвое: первая часть занимает свою долю, вторая
 // остальное, граница между ними тянется.
 function PaneNode({ session, node, path, active, panes, onMenu }: NodeProps) {
-  const { t } = useTranslation();
+  const { t } = useTranslation("terminal");
 
   if (node.kind === "pane") {
     return (
@@ -129,7 +128,7 @@ function PaneNode({ session, node, path, active, panes, onMenu }: NodeProps) {
       <PaneDivider
         direction={node.direction}
         ratio={node.ratio}
-        label={t("agent.panes.resize")}
+        label={t("panes.resize")}
         onResize={(ratio) => resizePanes(session, path, ratio)}
         onDone={savePanes}
       />
@@ -145,7 +144,7 @@ type Menu = { x: number; y: number; pane: string };
 // Панели сессии: каждая со своей оболочкой. Правая кнопка в панели делит
 // её в любую сторону или закрывает, ⌘D и ⇧⌘D делят активную.
 export function SessionPanes({ session }: { session: string }) {
-  const { t } = useTranslation();
+  const { t } = useTranslation("terminal");
   const panes = usePanes(session);
   const [menu, setMenu] = useState<Menu | null>(null);
   const open = panesIn(panes.layout);
@@ -162,15 +161,15 @@ export function SessionPanes({ session }: { session: string }) {
     const last = open.length === 1;
 
     return [
-      split(t("agent.panes.splitRight"), "right"),
-      split(t("agent.panes.splitLeft"), "left"),
-      split(t("agent.panes.splitDown"), "down"),
-      split(t("agent.panes.splitUp"), "up"),
+      split(t("panes.splitRight"), "right"),
+      split(t("panes.splitLeft"), "left"),
+      split(t("panes.splitDown"), "down"),
+      split(t("panes.splitUp"), "up"),
       {
-        label: t("agent.panes.close"),
+        label: t("panes.close"),
         separated: true,
         disabled: last,
-        hint: last ? t("agent.panes.last") : undefined,
+        hint: last ? t("panes.last") : undefined,
         onSelect: () => closePane(session, pane),
       },
     ];

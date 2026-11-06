@@ -1,5 +1,5 @@
 import { useSelector } from "@tanstack/react-store";
-import { panesSetting } from "../infrastructure/agent.device";
+import { panesSetting } from "../infrastructure/panes.device";
 import {
   closePane as withoutPane,
   panesIn,
@@ -10,10 +10,14 @@ import {
   type Side,
   type SplitPath,
 } from "../model/panes";
-import { panesStore } from "../store/sessions.store";
+import { panesStore } from "../store/terminal.store";
 import { closeTerminal, focusTerminal } from "./terminal";
 
-panesStore.setState(() => panesSetting.read());
+// Раскладки до первой отрисовки: вкладка сразу открывается с теми же
+// панелями, что были.
+export function restorePanes() {
+  panesStore.setState(() => panesSetting.read());
+}
 
 function panesOf(session: string) {
   return panesStore.get()[session] ?? singlePane(session);

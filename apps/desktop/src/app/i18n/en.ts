@@ -7,22 +7,6 @@ export const en: Dictionary<typeof ru> = {
       projectMissing:
         "The project folder is no longer on disk: {{path}}. The terminal opens in it, so the session will continue once the folder is back.",
     },
-    terminal: {
-      exited: "The shell has exited.",
-      restart: "Open a new one",
-      failed: "The shell did not start.",
-      retry: "Retry",
-    },
-    panes: {
-      label: "Pane {{index}}",
-      splitRight: "Split right",
-      splitLeft: "Split left",
-      splitDown: "Split down",
-      splitUp: "Split up",
-      close: "Close pane",
-      last: "The last pane closes with its tab",
-      resize: "Pane border",
-    },
     sessions: {
       sections: "Sections",
       title: "Sessions",

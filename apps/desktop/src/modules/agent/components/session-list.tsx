@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { agentName } from "@sapien/agents";
 import { ProjectHeader, ProjectList, ProjectsHeader, RemoveProject } from "@sapien/projects";
 import { ContextMenu, Icon, type MenuItem, shortcutLabel, useReorder } from "@sapien/ui";
-import { focusPane, usePanes } from "../interactions/panes";
+import { focusPane, panesIn, usePanes } from "@sapien/terminal";
 import {
   openSearch,
   openSession,
@@ -19,7 +19,6 @@ import {
   useStartSession,
   useTabs,
 } from "../interactions/sessions";
-import { panesIn } from "../model/panes";
 import type { Project, SessionInfo } from "@sapien/ipc";
 import { moveSession } from "../model/sessions";
 import { RenameField } from "./rename-field";
