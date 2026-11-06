@@ -34,7 +34,7 @@ export function idleFor(minutes: LockMinutes, lastActivity: number, now: number)
   return now - lastActivity >= minutes * 60_000;
 }
 
-// Отказ app_unlock по коду, как у forge: новый код Rust не скомпилируется
+// Отказ security_unlock по коду, как у forge: новый код Rust не скомпилируется
 // без решения окна. unavailable значит, что системе нечем спросить:
 // у учётной записи нет пароля.
 const FAILURES = {

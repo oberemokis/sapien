@@ -18,7 +18,7 @@ function problemOf({ isError, error }: { isError: boolean; error: unknown }): Up
 }
 
 export function useAppVersion() {
-  return useQuery({ queryKey: ["updates", "version"], queryFn: commands.appVersion, staleTime: Infinity }).data;
+  return useQuery({ queryKey: ["updates", "version"], queryFn: commands.updatesVersion, staleTime: Infinity }).data;
 }
 
 // Последний релиз GitHub. Без сети проверки нет вовсе, а не ошибка:
@@ -28,7 +28,7 @@ export function useUpdateCheck() {
   const online = useOnline();
   const check = useQuery({
     queryKey: CHECK_KEY,
-    queryFn: commands.appUpdateCheck,
+    queryFn: commands.updatesCheck,
     enabled: online,
     staleTime: CHECK_EVERY,
     refetchInterval: CHECK_EVERY,
@@ -71,7 +71,7 @@ export function openRelease(version: string) {
 export function useUpdateInstall() {
   const [progress, setProgress] = useState<Progress | null>(null);
   const install = useMutation({
-    mutationFn: () => commands.appUpdateInstall(new Channel<Progress>(setProgress)),
+    mutationFn: () => commands.updatesInstall(new Channel<Progress>(setProgress)),
     onMutate: () => setProgress(null),
   });
 

@@ -22,7 +22,7 @@ export function browserRust(hash: string) {
   }
 
   if (modes.has("unlock-failed")) {
-    rust.refuse("appUnlock", { kind: "invalid", code: "unlock_failed" }, 1);
+    rust.refuse("securityUnlock", { kind: "invalid", code: "unlock_failed" }, 1);
   }
 
   return rust;

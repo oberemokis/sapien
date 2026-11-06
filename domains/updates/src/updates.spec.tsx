@@ -45,7 +45,7 @@ describe("обновление приложения", () => {
     launch();
 
     await act(() => Promise.resolve());
-    expect(rust.calls.appUpdateCheck.length).toBe(0);
+    expect(rust.calls.updatesCheck.length).toBe(0);
     expect(screen.queryByRole("region", { name: "Обновление приложения" })).toBeNull();
 
     online.mockReturnValue(true);
@@ -54,7 +54,7 @@ describe("обновление приложения", () => {
     });
 
     expect(await offer()).toBeTruthy();
-    expect(rust.calls.appUpdateCheck.length).toBe(1);
+    expect(rust.calls.updatesCheck.length).toBe(1);
   });
 
   it("новой версии нет: окно молчит", async () => {
@@ -62,17 +62,17 @@ describe("обновление приложения", () => {
 
     launch();
 
-    await waitFor(() => expect(rust.calls.appUpdateCheck.length).toBe(1));
+    await waitFor(() => expect(rust.calls.updatesCheck.length).toBe(1));
     expect(screen.queryByRole("region", { name: "Обновление приложения" })).toBeNull();
   });
 
   it("сбой проверки по расписанию не показывается поверх окна", async () => {
     const rust = fakeRust();
-    rust.refuse("appUpdateCheck", { kind: "unavailable", code: "update_unreachable" });
+    rust.refuse("updatesCheck", { kind: "unavailable", code: "update_unreachable" });
 
     launch();
 
-    await waitFor(() => expect(rust.calls.appUpdateCheck.length).toBe(1));
+    await waitFor(() => expect(rust.calls.updatesCheck.length).toBe(1));
     expect(screen.queryByRole("region", { name: "Обновление приложения" })).toBeNull();
     expect(screen.queryByRole("alert")).toBeNull();
   });
@@ -108,7 +108,7 @@ describe("обновление приложения", () => {
     await act(() => vi.advanceTimersByTimeAsync(6 * HOUR));
 
     expect(await offer()).toBeTruthy();
-    expect(rust.calls.appUpdateCheck.length).toBe(2);
+    expect(rust.calls.updatesCheck.length).toBe(2);
   });
 
   it("проверка повторяется раз в шесть часов", async () => {
@@ -117,13 +117,13 @@ describe("обновление приложения", () => {
 
     launch();
 
-    await waitFor(() => expect(rust.calls.appUpdateCheck.length).toBe(1));
+    await waitFor(() => expect(rust.calls.updatesCheck.length).toBe(1));
 
     await act(() => vi.advanceTimersByTimeAsync(5 * HOUR));
-    expect(rust.calls.appUpdateCheck.length).toBe(1);
+    expect(rust.calls.updatesCheck.length).toBe(1);
 
     await act(() => vi.advanceTimersByTimeAsync(HOUR));
-    await waitFor(() => expect(rust.calls.appUpdateCheck.length).toBe(2));
+    await waitFor(() => expect(rust.calls.updatesCheck.length).toBe(2));
   });
 
   it("обновление ставится только по согласию и показывает загрузку", async () => {
@@ -133,18 +133,18 @@ describe("обновление приложения", () => {
 
     const card = await offer();
 
-    expect(rust.calls.appUpdateInstall.length).toBe(0);
+    expect(rust.calls.updatesInstall.length).toBe(0);
 
     fireEvent.click(within(card).getByRole("button", { name: "Обновить и перезапустить" }));
 
     expect(await within(card).findByText("Загружено 50%")).toBeTruthy();
     expect(within(card).getByRole("button", { name: "Позже" })).toHaveProperty("disabled", true);
-    expect(rust.calls.appUpdateInstall.length).toBe(1);
+    expect(rust.calls.updatesInstall.length).toBe(1);
   });
 
   it("оборванная загрузка оставляет версию работать, повтор начинает заново", async () => {
     const rust = fakeRust({ state: { update: UPDATE } });
-    rust.refuse("appUpdateInstall", { kind: "unavailable", code: "update_unreachable" }, 1);
+    rust.refuse("updatesInstall", { kind: "unavailable", code: "update_unreachable" }, 1);
 
     launch();
 
@@ -161,12 +161,12 @@ describe("обновление приложения", () => {
 
     expect(await within(card).findByText("Загружено 50%")).toBeTruthy();
     expect(within(card).queryByRole("alert")).toBeNull();
-    expect(rust.calls.appUpdateInstall.length).toBe(2);
+    expect(rust.calls.updatesInstall.length).toBe(2);
   });
 
   it("чужая подпись: обновление не ставится, причина на экране", async () => {
     const rust = fakeRust({ state: { update: UPDATE } });
-    rust.refuse("appUpdateInstall", { kind: "invalid", code: "update_signature" }, 1);
+    rust.refuse("updatesInstall", { kind: "invalid", code: "update_signature" }, 1);
 
     launch();
 
