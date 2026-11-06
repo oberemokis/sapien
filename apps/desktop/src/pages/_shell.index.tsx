@@ -1,4 +1,7 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { SessionView } from "@sapien/sessions";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
-export const Route = createFileRoute("/_shell/")({ component: SessionView });
+export const Route = createFileRoute("/_shell/")({
+  beforeLoad: () => {
+    throw redirect({ to: "/inbox" });
+  },
+});

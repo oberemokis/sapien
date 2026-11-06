@@ -11,8 +11,8 @@ const TONES = {
 
 type NoticeProps = { children: string; action?: ReactNode; tone?: keyof typeof TONES };
 
-// Плашка, как Banner дизайн-системы: терминалу негде работать или с ним
-// что-то случилось.
+// Плашка, как Banner дизайн-системы: что-то не так, и человеку надо об
+// этом знать.
 export function Notice({ children, action, tone = "danger" }: NoticeProps) {
   return (
     <div

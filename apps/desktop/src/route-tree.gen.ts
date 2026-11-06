@@ -14,7 +14,6 @@ import { Route as SettingsRouteImport } from "./pages/settings";
 import { Route as ShellIndexRouteImport } from "./pages/_shell.index";
 import { Route as ShellInboxRouteImport } from "./pages/_shell.inbox";
 import { Route as SettingsIndexRouteImport } from "./pages/settings.index";
-import { Route as SettingsAgentRouteImport } from "./pages/settings.agent";
 import { Route as SettingsAppearanceRouteImport } from "./pages/settings.appearance";
 import { Route as SettingsIntegrationsRouteImport } from "./pages/settings.integrations";
 import { Route as SettingsSecurityRouteImport } from "./pages/settings.security";
@@ -43,11 +42,6 @@ const SettingsIndexRoute = SettingsIndexRouteImport.update({
   path: "/",
   getParentRoute: () => SettingsRoute,
 } as any);
-const SettingsAgentRoute = SettingsAgentRouteImport.update({
-  id: "/agent",
-  path: "/agent",
-  getParentRoute: () => SettingsRoute,
-} as any);
 const SettingsAppearanceRoute = SettingsAppearanceRouteImport.update({
   id: "/appearance",
   path: "/appearance",
@@ -68,7 +62,6 @@ export interface FileRoutesByFullPath {
   "/": typeof ShellIndexRoute;
   "/settings": typeof SettingsRouteWithChildren;
   "/inbox": typeof ShellInboxRoute;
-  "/settings/agent": typeof SettingsAgentRoute;
   "/settings/appearance": typeof SettingsAppearanceRoute;
   "/settings/integrations": typeof SettingsIntegrationsRoute;
   "/settings/security": typeof SettingsSecurityRoute;
@@ -76,7 +69,6 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   "/inbox": typeof ShellInboxRoute;
-  "/settings/agent": typeof SettingsAgentRoute;
   "/settings/appearance": typeof SettingsAppearanceRoute;
   "/settings/integrations": typeof SettingsIntegrationsRoute;
   "/settings/security": typeof SettingsSecurityRoute;
@@ -88,7 +80,6 @@ export interface FileRoutesById {
   "/_shell": typeof ShellRouteWithChildren;
   "/settings": typeof SettingsRouteWithChildren;
   "/_shell/inbox": typeof ShellInboxRoute;
-  "/settings/agent": typeof SettingsAgentRoute;
   "/settings/appearance": typeof SettingsAppearanceRoute;
   "/settings/integrations": typeof SettingsIntegrationsRoute;
   "/settings/security": typeof SettingsSecurityRoute;
@@ -101,7 +92,6 @@ export interface FileRouteTypes {
     | "/"
     | "/settings"
     | "/inbox"
-    | "/settings/agent"
     | "/settings/appearance"
     | "/settings/integrations"
     | "/settings/security"
@@ -109,7 +99,6 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo;
   to:
     | "/inbox"
-    | "/settings/agent"
     | "/settings/appearance"
     | "/settings/integrations"
     | "/settings/security"
@@ -120,7 +109,6 @@ export interface FileRouteTypes {
     | "/_shell"
     | "/settings"
     | "/_shell/inbox"
-    | "/settings/agent"
     | "/settings/appearance"
     | "/settings/integrations"
     | "/settings/security"
@@ -170,13 +158,6 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof SettingsIndexRouteImport;
       parentRoute: typeof SettingsRoute;
     };
-    "/settings/agent": {
-      id: "/settings/agent";
-      path: "/agent";
-      fullPath: "/settings/agent";
-      preLoaderRoute: typeof SettingsAgentRouteImport;
-      parentRoute: typeof SettingsRoute;
-    };
     "/settings/appearance": {
       id: "/settings/appearance";
       path: "/appearance";
@@ -214,7 +195,6 @@ const ShellRouteChildren: ShellRouteChildren = {
 const ShellRouteWithChildren = ShellRoute._addFileChildren(ShellRouteChildren);
 
 interface SettingsRouteChildren {
-  SettingsAgentRoute: typeof SettingsAgentRoute;
   SettingsAppearanceRoute: typeof SettingsAppearanceRoute;
   SettingsIntegrationsRoute: typeof SettingsIntegrationsRoute;
   SettingsSecurityRoute: typeof SettingsSecurityRoute;
@@ -222,7 +202,6 @@ interface SettingsRouteChildren {
 }
 
 const SettingsRouteChildren: SettingsRouteChildren = {
-  SettingsAgentRoute: SettingsAgentRoute,
   SettingsAppearanceRoute: SettingsAppearanceRoute,
   SettingsIntegrationsRoute: SettingsIntegrationsRoute,
   SettingsSecurityRoute: SettingsSecurityRoute,

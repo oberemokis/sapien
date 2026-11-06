@@ -19,19 +19,14 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 log.workspace = true
 robius-authentication = "0.3.1"
-sapien-agents.workspace = true
 sapien-forge.workspace = true
 sapien-kernel.workspace = true
-sapien-projects.workspace = true
-sapien-sessions.workspace = true
-sapien-workspace.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 specta.workspace = true
 specta-typescript = "=0.0.13"
 tauri = { version = "2", features = ["specta"] }
 tauri-specta = { version = "=2.0.0-rc.26", features = ["derive", "typescript"] }
-tauri-plugin-dialog = "2"
 tauri-plugin-log = "2.9.2"
 tauri-plugin-opener = "2.5.5"
 # Без zip: он распаковывает только архивы обновлений старого формата

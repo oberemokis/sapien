@@ -3,7 +3,7 @@ import type { Dictionary } from "@sapien/i18n";
 // Русский задаёт ключи, английский повторяет его форму.
 const ru = {
   title: "Интеграции",
-  description: "GitHub и GitLab по личному токену. Пока здесь только подключение: что агент делает с ними, появится позже.",
+  description: "GitHub и GitLab по личному токену. Пока здесь только подключение: аналитика по ним появится позже.",
   connection: "Подключение",
   checking: "Проверяю…",
   connected: "Подключено как {{login}} на {{host}}.",
@@ -33,7 +33,7 @@ const ru = {
 
 const en: Dictionary<typeof ru> = {
   title: "Integrations",
-  description: "GitHub and GitLab with a personal token. Only the connection lives here for now: what the agent does with them comes later.",
+  description: "GitHub and GitLab with a personal token. Only the connection lives here for now: analytics on top of them comes later.",
   connection: "Connection",
   checking: "Checking…",
   connected: "Connected as {{login}} on {{host}}.",

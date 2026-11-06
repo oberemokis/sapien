@@ -99,7 +99,7 @@ function ForgeGroup({ forge, status }: { forge: Forge; status: ForgeStatus | und
 }
 
 // Раздел «Интеграции»: GitHub и GitLab по токену. Пока подключение
-// и проверка, что токен рабочий: что агент с ними делает, решим позже.
+// и проверка, что токен рабочий: что приложение с ними делает, решим позже.
 export function ForgeSettings() {
   const { t } = useTranslation("forge");
   const status = useForgeStatus();
