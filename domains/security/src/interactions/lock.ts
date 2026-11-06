@@ -59,7 +59,7 @@ function failureOf(mutation: { isError: boolean; error: unknown }): UnlockFailur
 // тот, кто и так сидит у открытого окна, без проверки.
 export function useLockToggle() {
   const enable = useMutation({
-    mutationFn: commands.appUnlock,
+    mutationFn: commands.securityUnlock,
     onSuccess: () => saveSettings({ enabled: true }),
   });
 
@@ -82,7 +82,7 @@ export function useLockToggle() {
 // случайного взгляда.
 export function useUnlock() {
   const unlock = useMutation({
-    mutationFn: commands.appUnlock,
+    mutationFn: commands.securityUnlock,
     onSuccess: () => setLocked(false),
     onError: (error) => {
       if (unlockFailureOf(error) === "unavailable") {

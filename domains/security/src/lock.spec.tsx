@@ -18,7 +18,7 @@ function unlockAnswers(answers: Answer[]) {
     if (answer !== "verified") {
       const kind = answer === "unlock_unavailable" ? "unavailable" : "invalid";
 
-      rust.refuse("appUnlock", { kind, code: answer }, index === answers.length - 1 ? Infinity : 1);
+      rust.refuse("securityUnlock", { kind, code: answer }, index === answers.length - 1 ? Infinity : 1);
     }
   });
 
@@ -97,7 +97,7 @@ describe("блокировка окна", () => {
     const toggle = await screen.findByRole("switch", { name: "Блокировать окно" });
 
     fireEvent.click(toggle);
-    await waitFor(() => expect(rust.calls.appUnlock.length).toBe(1));
+    await waitFor(() => expect(rust.calls.securityUnlock.length).toBe(1));
     expect(toggle).toHaveProperty("checked", false);
     expect(screen.getByText(/открывается по Touch ID или паролю Mac/)).toBeTruthy();
 
@@ -193,7 +193,7 @@ describe("блокировка окна", () => {
     fireEvent.click(unlock);
     // Отмена страницу не меняет, а waitFor перепроверяет по setInterval,
     // который здесь подменён. vi.waitFor ходит на настоящих таймерах.
-    await vi.waitFor(() => expect(rust.calls.appUnlock.length).toBe(1));
+    await vi.waitFor(() => expect(rust.calls.securityUnlock.length).toBe(1));
     expect(within(dialog).queryByRole("alert")).toBeNull();
 
     fireEvent.click(unlock);

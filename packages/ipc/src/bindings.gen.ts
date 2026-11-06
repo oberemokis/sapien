@@ -9,25 +9,25 @@ import * as __TAURI_EVENT from "@tauri-apps/api/event";
 export const commands = {
 	/**  Ссылка из текста заметки. Годится ли адрес, решает Rust, а не окно. */
 	openLink: (url: string) => __TAURI_INVOKE<null>("open_link", { url }),
-	appVersion: () => __TAURI_INVOKE<string>("app_version"),
+	updatesVersion: () => __TAURI_INVOKE<string>("updates_version"),
 	/**  Новой версии нет: `None`. */
-	appUpdateCheck: () => __TAURI_INVOKE<Available_Serialize | null>("app_update_check"),
+	updatesCheck: () => __TAURI_INVOKE<Available_Serialize | null>("updates_check"),
 	/**
 	 *  Качает обновление, сверяет подпись, ставит и перезапускает приложение.
 	 *  Оборванная загрузка или чужая подпись ничего не меняют на диске:
 	 *  установленная версия работает дальше.
 	 */
-	appUpdateInstall: (onEvent: Channel<Progress_Deserialize>) => __TAURI_INVOKE<null>("app_update_install", { onEvent }),
+	updatesInstall: (onEvent: Channel<Progress_Deserialize>) => __TAURI_INVOKE<null>("updates_install", { onEvent }),
 	/**
 	 *  Окно ждёт ответа человека в системном окне проверки, поэтому команда
 	 *  асинхронная и главный поток не держит.
 	 */
-	appUnlock: () => __TAURI_INVOKE<null>("app_unlock"),
+	securityUnlock: () => __TAURI_INVOKE<null>("security_unlock"),
 	/**
 	 *  Меню перестраивается целиком: у пунктов macOS нет смены подписи на месте
 	 *  для стандартных действий вроде «Службы».
 	 */
-	appSetLanguage: (language: string) => __TAURI_INVOKE<null>("app_set_language", { language }),
+	appearanceSetLanguage: (language: string) => __TAURI_INVOKE<null>("appearance_set_language", { language }),
 	/**  Подключения, как их сохранили, без сети. */
 	forgeStatus: () => __TAURI_INVOKE<ForgeStatuses_Serialize>("forge_status"),
 	/**  Токен приходит из окна один раз и обратно не возвращается. */

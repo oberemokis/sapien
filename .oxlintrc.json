@@ -50,7 +50,7 @@
       }
     },
     {
-      "files": ["packages/*/src/{components,flows}/**"],
+      "files": ["domains/*/src/{components,flows}/**"],
       "rules": {
         "no-restricted-imports": [
           "error",
@@ -68,7 +68,7 @@
       }
     },
     {
-      "files": ["packages/*/src/store/**"],
+      "files": ["domains/*/src/store/**"],
       "rules": {
         "no-restricted-imports": [
           "error",
@@ -85,7 +85,7 @@
       }
     },
     {
-      "files": ["packages/*/src/ui/**"],
+      "files": ["domains/*/src/ui/**"],
       "rules": {
         "no-restricted-imports": [
           "error",
@@ -103,7 +103,7 @@
       }
     },
     {
-      "files": ["packages/*/src/model/**"],
+      "files": ["domains/*/src/model/**"],
       "rules": {
         "no-restricted-imports": [
           "error",
@@ -124,7 +124,7 @@
       }
     },
     {
-      "files": ["packages/*/src/interactions/**"],
+      "files": ["domains/*/src/interactions/**"],
       "rules": {
         "no-restricted-imports": [
           "error",
@@ -139,7 +139,7 @@
       }
     },
     {
-      "files": ["packages/*/src/infrastructure/**"],
+      "files": ["domains/*/src/infrastructure/**"],
       "rules": {
         "no-restricted-imports": [
           "error",

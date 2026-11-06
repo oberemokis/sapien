@@ -1,5 +1,6 @@
 packages:
   - "apps/*"
+  - "domains/*"
   - "packages/*"
 
 # esbuild приходит с Vite. Его скрипт проверяет, что бинарь под платформу

@@ -9,7 +9,7 @@
     "bundle": "pnpm --filter @sapien/desktop tauri build",
     "test": "turbo run test rust:test",
     "typecheck": "turbo run typecheck rust:check",
-    "lint": "oxlint && secretlint \"**/*\" --secretlintignore .gitignore && turbo run rust:fmt rust:clippy",
+    "lint": "oxlint && node scripts/check-boundaries.mjs && secretlint \"**/*\" --secretlintignore .gitignore && turbo run rust:fmt rust:clippy",
     "rust:check": "cargo check --quiet --workspace --all-targets",
     "rust:clippy": "cargo clippy --workspace --all-targets --quiet -- -D warnings",
     "rust:fmt": "cargo fmt --all --check",
