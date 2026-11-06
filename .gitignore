@@ -3,7 +3,7 @@ dist
 dist-ssr
 *.local
 
-# рабочие копии веток (git worktree), правило в .agents/skills/branches
+# рабочие копии веток (git worktree), правило в .opencode/skills/branches
 /.worktrees/
 
 # local env (keep the committed template)
@@ -24,11 +24,9 @@ test-results
 playwright-report
 .playwright
 
-# oh-my-openagent runtime state (session/machine-specific)
-.omo/
-
-# claude runtime state (конфиг проекта в .claude/ коммитится)
-.claude/settings.local.json
+# служебные файлы Claude: он приходит провайдером OpenCode, и его среда
+# пишет сюда своё состояние. Конфига Claude в репозитории нет
+/.claude/
 
 *.log
 npm-debug.log*
