@@ -2,9 +2,9 @@
 
 ## Код
 
-Устройство, слои и правила против связанности описаны в `docs/architecture.md`. Домен живёт крейтом в `crates/` и пакетом в `packages/`, а `apps/desktop` их только собирает. Пока модули окна не стали пакетами, направление их зависимостей проверяет `scripts/check-boundaries.mjs`. Новый домен сначала получает место в дереве документа, потом код.
+Устройство, слои и правила против связанности описаны в `docs/architecture.md`. Домен живёт крейтом в `crates/` и пакетом в `packages/`, а `apps/desktop` их только собирает. Новый домен сначала получает место в дереве документа, потом код.
 
-Команды: `pnpm typecheck` (tsc и `cargo check`), `pnpm lint` (oxlint, проверка границ, `cargo fmt --all --check`, `cargo clippy` с `-D warnings`, secretlint), `pnpm test` (vitest и `cargo test`). Cargo работает по workspace из корневого `Cargo.toml`, общий `target/` лежит в корне. Все три гоняет CI, первые два ещё и хук перед коммитом. `pnpm audit:deps` (pnpm audit с уровня high и cargo audit) гоняет отдельный workflow `audit.yml` на пул-реквесте и раз в неделю, исключение записывается с причиной и условием снятия: для npm в `auditConfig` в `pnpm-workspace.yaml`, для Rust в `.cargo/audit.toml`. Окно приложения поднимает `pnpm dev`, интерфейс в браузере без Rust `pnpm dev:web`.
+Команды: `pnpm typecheck` (tsc и `cargo check`), `pnpm lint` (oxlint с границами слоёв, `cargo fmt --all --check`, `cargo clippy` с `-D warnings`, secretlint), `pnpm test` (vitest и `cargo test`). Cargo работает по workspace из корневого `Cargo.toml`, общий `target/` лежит в корне. Все три гоняет CI, первые два ещё и хук перед коммитом. `pnpm audit:deps` (pnpm audit с уровня high и cargo audit) гоняет отдельный workflow `audit.yml` на пул-реквесте и раз в неделю, исключение записывается с причиной и условием снятия: для npm в `auditConfig` в `pnpm-workspace.yaml`, для Rust в `.cargo/audit.toml`. Окно приложения поднимает `pnpm dev`, интерфейс в браузере без Rust `pnpm dev:web`.
 
 pnpm ставит только версии старше суток (`minimumReleaseAge`). Если установка дописала `minimumReleaseAgeExclude` в `pnpm-workspace.yaml`, выбранная версия моложе: поставь предыдущую явно и удали запись.
 

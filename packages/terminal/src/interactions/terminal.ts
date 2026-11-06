@@ -1,3 +1,8 @@
+// Объявление стилей xterm едет ссылкой в программу любого пакета, который
+// берёт терминал: свой src они видят, чужой нет. Импортом его не взять:
+// файл объявлений без экспорта не модуль.
+// oxlint-disable-next-line typescript/triple-slash-reference
+/// <reference path="../xterm-css.d.ts" />
 import { Channel, commands, events } from "@sapien/ipc";
 import { useSelector } from "@tanstack/react-store";
 import { useEffect } from "react";

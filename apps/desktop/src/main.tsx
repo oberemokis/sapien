@@ -1,7 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App, restoreDevice } from "@/app/app";
-import { fakeRustInBrowser } from "@/core/rust/browser";
+import { fakeRustInBrowser } from "@/app/rust";
 import "@fontsource-variable/inter";
 import "@fontsource/ibm-plex-mono/400.css";
 import "@fontsource/ibm-plex-mono/500.css";

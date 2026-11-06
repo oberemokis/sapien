@@ -46,7 +46,7 @@ const OPTION =
   "flex h-8 cursor-default items-center gap-2 rounded-md px-2 text-[13px]/4 text-text-base aria-selected:bg-overlay-hover [&_svg]:text-icon-muted";
 
 function SearchDialog() {
-  const { t } = useTranslation();
+  const { t } = useTranslation("sessions");
   const navigate = useNavigate();
   const sessions = useSessions();
   const projects = useProjects();
@@ -113,16 +113,16 @@ function SearchDialog() {
   let note: string | null = null;
 
   if (sessions.data?.length === 0) {
-    note = t("agent.search.none");
+    note = t("search.none");
   } else if (sessions.data !== undefined && count === 0) {
-    note = t("agent.search.nothing");
+    note = t("search.nothing");
   }
 
   return (
     // Нажатие на затемнение вокруг окна закрывает поиск, как Escape.
     <dialog
       ref={dialogRef}
-      aria-label={t("agent.search.title")}
+      aria-label={t("search.title")}
       className="fixed inset-x-0 top-[12vh] mx-auto w-[min(560px,calc(100vw-32px))] overflow-hidden rounded-dock bg-bg-base p-0 text-text-base shadow-overlay backdrop:bg-overlay-scrim"
       onKeyDown={onKeyDown}
       onCancel={(event) => {
@@ -140,12 +140,12 @@ function SearchDialog() {
         <input
           ref={inputRef}
           role="combobox"
-          aria-label={t("agent.search.title")}
+          aria-label={t("search.title")}
           aria-expanded
           aria-controls={listId}
           aria-autocomplete="list"
           aria-activedescendant={count > 0 ? `${listId}-${active}` : undefined}
-          placeholder={t("agent.search.placeholder")}
+          placeholder={t("search.placeholder")}
           className="h-full min-w-0 flex-1 bg-transparent text-[14px] outline-none placeholder:text-text-faint"
           value={query}
           onChange={(event) => {
@@ -156,10 +156,10 @@ function SearchDialog() {
       </div>
       <div className="max-h-[360px] overflow-y-auto p-1.5">
         {query.trim() === "" && count > 0 && (
-          <p className="flex h-7 items-center px-2 text-[13px] text-text-muted">{t("agent.search.recent")}</p>
+          <p className="flex h-7 items-center px-2 text-[13px] text-text-muted">{t("search.recent")}</p>
         )}
         {note !== null && <p className="px-2 py-1.5 text-[13px]/4 text-text-muted">{note}</p>}
-        <div id={listId} role="listbox" aria-label={t("agent.search.title")} className="flex flex-col gap-0.5">
+        <div id={listId} role="listbox" aria-label={t("search.title")} className="flex flex-col gap-0.5">
           {found.map((session, index) => (
             <div
               key={session.id}
@@ -172,7 +172,7 @@ function SearchDialog() {
               onClick={() => choose(session)}
             >
               <Icon icon="bubble-5" className="shrink-0" />
-              <span className="min-w-0 shrink truncate font-medium">{session.title || t("agent.sessions.untitled")}</span>
+              <span className="min-w-0 shrink truncate font-medium">{session.title || t("sessions.untitled")}</span>
               <span className="min-w-0 flex-1 truncate text-text-muted">{session.projectName}</span>
             </div>
           ))}
@@ -182,8 +182,8 @@ function SearchDialog() {
         aria-hidden
         className="flex items-center gap-4 border-t border-border-muted px-3 py-2 text-[12px]/[18px] text-text-muted"
       >
-        <Key label="↵">{t("agent.search.keys.open")}</Key>
-        <Key label="esc">{t("agent.search.keys.close")}</Key>
+        <Key label="↵">{t("search.keys.open")}</Key>
+        <Key label="esc">{t("search.keys.close")}</Key>
       </div>
     </dialog>
   );

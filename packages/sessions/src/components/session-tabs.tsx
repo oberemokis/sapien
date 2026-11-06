@@ -28,7 +28,7 @@ type Menu = { x: number; y: number; session: SessionInfo };
 // перетаскиванием. Для чтения с экрана это навигация, а не tablist:
 // tablist держит одни вкладки, без крестиков и «+».
 export function SessionTabs() {
-  const { t } = useTranslation();
+  const { t } = useTranslation("sessions");
   const navigate = useNavigate();
   const tabs = useTabs();
   const sessions = useSessions();
@@ -85,31 +85,31 @@ export function SessionTabs() {
   function items(session: SessionInfo): MenuItem[] {
     const pinned = tabs.pinned.includes(session.id);
     const all: MenuItem[] = [
-      { label: t("agent.tabs.rename"), onSelect: () => setRenaming(session.id) },
-      { label: pinned ? t("agent.tabs.unpin") : t("agent.tabs.pin"), onSelect: () => pinSession(session, !pinned) },
+      { label: t("tabs.rename"), onSelect: () => setRenaming(session.id) },
+      { label: pinned ? t("tabs.unpin") : t("tabs.pin"), onSelect: () => pinSession(session, !pinned) },
     ];
 
     if (!pinned) {
-      all.push({ label: t("agent.tabs.closeItem"), separated: true, onSelect: () => closeSession(session) });
+      all.push({ label: t("tabs.closeItem"), separated: true, onSelect: () => closeSession(session) });
     }
 
     return all;
   }
 
   return (
-    <nav aria-label={t("agent.tabs.label", { project: project.name })} className="flex min-w-0 items-center gap-1">
+    <nav aria-label={t("tabs.label", { project: project.name })} className="flex min-w-0 items-center gap-1">
       <ul ref={list} className="flex min-w-0 items-center gap-1">
         {open.map((session) => {
           const selected = onChat && session.id === tabs.active;
           const pinned = tabs.pinned.includes(session.id);
-          const title = session.title || t("agent.sessions.untitled");
+          const title = session.title || t("sessions.untitled");
 
           if (renaming === session.id) {
             return (
               <li key={session.id} data-id={session.id} className="flex shrink-0 items-center">
                 <RenameField
                   title={session.title}
-                  label={t("agent.tabs.name")}
+                  label={t("tabs.name")}
                   className="w-44 px-2.5"
                   onDone={(next) => finishRename(session, next)}
                 />
@@ -150,18 +150,18 @@ export function SessionTabs() {
                 onContextMenu={(event) => openMenu(event, session)}
               >
                 <span className="truncate">{title}</span>
-                {pinned && <span className="sr-only">{t("agent.tabs.pinned")}</span>}
+                {pinned && <span className="sr-only">{t("tabs.pinned")}</span>}
                 {session.answering && (
                   <>
                     <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-bg-accent motion-safe:animate-pulse" />
-                    <span className="sr-only">{t("agent.sessions.running")}</span>
+                    <span className="sr-only">{t("sessions.running")}</span>
                   </>
                 )}
               </button>
               {!pinned && (
                 <button
                   type="button"
-                  aria-label={t("agent.tabs.close", { title })}
+                  aria-label={t("tabs.close", { title })}
                   className="absolute right-1 grid size-5 place-items-center rounded-sm text-icon-muted opacity-0 transition-opacity duration-120 group-hover:opacity-100 hover:bg-overlay-hover hover:text-icon-base focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-border-focus"
                   onClick={() => closeSession(session)}
                 >
@@ -175,19 +175,19 @@ export function SessionTabs() {
       {!project.missing && (
         <IconButton
           icon="plus"
-          label={t("agent.tabs.new", { project: project.name })}
+          label={t("tabs.new", { project: project.name })}
           disabled={newSession.isPending}
           onClick={() => newSession.mutate(project.id, { onSuccess: () => void navigate({ to: "/" }) })}
         />
       )}
       {newSession.isError && (
         <p role="alert" className="shrink-0 text-[12px] text-state-fg-danger">
-          {t("agent.sessions.newFailed")}
+          {t("sessions.newFailed")}
         </p>
       )}
       {rename.isError && (
         <p role="alert" className="shrink-0 text-[12px] text-state-fg-danger">
-          {t("agent.tabs.renameFailed")}
+          {t("tabs.renameFailed")}
         </p>
       )}
       {menu !== null && <ContextMenu x={menu.x} y={menu.y} items={items(menu.session)} onClose={() => setMenu(null)} />}

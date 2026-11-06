@@ -152,6 +152,42 @@
       }
     },
     {
+      "files": ["apps/desktop/src/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              { "regex": "^@sapien/ipc/fake$", "message": "подделку ставит app/rust.ts, остальному окну она не нужна" }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["apps/desktop/src/pages/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              { "name": "@sapien/ipc", "allowTypeImports": true, "message": "страница собирает пакеты, команды Rust зовут их interactions" }
+            ],
+            "patterns": [
+              { "regex": "^@tauri-apps/", "allowTypeImports": true, "message": "Tauri живёт в infrastructure пакетов" },
+              { "regex": "^@sapien/ipc/fake$", "message": "подделку ставит app/rust.ts, остальному окну она не нужна" }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["apps/desktop/src/app/rust.ts"],
+      "rules": {
+        "no-restricted-imports": "off"
+      }
+    },
+    {
       "files": ["**/*.spec.ts", "**/*.spec.tsx"],
       "rules": {
         "no-restricted-imports": "off"

@@ -1,6 +1,6 @@
 import { Outlet, createRootRoute } from "@tanstack/react-router";
 import { AppLock } from "@sapien/security";
-import { useSettingsShortcut } from "@/modules/settings";
+import { useSettingsShortcut } from "@/settings";
 import { UpdateOffer } from "@sapien/updates";
 
 export const Route = createRootRoute({ component: Root });

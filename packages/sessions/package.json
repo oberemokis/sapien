@@ -1,0 +1,39 @@
+{
+  "name": "@sapien/sessions",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@sapien/agents": "workspace:*",
+    "@sapien/device": "workspace:*",
+    "@sapien/i18n": "workspace:*",
+    "@sapien/ipc": "workspace:*",
+    "@sapien/projects": "workspace:*",
+    "@sapien/terminal": "workspace:*",
+    "@sapien/ui": "workspace:*",
+    "@tanstack/react-query": "catalog:",
+    "@tanstack/react-router": "catalog:",
+    "@tanstack/react-store": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "react-i18next": "catalog:"
+  },
+  "devDependencies": {
+    "@sapien/testing": "workspace:*",
+    "@tauri-apps/api": "catalog:",
+    "@testing-library/dom": "catalog:",
+    "@testing-library/react": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "happy-dom": "catalog:",
+    "i18next": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

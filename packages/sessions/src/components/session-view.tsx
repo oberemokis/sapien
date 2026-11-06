@@ -8,7 +8,7 @@ import { SessionPanes } from "@sapien/terminal";
 // Без открытых вкладок: первый шаг, добавить папку проекта, или новая
 // сессия в открытом проекте, а без него в последнем.
 function Welcome() {
-  const { t } = useTranslation(["translation", "projects"]);
+  const { t } = useTranslation(["sessions", "projects"]);
   const projects = useProjects();
   const sessions = useSessions();
   const tabs = useTabs();
@@ -27,10 +27,10 @@ function Welcome() {
         <Icon icon="bubble-5" size={20} className="text-icon-muted" />
         <div className="flex flex-col items-center gap-1">
           <h1 className="text-[16px]/7 font-medium">
-            {project === null ? t("agent.welcome.firstTitle") : t("agent.welcome.title")}
+            {project === null ? t("welcome.firstTitle") : t("welcome.title")}
           </h1>
           <p className="text-[13px]/5 text-text-muted">
-            {project === null ? t("agent.welcome.firstText") : t("agent.welcome.text")}
+            {project === null ? t("welcome.firstText") : t("welcome.text")}
           </p>
         </div>
         {project === null ? (
@@ -39,7 +39,7 @@ function Welcome() {
           </Button>
         ) : (
           <Button variant="submit" disabled={newSession.isPending} onClick={() => newSession.mutate(project)}>
-            {t("agent.sessions.new")}
+            {t("sessions.new")}
           </Button>
         )}
         {(add.isError || newSession.isError) && (
@@ -55,7 +55,7 @@ function Welcome() {
 // Середина главного экрана: панели сессии активной вкладки. Папки
 // проекта больше нет, и вместо панелей плашка говорит об этом.
 export function SessionView() {
-  const { t } = useTranslation();
+  const { t } = useTranslation("sessions");
   const session = useActiveSession();
   const projects = useProjects();
 
@@ -68,7 +68,7 @@ export function SessionView() {
   if (projects.data !== undefined && (project === undefined || project.missing)) {
     return (
       <div className="flex min-h-0 flex-1 flex-col px-4">
-        <Notice>{t("agent.session.projectMissing", { path: project?.path ?? "" })}</Notice>
+        <Notice>{t("session.projectMissing", { path: project?.path ?? "" })}</Notice>
       </div>
     );
   }

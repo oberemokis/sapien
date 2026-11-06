@@ -50,7 +50,7 @@ const AGENT_BRANCH =
 // ещё доделывает работу, идёт последним. Строка открывает сессию и ставит
 // фокус в панель агента.
 function SessionAgents({ session, onOpen }: { session: SessionInfo; onOpen: (session: SessionInfo) => void }) {
-  const { t } = useTranslation();
+  const { t } = useTranslation("sessions");
   const panes = panesIn(usePanes(session.id).layout);
 
   if (session.agents.length === 0) {
@@ -61,7 +61,7 @@ function SessionAgents({ session, onOpen }: { session: SessionInfo; onOpen: (ses
   const agents = session.agents.toSorted((a, b) => place(a.pane) - place(b.pane));
 
   return (
-    <ul aria-label={t("agent.sessions.agents", { title: session.title || t("agent.sessions.untitled") })} className="ml-2 flex flex-col gap-0.5">
+    <ul aria-label={t("sessions.agents", { title: session.title || t("sessions.untitled") })} className="ml-2 flex flex-col gap-0.5">
       {agents.map((running) => (
         <li key={running.pane} className={AGENT_BRANCH}>
           <button
@@ -76,7 +76,7 @@ function SessionAgents({ session, onOpen }: { session: SessionInfo; onOpen: (ses
             {running.answering && (
               <>
                 <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-bg-accent motion-safe:animate-pulse" />
-                <span className="sr-only">{t("agent.sessions.running")}</span>
+                <span className="sr-only">{t("sessions.running")}</span>
               </>
             )}
           </button>
@@ -99,7 +99,7 @@ type ProjectProps = {
 // проекта. Правая кнопка открывает меню проекта или сессии, двойное
 // нажатие переименовывает сессию, как во вкладках.
 function ProjectSessions({ project, onMenu }: ProjectProps) {
-  const { t } = useTranslation(["translation", "projects"]);
+  const { t } = useTranslation(["sessions", "projects"]);
   const navigate = useNavigate();
   const tabs = useTabs();
   const newSession = useNewSession();
@@ -139,7 +139,7 @@ function ProjectSessions({ project, onMenu }: ProjectProps) {
 
   const projectMenu: MenuItem[] = [
     {
-      label: t("agent.sessions.new"),
+      label: t("sessions.new"),
       disabled: project.missing,
       onSelect: () => newSession.mutate(project.id, { onSuccess: () => void navigate({ to: "/" }) }),
     },
@@ -152,22 +152,22 @@ function ProjectSessions({ project, onMenu }: ProjectProps) {
       {removing && <RemoveProject project={project} onRemoved={refreshSessions} onClose={() => setRemoving(false)} />}
       {newSession.isError && (
         <p role="alert" className="px-2 pb-1 text-[12px]/[18px] text-state-fg-danger">
-          {t("agent.sessions.newFailed")}
+          {t("sessions.newFailed")}
         </p>
       )}
       {deleteSession.isError && (
         <p role="alert" className="px-2 pb-1 text-[12px]/[18px] text-state-fg-danger">
-          {t("agent.sessions.deleteFailed")}
+          {t("sessions.deleteFailed")}
         </p>
       )}
       {rename.isError && (
         <p role="alert" className="px-2 pb-1 text-[12px]/[18px] text-state-fg-danger">
-          {t("agent.sessions.renameFailed")}
+          {t("sessions.renameFailed")}
         </p>
       )}
       <ul ref={list} className="ml-4 flex flex-col gap-0.5">
         {shown.map((session) => {
-          const title = session.title || t("agent.sessions.untitled");
+          const title = session.title || t("sessions.untitled");
           const branched = session.agents.length > 0;
           const folded = branched && collapsed.includes(session.id);
 
@@ -186,7 +186,7 @@ function ProjectSessions({ project, onMenu }: ProjectProps) {
               {renaming === session.id ? (
                 <RenameField
                   title={session.title}
-                  label={t("agent.sessions.name")}
+                  label={t("sessions.name")}
                   className="w-full px-2"
                   onDone={(next) => finishRename(session, next)}
                 />
@@ -206,13 +206,13 @@ function ProjectSessions({ project, onMenu }: ProjectProps) {
                   // недоступен и говорит почему.
                   onContextMenu={(event) =>
                     onMenu(event, [
-                      { label: t("agent.sessions.rename"), onSelect: () => setRenaming(session.id) },
+                      { label: t("sessions.rename"), onSelect: () => setRenaming(session.id) },
                       {
-                        label: t("agent.sessions.delete"),
+                        label: t("sessions.delete"),
                         separated: true,
                         critical: true,
                         disabled: session.answering,
-                        hint: session.answering ? t("agent.sessions.running") : undefined,
+                        hint: session.answering ? t("sessions.running") : undefined,
                         onSelect: () => deleteSession.mutate(session),
                       },
                     ])
@@ -223,7 +223,7 @@ function ProjectSessions({ project, onMenu }: ProjectProps) {
                   {folded && session.answering && (
                     <>
                       <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-bg-accent motion-safe:animate-pulse" />
-                      <span className="sr-only">{t("agent.sessions.running")}</span>
+                      <span className="sr-only">{t("sessions.running")}</span>
                     </>
                   )}
                 </button>
@@ -234,7 +234,7 @@ function ProjectSessions({ project, onMenu }: ProjectProps) {
                 <button
                   type="button"
                   aria-expanded={!folded}
-                  aria-label={t(folded ? "agent.sessions.expand" : "agent.sessions.collapse", { title })}
+                  aria-label={t(folded ? "sessions.expand" : "sessions.collapse", { title })}
                   className={`absolute top-1 right-1 grid size-5 place-items-center rounded-sm text-icon-muted transition-opacity duration-120 group-hover:opacity-100 hover:bg-overlay-hover hover:text-icon-base focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-border-focus ${
                     folded ? "" : "opacity-0"
                   }`}
@@ -258,7 +258,7 @@ function ProjectSessions({ project, onMenu }: ProjectProps) {
 
 // Левая панель: поиск всегда наверху, ниже проекты с их сессиями.
 export function SessionList() {
-  const { t } = useTranslation();
+  const { t } = useTranslation("sessions");
   const navigate = useNavigate();
   const startSession = useStartSession();
   const [menu, setMenu] = useState<Menu | null>(null);
@@ -275,15 +275,15 @@ export function SessionList() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <nav aria-label={t("agent.sessions.sections")} className="flex shrink-0 flex-col gap-0.5 px-1 pt-0.5">
+      <nav aria-label={t("sessions.sections")} className="flex shrink-0 flex-col gap-0.5 px-1 pt-0.5">
         <button type="button" className={ROW} onClick={openSearch}>
           <Icon icon="magnifying-glass" className="shrink-0" />
-          <span className="flex-1 text-left">{t("agent.search.open")}</span>
+          <span className="flex-1 text-left">{t("search.open")}</span>
           <kbd className="font-sans text-[11px] text-text-faint">{shortcutLabel("K")}</kbd>
         </button>
       </nav>
       <ProjectsHeader onAdded={startIn} />
-      <nav aria-label={t("agent.sessions.title")} className="min-h-0 flex-1 overflow-y-auto p-1 pt-0">
+      <nav aria-label={t("sessions.title")} className="min-h-0 flex-1 overflow-y-auto p-1 pt-0">
         <ProjectList>{(project) => <ProjectSessions key={project.id} project={project} onMenu={openMenu} />}</ProjectList>
       </nav>
       {menu !== null && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
