@@ -18,11 +18,11 @@
       "dependsOn": ["transit"]
     },
     "//#rust:check": {
-      "inputs": ["Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "crates/**", "apps/desktop/src-tauri/**", "apps/desktop/package.json"],
+      "inputs": ["Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "crates/**", "apps/desktop/src-tauri/**", "!apps/desktop/src-tauri/gen/**", "apps/desktop/package.json"],
       "passThroughEnv": ["CARGO_*", "RUSTUP_*"]
     },
     "//#rust:clippy": {
-      "inputs": ["Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "crates/**", "apps/desktop/src-tauri/**", "apps/desktop/package.json"],
+      "inputs": ["Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "crates/**", "apps/desktop/src-tauri/**", "!apps/desktop/src-tauri/gen/**", "apps/desktop/package.json"],
       "passThroughEnv": ["CARGO_*", "RUSTUP_*"]
     },
     "//#rust:fmt": {
@@ -36,6 +36,7 @@
         "rust-toolchain.toml",
         "crates/**",
         "apps/desktop/src-tauri/**",
+        "!apps/desktop/src-tauri/gen/**",
         "apps/desktop/package.json",
         "packages/ipc/src/bindings.gen.ts"
       ],
