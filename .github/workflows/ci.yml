@@ -22,15 +22,18 @@ jobs:
     # Приложение только для macOS, и код под #[cfg(target_os = "macos")]
     # проверяется только там.
     runs-on: macos-latest
+    env:
+      TURBO_CACHE_DIR: .turbo/cache
+      # Задачи интерфейса на пул-реквесте идут только у изменённых пакетов
+      # и зависимых от них, на main у всех.
+      AFFECTED: ${{ github.event_name == 'pull_request' && '--affected' || '' }}
+      TURBO_SCM_BASE: ${{ github.event.pull_request.base.sha }}
 
     steps:
+      # --affected сравнивает с базой пул-реквеста: нужна история.
       - uses: actions/checkout@v7
-
-      # Версия, clippy и rustfmt из rust-toolchain.toml.
-      - run: rustup toolchain install
-
-      # Cargo workspace в корне: кеш по Cargo.lock и target/ оттуда же.
-      - uses: Swatinem/rust-cache@v2
+        with:
+          fetch-depth: 0
 
       - uses: pnpm/action-setup@v6
 
@@ -41,8 +44,32 @@ jobs:
 
       - run: pnpm ci
 
-      - run: pnpm typecheck
+      # Кеш задач turbo между прогонами. Ключ у каждого прогона свой, поэтому
+      # кеш сохраняется всегда, а поднимается последний из ветки или из main.
+      - uses: actions/cache@v6
+        with:
+          path: .turbo/cache
+          key: turbo-${{ runner.os }}-${{ github.sha }}
+          restore-keys: turbo-${{ runner.os }}-
+
+      # Задачи Rust корневые, и --affected их не выбирает: правку в src-tauri
+      # turbo относит к пакету окна. Их пропускает кеш turbo по входам из
+      # turbo.json, а когда в кеше все четыре, Rust даже не ставится.
+      - id: rust
+        run: |
+          missed=$(pnpm exec turbo run rust:check rust:clippy rust:fmt rust:test --dry=json | jq '[.tasks[] | select(.cache.status != "HIT")] | length')
+          echo "run=$([ "$missed" -gt 0 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+      # Версия, clippy и rustfmt из rust-toolchain.toml.
+      - if: steps.rust.outputs.run == 'true'
+        run: rustup toolchain install
+
+      # Cargo workspace в корне: кеш по Cargo.lock и target/ оттуда же.
+      - if: steps.rust.outputs.run == 'true'
+        uses: Swatinem/rust-cache@v2
+
+      - run: pnpm exec turbo run typecheck test $AFFECTED
 
       - run: pnpm lint
 
-      - run: pnpm test
+      - run: pnpm exec turbo run rust:check rust:test
