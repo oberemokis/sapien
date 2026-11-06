@@ -3,7 +3,7 @@ dist
 dist-ssr
 *.local
 
-# рабочие копии веток (git worktree), правило в CLAUDE.md
+# рабочие копии веток (git worktree), правило в .agents/skills/branches
 /.worktrees/
 
 # local env (keep the committed template)
