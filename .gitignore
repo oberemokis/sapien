@@ -14,8 +14,9 @@ dist-ssr
 # turborepo
 .turbo
 
-# сборка Rust: один target/ на весь Cargo workspace
-/target/
+# сборка Rust: один target/ на весь Cargo workspace. Без / в начале правило
+# ловит и target/ от cargo, запущенного из папки крейта
+target/
 
 # test artifacts
 coverage
