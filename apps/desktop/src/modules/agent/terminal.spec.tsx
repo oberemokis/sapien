@@ -12,11 +12,11 @@ import { fakeRust, type FakeRust } from "@sapien/ipc/fake";
 import { clearMocks } from "@tauri-apps/api/mocks";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { Terminal } from "@sapien/testing/xterm";
+import { restorePanes, type Panes } from "@sapien/terminal";
 import { Restoring, SessionList, SessionTabs, SessionView, useAgentEvents, useRestoredTabs } from "@/modules/agent";
 import type { ClaudeStatus, Project, SessionInfo } from "@sapien/ipc";
 import { NO_TABS } from "./model/tabs";
-import { panesStore, tabsStore } from "./store/sessions.store";
+import { tabsStore } from "./store/sessions.store";
 
 const READY: ClaudeStatus = { state: "ready", version: "2.1.316" };
 
@@ -158,17 +158,6 @@ function tabs() {
   });
 }
 
-// Терминал активной вкладки.
-function terminal() {
-  const shown = Terminal.created.find((candidate) => !candidate.disposed && candidate.element?.isConnected);
-
-  if (shown === undefined) {
-    throw new Error("терминала на экране нет");
-  }
-
-  return shown;
-}
-
 // Панель name, например «Панель 2».
 function region(name: string) {
   return screen.getByRole("region", { name });
@@ -177,17 +166,6 @@ function region(name: string) {
 // Место терминала в панели name: на нём фокус и правая кнопка.
 function paneHost(name: string) {
   return within(region(name)).getByTestId("terminal");
-}
-
-function paneTerminal(name: string) {
-  const host = paneHost(name);
-  const shown = Terminal.created.find((candidate) => !candidate.disposed && host.contains(candidate.element));
-
-  if (shown === undefined) {
-    throw new Error(`терминала в панели «${name}» нет`);
-  }
-
-  return shown;
 }
 
 function paneNames() {
@@ -210,54 +188,11 @@ afterEach(async () => {
   await new Promise((resolve) => setTimeout(resolve, 0));
   clearMocks();
   tabsStore.setState(() => NO_TABS);
-  panesStore.setState(() => ({}));
+  localStorage.clear();
+  restorePanes();
 });
 
 describe("терминал сессии", () => {
-  it("вкладка запускает оболочку сессии размером терминала, вывод виден, набор уходит по порядку", async () => {
-    const rust = terminalRust();
-    const [parser] = rust.state.sessions;
-    open();
-
-    await openSession("Парсер");
-    await waitFor(() =>
-      expect(opened(rust)).toEqual([{ session: parser?.id, pane: parser?.id, cols: 80, rows: 24 }]),
-    );
-
-    print(rust, parser?.id ?? "", "~/sapien $ ");
-    expect(shownText()).toContain("~/sapien $");
-
-    act(() => {
-      terminal().type("п");
-      terminal().type("\r");
-    });
-    await waitFor(() =>
-      expect(rust.written).toEqual([
-        { pane: parser?.id, data: "п" },
-        { pane: parser?.id, data: "\r" },
-      ]),
-    );
-  });
-
-  it("на запросы программ в прежнем экране терминал не отвечает, а на живые отвечает", async () => {
-    const rust = terminalRust();
-    const [parser] = rust.state.sessions;
-    // Прежний экран: агент при запуске спросил вид терминала.
-    rust.state.screens[parser?.id ?? ""] = "$ claude\x1b[c\r\n";
-    open();
-
-    await openSession("Парсер");
-    await waitFor(() => expect(opened(rust)).toHaveLength(1));
-    print(rust, parser?.id ?? "", "$ ");
-    await settle();
-    expect(shownText()).toContain("$ claude");
-    expect(rust.written).toEqual([]);
-
-    // Живая программа спрашивает и ответ получает.
-    print(rust, parser?.id ?? "", "\x1b[c");
-    await waitFor(() => expect(rust.written).toEqual([{ pane: parser?.id, data: "\x1b[?1;2c" }]));
-  });
-
   it("другая вкладка не закрывает терминал: по возвращении тот же вывод, оболочка не запускается заново", async () => {
     const rust = terminalRust();
     const [parser, tests] = rust.state.sessions;
@@ -294,35 +229,6 @@ describe("терминал сессии", () => {
 
     await openSession("Парсер");
     await waitFor(() => expect(opened(rust).map((entry) => entry.session)).toEqual([parser?.id, parser?.id]));
-  });
-
-  it("оболочка кончилась: плашка говорит об этом, «Открыть новую» запускает новую", async () => {
-    const rust = terminalRust();
-    const [parser] = rust.state.sessions;
-    open();
-
-    await openSession("Парсер");
-    await waitFor(() => expect(opened(rust)).toHaveLength(1));
-
-    await act(() => events.terminalExited.emit({ session: parser?.id ?? "", pane: parser?.id ?? "" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Открыть новую" }));
-
-    await waitFor(() => expect(opened(rust)).toHaveLength(2));
-    expect(screen.queryByText("Оболочка завершилась.")).toBeNull();
-  });
-
-  it("оболочка не запустилась: «Повторить» запускает её снова", async () => {
-    const rust = terminalRust();
-    rust.refuse("terminalOpen", { kind: "unavailable", code: "terminal_failed" }, 1);
-    const [parser] = rust.state.sessions;
-    open();
-
-    await openSession("Парсер");
-    fireEvent.click(await screen.findByRole("button", { name: "Повторить" }));
-
-    await waitFor(() => expect(opened(rust)).toHaveLength(2));
-    expect(opened(rust)[1]?.pane).toBe(parser?.id);
-    await waitFor(() => expect(screen.queryByText("Оболочка не запустилась.")).toBeNull());
   });
 
   it("Rust сообщил о переменах в сессиях: окно перечитывает их, под сессией видны агенты её панелей и кто работает", async () => {
@@ -367,7 +273,7 @@ describe("открытие окна", () => {
         p9: { sessions: ["чужая"], active: "чужая", pinned: [] },
       },
     }));
-    panesStore.setState(() => ({
+    const panes: Record<string, Panes> = {
       [first]: {
         layout: {
           kind: "split",
@@ -378,7 +284,10 @@ describe("открытие окна", () => {
         },
         active: first,
       },
-    }));
+    };
+    // Раскладка сохранилась в прошлый запуск, окно читает её до отрисовки.
+    localStorage.setItem("sapien.agent.panes", JSON.stringify(panes));
+    restorePanes();
     open();
 
     expect(await screen.findByText("Восстанавливаю вкладки…")).toBeDefined();
@@ -392,80 +301,6 @@ describe("открытие окна", () => {
 });
 
 describe("панели сессии", () => {
-  it("⌘D делит панель вправо: у новой панели своя оболочка, набор уходит в панель, где фокус", async () => {
-    const rust = terminalRust();
-    const [parser] = rust.state.sessions;
-    open();
-
-    await openSession("Парсер");
-    await waitFor(() => expect(opened(rust)).toHaveLength(1));
-    print(rust, parser?.id ?? "", "до деления");
-
-    fireEvent.keyDown(window, { code: "KeyD", ...MOD });
-    await waitFor(() => expect(opened(rust)).toHaveLength(2));
-    const fresh = opened(rust)[1]?.pane;
-    expect(opened(rust)[1]).toEqual({ session: parser?.id, pane: fresh, cols: 80, rows: 24 });
-    expect(fresh).not.toBe(parser?.id);
-    expect(paneNames()).toEqual(["Панель 1", "Панель 2"]);
-
-    // Первая панель держит свой терминал: вывод до деления на месте.
-    expect(paneTerminal("Панель 1").element?.textContent).toContain("до деления");
-    expect(closed(rust)).toEqual([]);
-
-    act(() => paneTerminal("Панель 2").type("2"));
-    fireEvent.focusIn(paneHost("Панель 1"));
-    act(() => paneTerminal("Панель 1").type("1"));
-    // У каждой панели своя очередь ввода, порядок между панелями не задан.
-    await waitFor(() => expect(rust.written).toHaveLength(2));
-    expect(rust.written).toEqual(
-      expect.arrayContaining([
-        { pane: fresh, data: "2" },
-        { pane: parser?.id, data: "1" },
-      ]),
-    );
-    expect(region("Панель 1").dataset.active).toBe("true");
-    expect(region("Панель 2").dataset.active).toBeUndefined();
-  });
-
-  it("граница между панелями двигается стрелками", async () => {
-    terminalRust();
-    open();
-
-    await openSession("Парсер");
-    fireEvent.keyDown(window, { code: "KeyD", shiftKey: true, ...MOD });
-    const border = await screen.findByRole("separator", { name: "Граница панелей" });
-    expect(border.getAttribute("aria-orientation")).toBe("horizontal");
-
-    fireEvent.keyDown(border, { key: "ArrowDown" });
-    expect(border.getAttribute("aria-valuenow")).toBe("55");
-  });
-
-  it("меню панели закрывает её оболочку, а единственную панель закрыть нельзя", async () => {
-    const rust = terminalRust();
-    const [parser] = rust.state.sessions;
-    open();
-
-    await openSession("Парсер");
-    await waitFor(() => expect(opened(rust)).toHaveLength(1));
-
-    fireEvent.contextMenu(paneHost("Панель 1"));
-    expect(screen.getByRole("menuitem", { name: /^Закрыть панель/ })).toHaveProperty("disabled", true);
-
-    fireEvent.click(screen.getByRole("menuitem", { name: "Разделить вверх" }));
-    await waitFor(() => expect(opened(rust)).toHaveLength(2));
-    const fresh = opened(rust)[1]?.pane;
-    // Новая панель встала сверху.
-    expect(paneTerminal("Панель 1")).toBe(Terminal.created.at(-1));
-
-    fireEvent.contextMenu(paneHost("Панель 1"));
-    fireEvent.click(screen.getByRole("menuitem", { name: /^Закрыть панель/ }));
-
-    await waitFor(() => expect(closed(rust)).toEqual([fresh]));
-    expect(paneNames()).toEqual(["Панель 1"]);
-    print(rust, parser?.id ?? "", "осталась");
-    expect(shownText()).toContain("осталась");
-  });
-
   it("крестик вкладки закрывает оболочки всех панелей, а открытая снова сессия возвращает те же панели", async () => {
     const rust = terminalRust();
     const [parser] = rust.state.sessions;

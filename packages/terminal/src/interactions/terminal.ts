@@ -1,9 +1,10 @@
-import { Channel, commands } from "@sapien/ipc";
+import { Channel, commands, events } from "@sapien/ipc";
 import { useSelector } from "@tanstack/react-store";
+import { useEffect } from "react";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal, type ITheme } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
-import { terminalsStore, type TerminalNotice, type TerminalState } from "../store/sessions.store";
+import { terminalsStore, type TerminalNotice, type TerminalState } from "../store/terminal.store";
 
 // Терминал панели в окне. Живёт дольше вкладки на экране: при переходе
 // на другую вкладку его разметка уходит со страницы, а вывод оболочки
@@ -190,10 +191,22 @@ export function restartTerminal(pane: string) {
 }
 
 // Оболочка панели кончилась сама. Закрытой вкладке сказать об этом некому.
-export function terminalExited(pane: string) {
+function terminalExited(pane: string) {
   if (views.has(pane)) {
     setNotice(pane, "exited");
   }
+}
+
+// События Rust о терминалах, пока смонтирована оболочка окна: оболочка
+// фоновой вкладки тоже может кончиться.
+export function useTerminalEvents() {
+  useEffect(() => {
+    const listener = events.terminalExited.listen(({ payload }) => terminalExited(payload.pane));
+
+    return () => {
+      void listener.then((stop) => stop());
+    };
+  }, []);
 }
 
 export function useTerminalState(pane: string) {

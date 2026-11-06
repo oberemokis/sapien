@@ -1,10 +1,9 @@
 import { useTranslation } from "react-i18next";
 import { useAddProject, useProjects } from "@sapien/projects";
-import { Button, Icon } from "@sapien/ui";
+import { Button, Icon, Notice } from "@sapien/ui";
 import { useActiveSession, useNewSession, useSessions, useStartSession, useTabs } from "../interactions/sessions";
 import { homeProject } from "../model/sessions";
-import { Notice } from "./notice";
-import { SessionPanes } from "./session-panes";
+import { SessionPanes } from "@sapien/terminal";
 
 // Без открытых вкладок: первый шаг, добавить папку проекта, или новая
 // сессия в открытом проекте, а без него в последнем.

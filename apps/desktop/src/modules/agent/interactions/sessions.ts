@@ -2,12 +2,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSelector } from "@tanstack/react-store";
 import { useEffect } from "react";
 import { commands, events, type Project, type SessionInfo } from "@sapien/ipc";
+import { closeTerminal, forgetPanes, sessionPanes, useTerminalEvents } from "@sapien/terminal";
 import { collapsedSetting, sessionOrderSetting, tabsSetting } from "../infrastructure/agent.device";
 import { moveSession, sessionsOf } from "../model/sessions";
 import { closeTab, moveTab, openTab, pinTab, visibleTabs, type Tabs } from "../model/tabs";
 import { collapsedStore, searchStore, sessionOrderStore, tabsStore } from "../store/sessions.store";
-import { forgetPanes, sessionPanes } from "./panes";
-import { closeTerminal, terminalExited } from "./terminal";
 
 export const SESSIONS_KEY = ["agent", "sessions"] as const;
 
@@ -102,17 +101,12 @@ export function moveSessionTab(session: Pick<SessionInfo, "id" | "project">, bef
 export function useAgentEvents() {
   const queryClient = useQueryClient();
 
+  useTerminalEvents();
   useEffect(() => {
-    const refresh = () => queryClient.invalidateQueries({ queryKey: SESSIONS_KEY });
-    const listeners = [
-      events.agentSessions.listen(() => void refresh()),
-      events.terminalExited.listen(({ payload }) => terminalExited(payload.pane)),
-    ];
+    const listener = events.agentSessions.listen(() => void queryClient.invalidateQueries({ queryKey: SESSIONS_KEY }));
 
     return () => {
-      for (const listener of listeners) {
-        void listener.then((stop) => stop());
-      }
+      void listener.then((stop) => stop());
     };
   }, [queryClient]);
 }

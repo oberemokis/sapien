@@ -1,5 +1,4 @@
 import { defineSetting } from "@sapien/device";
-import { parsePanes } from "../model/panes";
 import { isIds, parseSessionOrder } from "../model/sessions";
 import { NO_TABS, parseTabs } from "../model/tabs";
 
@@ -22,14 +21,6 @@ export const collapsedSetting = defineSetting({
 export const sessionOrderSetting = defineSetting({
   key: "sapien.agent.order",
   parse: parseSessionOrder,
-  fallback: {},
-});
-
-// Раскладки панелей по сессиям: после перезапуска сессия открывается
-// с теми же панелями, а в каждой новая оболочка под прежним экраном.
-export const panesSetting = defineSetting({
-  key: "sapien.agent.panes",
-  parse: parsePanes,
   fallback: {},
 });
 

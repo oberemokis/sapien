@@ -2,7 +2,7 @@ import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { commands, type Project, type SessionInfo } from "@sapien/ipc";
 import { tabsStore } from "../store/sessions.store";
-import { sessionPanes } from "./panes";
+import { sessionPanes } from "@sapien/terminal";
 import { useProjects } from "@sapien/projects";
 import { useSessions } from "./sessions";
 
