@@ -30,7 +30,7 @@ type Internals = { runCallback(id: number, data: unknown): void };
 // Что Rust хранит и отдаёт окну. Подделка меняет это так же, как Rust.
 export type FakeState = {
   version: string;
-  // Новая версия для app_update_check, null: новой нет.
+  // Новая версия для updates_check, null: новой нет.
   update: Available | null;
   forge: ForgeStatuses;
 };
@@ -62,7 +62,7 @@ const DEFAULT_STATE: FakeState = {
   forge: { github: { kind: "none" }, gitlab: { kind: "none" } },
 };
 
-// appUpdateInstall в app_update_install: так их называет Rust.
+// updatesInstall в updates_install: так их называет Rust.
 function rustName(command: string) {
   return command.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
 }
@@ -93,16 +93,16 @@ export function fakeRust({ state = {}, delay = 0 }: FakeOptions = {}): FakeRust 
 
   const handlers: Handlers = {
     openLink: () => null,
-    appVersion: () => rust.state.version,
-    appUpdateCheck: () => rust.state.update,
+    updatesVersion: () => rust.state.version,
+    updatesCheck: () => rust.state.update,
     // Половина загружена, дальше установка перезапускает приложение,
     // и ответа окно не дождётся.
-    appUpdateInstall: (onEvent) => {
+    updatesInstall: (onEvent) => {
       setTimeout(() => onEvent.onmessage({ kind: "chunk", received: 512, total: 1024 }));
       return new Promise(() => {});
     },
-    appUnlock: () => null,
-    appSetLanguage: () => null,
+    securityUnlock: () => null,
+    appearanceSetLanguage: () => null,
     forgeStatus: () => rust.state.forge,
     // Токен проверяет сервер: «bad» он не принимает.
     forgeConnect: (forge, host, token) => {

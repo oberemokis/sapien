@@ -16,7 +16,7 @@ export function paintLanguage(language: Language) {
   document.documentElement.lang = language;
 
   if (isTauri()) {
-    commands.appSetLanguage(language).catch(() => {
+    commands.appearanceSetLanguage(language).catch(() => {
       // Меню останется на прежнем языке, окно это не задевает.
     });
   }

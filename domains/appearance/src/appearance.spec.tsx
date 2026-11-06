@@ -195,7 +195,7 @@ describe("язык", () => {
     expect(screen.getByRole("heading", { name: "Appearance" })).toBeDefined();
     expect(screen.getByRole<HTMLSelectElement>("combobox", { name: "Language" }).value).toBe("en");
     expect(document.documentElement.lang).toBe("en");
-    await vi.waitFor(() => expect(rust.calls.appSetLanguage).toEqual([["en"]]));
+    await vi.waitFor(() => expect(rust.calls.appearanceSetLanguage).toEqual([["en"]]));
   });
 
   it("русский выбирается в настройках, сразу меняет окно и меню и переживает перезапуск", async () => {
@@ -206,7 +206,7 @@ describe("язык", () => {
     fireEvent.change(screen.getByRole("combobox", { name: "Language" }), { target: { value: "ru" } });
 
     expect(await screen.findByRole("heading", { name: "Внешний вид" })).toBeDefined();
-    await vi.waitFor(() => expect(rust.calls.appSetLanguage).toEqual([["en"], ["ru"]]));
+    await vi.waitFor(() => expect(rust.calls.appearanceSetLanguage).toEqual([["en"], ["ru"]]));
 
     await act(() => changeLanguage("en"));
     restoreLanguage();

@@ -54,14 +54,14 @@ pub enum Progress {
 
 #[tauri::command]
 #[specta::specta]
-pub fn app_version(app: AppHandle) -> String {
+pub fn updates_version(app: AppHandle) -> String {
     app.package_info().version.to_string()
 }
 
 /// Новой версии нет: `None`.
 #[tauri::command]
 #[specta::specta]
-pub async fn app_update_check(
+pub async fn updates_check(
     app: AppHandle,
     pending: State<'_, Pending>,
 ) -> Result<Option<Available>, AppError> {
@@ -86,7 +86,7 @@ pub async fn app_update_check(
 /// установленная версия работает дальше.
 #[tauri::command]
 #[specta::specta]
-pub async fn app_update_install(
+pub async fn updates_install(
     app: AppHandle,
     pending: State<'_, Pending>,
     on_event: Channel<Progress>,

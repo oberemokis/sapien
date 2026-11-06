@@ -54,7 +54,7 @@ pub fn current<R: Runtime>(app: &AppHandle<R>) -> Language {
 /// для стандартных действий вроде «Службы».
 #[tauri::command]
 #[specta::specta]
-pub fn app_set_language(app: AppHandle, language: String) -> Result<(), AppError> {
+pub fn appearance_set_language(app: AppHandle, language: String) -> Result<(), AppError> {
     let language = Language::of(&language).ok_or(AppError::invalid(LanguageCode::Unknown))?;
 
     if let Ok(mut current) = app.state::<AppLanguage>().0.lock() {

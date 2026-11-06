@@ -20,11 +20,11 @@ fn bindings() -> tauri_specta::Builder<tauri::Wry> {
         .error_handling(ErrorHandlingMode::Throw)
         .commands(collect_commands![
             links::open_link,
-            updates::app_version,
-            updates::app_update_check,
-            updates::app_update_install,
-            unlock::app_unlock,
-            language::app_set_language,
+            updates::updates_version,
+            updates::updates_check,
+            updates::updates_install,
+            unlock::security_unlock,
+            language::appearance_set_language,
             commands::forge::forge_status,
             commands::forge::forge_connect,
             commands::forge::forge_disconnect,
@@ -45,7 +45,7 @@ pub fn run() {
     let invoke = bindings.invoke_handler();
 
     // Меню сначала на английском: язык окна приходит командой
-    // app_set_language, когда окно открылось.
+    // appearance_set_language, когда окно открылось.
     tauri::Builder::default()
         .menu(|app| menu::build(app, language::Language::default()))
         .on_menu_event(menu::handle)
