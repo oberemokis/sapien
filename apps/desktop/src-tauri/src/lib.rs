@@ -6,19 +6,10 @@ mod links;
 mod menu;
 mod unlock;
 mod updates;
-mod workspace;
 
 use sapien_forge::{AccountsFile, Http, Secrets};
-use sapien_projects::ProjectsFile;
-use tauri::{Manager, RunEvent};
+use tauri::Manager;
 use tauri_specta::{ErrorHandlingMode, collect_commands, collect_events};
-use workspace::Workspace;
-
-/// `sapien hook <агент>`: хук агента в панели сообщает приложению её
-/// разговор и сразу выходит, окна не открывает.
-pub fn hook() {
-    commands::agents::hook(&std::env::args().nth(2).unwrap_or_default());
-}
 
 /// Команды и события окна. По этому же списку тест пишет их типы
 /// в `packages/ipc/src/bindings.gen.ts`.
@@ -34,38 +25,14 @@ fn bindings() -> tauri_specta::Builder<tauri::Wry> {
             updates::app_update_install,
             unlock::app_unlock,
             language::app_set_language,
-            commands::projects::projects_list,
-            commands::projects::projects_add,
-            commands::projects::projects_remove,
-            commands::sessions::agent_sessions,
-            commands::sessions::agent_session_new,
-            commands::sessions::agent_session_delete,
-            commands::sessions::agent_session_rename,
-            commands::agents::agent_claude_status,
-            commands::agents::agent_integrations,
-            commands::agents::agent_integration_install,
-            commands::agents::agent_integration_remove,
-            commands::terminal::terminal_open,
-            commands::terminal::terminal_start,
-            commands::terminal::terminal_write,
-            commands::terminal::terminal_resize,
-            commands::terminal::terminal_close,
             commands::forge::forge_status,
             commands::forge::forge_connect,
             commands::forge::forge_disconnect,
         ])
-        .events(collect_events![
-            events::SessionsChanged,
-            events::TerminalExited,
-            events::MenuSettings,
-        ])
+        .events(collect_events![events::MenuSettings])
         // Коды отказов по доменам. В AppError код строкой, а с этими
         // объединениями окно сверяет свои подсказки.
-        .typ::<sapien_agents::AgentsCode>()
         .typ::<sapien_forge::ForgeCode>()
-        .typ::<sapien_projects::ProjectsCode>()
-        .typ::<sapien_sessions::SessionsCode>()
-        .typ::<sapien_workspace::TerminalCode>()
         .typ::<language::LanguageCode>()
         .typ::<links::LinkCode>()
         .typ::<unlock::UnlockCode>()
@@ -90,7 +57,6 @@ pub fn run() {
                 .level(log::LevelFilter::Warn)
                 .build(),
         )
-        .plugin(tauri_plugin_dialog::init())
         // Ссылки окна открывает только links.rs: скрипт плагина, который
         // перехватывает клики по ссылкам, окну не нужен.
         .plugin(
@@ -116,24 +82,15 @@ pub fn run() {
             if let Err(error) = data_format::migrate(&data_dir) {
                 log::error!("перенос данных приложения не закончен: {error}");
             }
-            // Хранилища доменов и рабочее место собираются один раз,
-            // команды берут их из State. До окна: оно сразу поднимает
-            // панели открытых вкладок.
-            app.manage(ProjectsFile::new(&data_dir));
+            // Хранилища доменов собираются один раз, команды берут их
+            // из State.
             app.manage(AccountsFile::new(&data_dir));
-            app.manage(workspace::start(app.handle(), &data_dir));
             links::main_window(app)?;
             Ok(())
         })
         .invoke_handler(invoke)
-        .build(tauri::generate_context!())
-        .expect("error while running tauri application")
-        .run(|app, event| {
-            // Терминалы без приложения никто не увидит.
-            if let (RunEvent::Exit, Some(workspace)) = (event, app.try_state::<Workspace>()) {
-                workspace.stop();
-            }
-        });
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application");
 }
 
 #[cfg(test)]

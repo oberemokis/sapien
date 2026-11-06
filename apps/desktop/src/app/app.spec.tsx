@@ -44,7 +44,6 @@ function isLight() {
 
 describe("настройки", () => {
   beforeEach(() => {
-    // Проектов и сессий нет: эти тесты не про них.
     fakeRust();
     localStorage.clear();
     relaunch("/").unmount();
@@ -72,7 +71,7 @@ describe("настройки", () => {
 
   it("«Настройки…» в меню macOS открывает настройки, кнопки в окне для них нет", async () => {
     launch("/");
-    await screen.findByRole("button", { name: /^Поиск/ });
+    await screen.findByRole("heading", { name: "Входящие" });
     expect(screen.queryByRole("button", { name: "Настройки" })).toBeNull();
 
     await act(() => events.menuSettings.emit());
@@ -82,7 +81,7 @@ describe("настройки", () => {
 
   it("тема меняется сразу, без сохранения, и переживает перезапуск", async () => {
     const { unmount } = launch("/");
-    await screen.findByRole("button", { name: /^Поиск/ });
+    await screen.findByRole("heading", { name: "Входящие" });
     fireEvent.keyDown(window, { key: "б", code: "Comma", ...mod });
 
     fireEvent.click(await screen.findByRole("radio", { name: "Светлая" }));
@@ -99,7 +98,7 @@ describe("настройки", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Назад" }));
 
-    expect(await screen.findByRole("button", { name: /^Поиск/ })).toBeDefined();
+    expect(await screen.findByRole("heading", { name: "Входящие" })).toBeDefined();
   });
 
   it("Escape при выехавшем списке разделов прячет список и оставляет настройки", async () => {

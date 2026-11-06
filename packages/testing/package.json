@@ -4,8 +4,7 @@
   "type": "module",
   "exports": {
     "./config": "./src/config.ts",
-    "./setup": "./src/setup.ts",
-    "./xterm": "./src/xterm.ts"
+    "./setup": "./src/setup.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

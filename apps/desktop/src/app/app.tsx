@@ -4,7 +4,6 @@ import "@/app/i18n/i18n";
 import { restoreLanguage, restoreTheme, restoreUiScale, useThemeSync } from "@sapien/appearance";
 import { restoreLayout } from "@sapien/layout";
 import { restoreLock } from "@sapien/security";
-import { restorePanes } from "@sapien/terminal";
 import { routeTree } from "@/route-tree.gen";
 
 const queryClient = new QueryClient();
@@ -12,15 +11,13 @@ const router = createRouter({ routeTree });
 
 // Язык, тема, масштаб и раскладка до первой отрисовки, иначе окно мигнёт
 // чужим языком и темой, а панели прыгнут из пустых значений в сохранённые.
-// Раскладки панелей сессий тоже: восстановление вкладок поднимает оболочки
-// всех панелей. Блокировка тоже: включённая закрывает окно с первого кадра.
+// Блокировка тоже: включённая закрывает окно с первого кадра.
 export function restoreDevice() {
   restoreLock();
   restoreLanguage();
   restoreTheme();
   restoreUiScale();
   restoreLayout();
-  restorePanes();
 }
 
 // Без регистрации Link и navigate не знают дерева и принимают любую строку.

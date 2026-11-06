@@ -4,7 +4,7 @@ import type { Dictionary } from "@sapien/i18n";
 const ru = {
   title: "Безопасность",
   description:
-    "Пока вы отошли, окно закрыто заглушкой, и его не видно ни в превью окон, ни в переключателе приложений. Агенты в терминалах при этом работают.",
+    "Пока вы отошли, окно закрыто заглушкой, и его не видно ни в превью окон, ни в переключателе приложений.",
   lock: {
     enabled: {
       title: "Блокировать окно",
@@ -33,7 +33,7 @@ const ru = {
 const en: Dictionary<typeof ru> = {
   title: "Security",
   description:
-    "While you are away, the window is covered and hidden from window previews and the app switcher. Agents in terminals keep working.",
+    "While you are away, the window is covered and hidden from window previews and the app switcher.",
   lock: {
     enabled: {
       title: "Lock window",

@@ -3,8 +3,4 @@
 
 // Команды открыты модулем целиком: generate_handler! ищет рядом с каждой
 // командой скрытые функции, которые переэкспорт через `pub use` не уносит.
-pub mod agents;
 pub mod forge;
-pub mod projects;
-pub mod sessions;
-pub mod terminal;

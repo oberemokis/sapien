@@ -15,7 +15,7 @@ const PALETTES = {
   light: { frame: "var(--grey-200)", panel: "var(--grey-50)", line: "var(--grey-400)" },
 } satisfies Record<Theme, Record<string, string>>;
 
-// Окно в миниатюре: слева список сессий, справа чат с полем ввода.
+// Окно в миниатюре: слева список, справа содержимое.
 function Preview({ theme }: { theme: Theme }) {
   const { frame, panel, line } = PALETTES[theme];
 

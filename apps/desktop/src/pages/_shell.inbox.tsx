@@ -5,7 +5,7 @@ import { Icon } from "@sapien/ui";
 export const Route = createFileRoute("/_shell/inbox")({ component: Inbox });
 
 // «Входящие»: пока заглушка. Что сюда выводить из GitHub и GitLab, решим
-// вместе с тем, что агент умеет с ними делать. Страница, а не компонент
+// вместе с аналитикой по ним. Страница, а не компонент
 // пакета forge: ссылка на настройки проверяется деревом маршрутов окна.
 function Inbox() {
   const { t } = useTranslation();

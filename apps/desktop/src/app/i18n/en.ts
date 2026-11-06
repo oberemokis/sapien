@@ -13,7 +13,6 @@ export const en: Dictionary<typeof ru> = {
     sections: "Settings sections",
     groups: {
       app: "App",
-      agents: "Agents",
       workspace: "Workspace",
     },
   },

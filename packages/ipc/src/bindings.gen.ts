@@ -28,39 +28,6 @@ export const commands = {
 	 *  для стандартных действий вроде «Службы».
 	 */
 	appSetLanguage: (language: string) => __TAURI_INVOKE<null>("app_set_language", { language }),
-	projectsList: () => __TAURI_INVOKE<Project[]>("projects_list"),
-	/**  Системный выбор папки. Окно закрыли без выбора: `None`. */
-	projectsAdd: () => __TAURI_INVOKE<Project | null>("projects_add"),
-	/**
-	 *  Убирает проект из списка вместе с его сессиями: сначала сессии, потом
-	 *  сам проект. Папка на диске остаётся как есть.
-	 */
-	projectsRemove: (id: string) => __TAURI_INVOKE<null>("projects_remove", { id }),
-	/**  Сессии всех проектов, свежие первыми. */
-	agentSessions: () => __TAURI_INVOKE<SessionInfo_Serialize[]>("agent_sessions"),
-	agentSessionNew: (project: string) => __TAURI_INVOKE<SessionInfo_Serialize>("agent_session_new", { project }),
-	agentSessionDelete: (id: string) => __TAURI_INVOKE<null>("agent_session_delete", { id }),
-	/**  Человек назвал сессию `id` сам, пустое имя отдаёт её агенту. */
-	agentSessionRename: (id: string, title: string) => __TAURI_INVOKE<null>("agent_session_rename", { id, title }),
-	/**
-	 *  Есть ли Claude Code, какой версии и как выполнен вход. Проверки он
-	 *  проходит в папке данных приложения, поэтому она должна быть.
-	 */
-	agentClaudeStatus: () => __TAURI_INVOKE<ClaudeStatus_Serialize>("agent_claude_status"),
-	/**  Интеграции агентов в их настройках. */
-	agentIntegrations: () => __TAURI_INVOKE<Integration[]>("agent_integrations"),
-	agentIntegrationInstall: (agent: string) => __TAURI_INVOKE<null>("agent_integration_install", { agent }),
-	agentIntegrationRemove: (agent: string) => __TAURI_INVOKE<null>("agent_integration_remove", { agent }),
-	/**
-	 *  Терминал панели `pane` сессии `session` размером `cols` на `rows`.
-	 *  Вывод идёт в `on_data`, первым сообщением уже написанное.
-	 */
-	terminalOpen: (session: string, pane: string, cols: number, rows: number, onData: Channel<ArrayBuffer>) => __TAURI_INVOKE<null>("terminal_open", { session, pane, cols, rows, onData }),
-	/**  Оболочка панели запускается без вкладки, идущую не трогает. */
-	terminalStart: (session: string, pane: string) => __TAURI_INVOKE<null>("terminal_start", { session, pane }),
-	terminalWrite: (pane: string, data: string) => __TAURI_INVOKE<null>("terminal_write", { pane, data }),
-	terminalResize: (pane: string, cols: number, rows: number) => __TAURI_INVOKE<null>("terminal_resize", { pane, cols, rows }),
-	terminalClose: (pane: string) => __TAURI_INVOKE<null>("terminal_close", { pane }),
 	/**  Подключения, как их сохранили, без сети. */
 	forgeStatus: () => __TAURI_INVOKE<ForgeStatuses_Serialize>("forge_status"),
 	/**  Токен приходит из окна один раз и обратно не возвращается. */
@@ -70,25 +37,10 @@ export const commands = {
 
 /** Events */
 export const events = {
-	agentSessions: makeEvent<SessionsChanged, SessionsChanged>("agent-sessions"),
 	menuSettings: makeEvent<MenuSettings, MenuSettings>("menu-settings"),
-	terminalExited: makeEvent<TerminalExited, TerminalExited>("terminal-exited"),
 };
 
 /* Types */
-/**  Отказы агентов и их интеграций. */
-export type AgentsCode = "claude_missing" | 
-/**  Claude Code не ответил или ответил не так, как ждали. */
-"claude_failed" | 
-/**  Нет папки данных приложения, в которой Claude Code проходит проверки. */
-"data_dir_unavailable" | 
-/**  Интеграции для такого агента нет. */
-"integration_unknown" | 
-/**  Агента нет на устройстве, нет и папки его настроек. */
-"integration_agent_missing" | 
-/**  Настройки агента не разобрать. */
-"integration_config_invalid" | "integration_unreadable" | "integration_unwritable";
-
 /**
  *  Ошибка команды. Уходит в интерфейс видом и кодом, без текста: перевод
  *  делает интерфейс по коду (docs/architecture.md, «Ошибка это код»).
@@ -142,25 +94,6 @@ export type Available_Serialize = {
 	notes: string | null,
 };
 
-/**  Claude Code на устройстве: через него агент расходует подписку Claude. */
-export type ClaudeState = "missing" | 
-/**  Старше версии, которая знает все нужные флаги, или версию не разобрать. */
-"outdated" | "logged_out" | 
-/**  Вход ключом API или через облако: расходовал бы не подписку. */
-"not_subscription" | "ready";
-
-export type ClaudeStatus = ClaudeStatus_Serialize | ClaudeStatus_Deserialize;
-
-export type ClaudeStatus_Deserialize = {
-	state: ClaudeState,
-	version?: string | null,
-};
-
-export type ClaudeStatus_Serialize = {
-	state: ClaudeState,
-	version: string | null,
-};
-
 export type ErrorKind = 
 /**  Того, о чём просят, нет: папку не выбрали или её убрали. */
 "not_found" | 
@@ -208,17 +141,6 @@ export type ForgeStatuses_Serialize = {
 	gitlab: ForgeStatus,
 };
 
-export type Integration = {
-	agent: string,
-	state: IntegrationState,
-};
-
-/**
- *  Интеграция агента в его настройках. `Missing`: агента на устройстве
- *  нет, нет и папки его настроек.
- */
-export type IntegrationState = "missing" | "off" | "on";
-
 /**  Отказы смены языка меню. */
 export type LanguageCode = 
 /**  Такого языка окна приложение не знает. */
@@ -233,13 +155,6 @@ export type LinkCode =
 
 /**  Пункт меню «Настройки…». */
 export type MenuSettings = null;
-
-/**  Агент в панели `pane` сессии и работает ли он. */
-export type PaneAgent = {
-	pane: string,
-	agent: string,
-	answering: boolean,
-};
 
 /**
  *  Ход загрузки. `total` нет, когда сервер не назвал размер. Байты
@@ -258,87 +173,6 @@ export type Progress_Deserialize = { kind: "chunk"; received: number; total?: nu
  *  установщика укладываются в number окна без потерь.
  */
 export type Progress_Serialize = { kind: "chunk"; received: number; total: number | null } | { kind: "downloaded" };
-
-/**
- *  Проект: папка на диске, в которой работает агент. Имя это имя папки.
- *  `missing`: папки сейчас нет на диске, её убрали или переименовали.
- */
-export type Project = {
-	id: string,
-	name: string,
-	path: string,
-	missing: boolean,
-};
-
-/**  Отказы списка проектов. */
-export type ProjectsCode = "projects_unreadable" | "projects_unwritable" | 
-/**  Путь выбранной папки не в UTF-8. */
-"project_path_invalid";
-
-/**
- *  Сессия в списке окна. Список читает её прямо из файла сессии.
- *  `agents`: агенты на переднем плане её панелей, `answering`: хоть один
- *  из них работает. Этих двух в файле нет.
- */
-export type SessionInfo = SessionInfo_Serialize | SessionInfo_Deserialize;
-
-/**
- *  Сессия в списке окна. Список читает её прямо из файла сессии.
- *  `agents`: агенты на переднем плане её панелей, `answering`: хоть один
- *  из них работает. Этих двух в файле нет.
- */
-export type SessionInfo_Deserialize = {
-	id: string,
-	project: string,
-	title: string,
-	/**  Миллисекунды Unix укладываются в number окна без потерь. */
-	updated: number,
-};
-
-/**
- *  Сессия в списке окна. Список читает её прямо из файла сессии.
- *  `agents`: агенты на переднем плане её панелей, `answering`: хоть один
- *  из них работает. Этих двух в файле нет.
- */
-export type SessionInfo_Serialize = {
-	id: string,
-	project: string,
-	title: string,
-	/**  Миллисекунды Unix укладываются в number окна без потерь. */
-	updated: number,
-	answering: boolean,
-	agents: PaneAgent[],
-};
-
-/**
- *  Сессии поменялись без команды окна: в терминале запустили агента или
- *  он вышел, начал или кончил работать, назвал сессию.
- */
-export type SessionsChanged = null;
-
-/**  Отказы сессий. */
-export type SessionsCode = "session_missing" | 
-/**  id сессии или панели не годится в имя файла. */
-"session_invalid" | "session_unreadable" | "session_unwritable" | 
-/**  Имя от человека длиннее предела или с управляющим знаком. */
-"title_invalid" | 
-/**  Проекта сессии нет в списке или его папки нет на диске. */
-"project_missing" | 
-/**  В панелях сессии работает агент. */
-"agent_busy";
-
-/**  Отказы терминала. */
-export type TerminalCode = 
-/**  Псевдотерминал или оболочка не запустились. */
-"terminal_failed" | 
-/**  Терминала панели нет: он не открыт или уже закрыт. */
-"terminal_missing";
-
-/**  Оболочка панели `pane` сессии `session` кончилась. */
-export type TerminalExited = {
-	session: string,
-	pane: string,
-};
 
 /**  Отказы разблокировки окна. */
 export type UnlockCode = 

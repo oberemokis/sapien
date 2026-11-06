@@ -10,14 +10,10 @@ export const SETTINGS_GROUPS = [
     ],
   },
   {
-    label: "settings.groups.agents",
-    sections: [{ to: "/settings/agent", label: "agents:title", icon: "providers" }],
-  },
-  {
     label: "settings.groups.workspace",
     sections: [{ to: "/settings/integrations", label: "forge:title", icon: "extensions" }],
   },
 ] as const;
 
 // Пространства имён, из которых берутся названия разделов.
-export const SECTION_NAMESPACES = ["translation", "appearance", "security", "agents", "forge"] as const;
+export const SECTION_NAMESPACES = ["translation", "appearance", "security", "forge"] as const;
